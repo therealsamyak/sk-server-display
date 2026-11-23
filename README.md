@@ -6,39 +6,53 @@ Moonlight. It uses [GPUI](https://github.com/zed-industries/zed/tree/6501df15765
 the UI framework of the Zed editor. Windows is the priority platform. The same code builds for macOS
 and Linux.
 
+The display reads live data from your own machines over Tailscale. It only reads. It never
+changes a service, a container, or a device.
+
 This repository holds a working first version and its design. The design states which behavior the
 GPUI source supports and which behavior needs a hands-on test.
 
-![Status display with live, stale, and down hosts](docs/screenshots/01-live-mixed.png)
+## Data sources
+
+The display reads these sources. Each one is optional, except the first two:
+
+| Panel | Source | How the app reads it | Poll interval |
+| --- | --- | --- | --- |
+| This machine | `sysinfo` crate | Local CPU, memory, system disk, temperature, load, and uptime. | 2 s |
+| Tailnet | Tailscale | Runs `tailscale status --json` on the display machine. | 10 s |
+| Host cards | [Glances](https://glances.readthedocs.io/) | `GET /api/4/{cpu,mem,load,sensors,fs,uptime,quicklook,system}` on each host. | 2 s |
+| Services | [Uptime Kuma](https://github.com/louislam/uptime-kuma) | `GET /api/status-page/<slug>` and `/api/status-page/heartbeat/<slug>`. These public status page endpoints need no sign-in. | 30 s |
+| Disks | [Scrutiny](https://github.com/AnalogJ/scrutiny) | `GET /api/summary`. SMART result, temperature, and power-on hours per drive. | 5 min |
+
+All requests are HTTP `GET` requests or the read-only Tailscale status command. The app stores no
+credentials.
 
 ## Run the status display
 
 You need the Rust toolchain in `rust-toolchain.toml`. GPUI comes from Git at Zed commit
 `6501df15765d66d6c2a2b66b1eb22434ccef3f86`. The first build compiles GPUI and takes several minutes.
 
-To show the built-in demo data, run this command:
+To run the display, do these steps:
 
-```sh
-cargo run --release
-```
+1. Copy `config.example.toml` to the configuration path for your platform:
+   - Windows: `%APPDATA%\server-status-display\config.toml`
+   - macOS: `~/Library/Application Support/server-status-display/config.toml`
+   - Linux: `~/.config/server-status-display/config.toml`
+2. Replace the example URLs with full Tailscale MagicDNS names of your hosts.
+3. Run `cargo run --release`.
 
-To poll a real status endpoint every 2 seconds, run this command:
-
-```sh
-cargo run --release -- --source http://status.example.internal:9100/status.json
-```
+Without a configuration file, the display shows this machine and the tailnet only. Git ignores
+`config.local.toml` in the repository root, so you can keep a private configuration there and pass
+it with `--config config.local.toml`.
 
 The command-line options are:
 
 | Option | Default | Effect |
 | --- | --- | --- |
-| `--source <URL or demo>` | `demo` | Polls a status snapshot URL, or shows built-in demo data. |
-| `--interval <seconds>` | `2` | Sets the time between two polls. Freshness limits follow this value. |
+| `--config <path>` | platform path | Reads this configuration file. |
 | `--display <auto, primary, or N>` | `auto` | Selects the monitor. See [Display selection](#display-selection). |
 | `--windowed` | off | Opens a normal window instead of fullscreen. |
 | `--allow-focus` | off | Windows only. Lets a click give the status window keyboard focus. |
-| `--demo-scenario <healthy or mixed>` | `mixed` | Selects the demo data. `mixed` has one stale host, one down host, and one degraded service. |
-| `--demo-outage-after <seconds>` | none | Makes demo polls fail after this time. Use it to see the stale and offline states. |
 
 The keyboard shortcuts work only when the status window has keyboard focus:
 
@@ -47,55 +61,21 @@ The keyboard shortcuts work only when the status window has keyboard focus:
 | `F11` | Enter or leave fullscreen. |
 | `Esc` | Leave fullscreen. The window stays open on the same display. |
 | `D` | Move the window to the next display. |
-| `R` | Poll the status source now. |
+| `R` | Poll all sources now. |
 | `Ctrl+Q` (macOS: `Cmd+Q`) | Quit. |
 
 The header also has `Fullscreen` or `Windowed`, `Next display`, `Refresh`, and `Quit` buttons. On
 Windows, these buttons are the main controls, because the window does not take keyboard focus by
 default.
 
-## Status snapshot contract
+## Private data
 
-The display polls one URL. The URL returns one JSON document in this format:
+The configuration file and the screen contents name private hosts and services. Keep them out of
+Git:
 
-```json
-{
-  "generated_at": "2026-11-23T22:02:11Z",
-  "hosts": [
-    {
-      "name": "nas-01",
-      "role": "Storage",
-      "reachable": true,
-      "sampled_at": "2026-11-23T22:02:10Z",
-      "uptime_seconds": 3564000,
-      "cpu_percent": 23.0,
-      "memory_used_bytes": 12025908428,
-      "memory_total_bytes": 34359738368,
-      "disk_used_bytes": 7806532617830,
-      "disk_total_bytes": 13194139533312,
-      "temperature_celsius": 48.0,
-      "load_1m": 0.82,
-      "network_rx_bytes_per_second": 12400000,
-      "network_tx_bytes_per_second": 1100000
-    }
-  ],
-  "services": [
-    { "name": "samba", "host": "nas-01", "state": "ok" },
-    { "name": "restic-nightly", "host": "backup-01", "state": "down", "detail": "host unreachable" }
-  ]
-}
-```
-
-The rules for the contract are:
-
-- `generated_at` and `sampled_at` are RFC 3339 times.
-- All metric fields are optional. The display shows `—` for a missing value.
-- `reachable: false` means the status source cannot reach the host.
-- `state` is `ok`, `degraded`, or `down`.
-- Host and service order in the JSON is the display order.
-
-This version does not include a collector. A small aggregator, a Prometheus query adapter, or a
-Glances adapter can produce this document. See [Open questions](#open-questions).
+- Git ignores `config.local.toml`. The committed `config.example.toml` uses `example.ts.net` names.
+- The repository has no screenshots of real data. Agent screenshots stay in the Git-ignored
+  `.agent-screenshots/` folder.
 
 ## Design
 
@@ -111,92 +91,71 @@ The status display must do these things:
 
 ### Screen layout
 
-The layout fills the window and scales from a 1600-pixel reference width. The wireframe shows a
-1920 × 1080 display with the `mixed` demo data:
+The layout fills the window and scales from a 1600-pixel reference width. Host cards fill the top
+row. Disks and the tailnet fill the bottom row. Services fill the right column. The wireframe shows
+a 1920 × 1080 display:
 
 ```text
 ┌──────────────────────────────────────────────────────────────────────────────────────────────┐
 │                                                [Windowed] [Next display] [Refresh] [Quit]    │
-│ Server status                                    ( ● LIVE )                       14:02:11   │
-│ 6 hosts · 4 live · 1 stale · 1 down · 4/6 OK   updated 14:02:11 · 0 s ago   Mon 23 Nov 2026  │
-│ ┌ ● ALERT (only when needed): keyboard focus / source stale / source offline ──────────────┐ │
-│ └───────────────────────────────────────────────────────────────────────────────────────────┘ │
-│ ┌ nas-01  Storage ───── ● LIVE ┐ ┌ media-01  Media ──── ● LIVE ┐ ┌ build-01  CI runner ● LIVE ┐ │
-│ │ CPU  ████░░░░░░░░    23 %    │ │ CPU  ████████░░░░    61 %   │ │ CPU  ███████████░    88 %  │ │
-│ │ MEM  ████░░░░░░  11.2/32 GiB │ │ MEM  ██████████░  9.8/16 GiB│ │ MEM  ███████████ 27.5/32 GiB│ │
-│ │ DISK ███████░░░ 7.1/12.0 TiB │ │ DISK ███████████ 3.4/4.0 TiB│ │ DISK ████░░░  0.4/0.9 TiB  │ │
-│ │ TEMP 48 °C  LOAD 0.82        │ │ TEMP 67 °C  LOAD 3.41       │ │ TEMP 79 °C  LOAD 7.95      │ │
-│ │ NET ↓ 12.4 MB/s ↑ 1.1 MB/s   │ │ NET ↓ 2.3 MB/s ↑ 38.6 MB/s  │ │ NET ↓ 4.8 MB/s ↑ 600 kB/s  │ │
-│ │ UP 41 d 6 h                  │ │ UP 12 d 2 h                 │ │ UP 3 d 1 h                 │ │
-│ └──────────────────────────────┘ └─────────────────────────────┘ └────────────────────────────┘ │
-│ ┌ gateway-01  Router ── ● LIVE ┐ ┌ dns-01  DNS ─ ● STALE · 14 s┐ ┌ backup-01  Backup ── ● DOWN┐ │
-│ │ CPU  █░░░░░░░░░░░     7 %    │ │ (values in gray)            │ │                            │ │
-│ │ MEM  ███░░░░░░░  1.3/4.0 GiB │ │ CPU  ░░░░░░░░░░░░     3 %   │ │      Host unreachable      │ │
-│ │ ...                          │ │ ...                         │ │  Last sample 3 h 12 m ago  │ │
-│ └──────────────────────────────┘ └─────────────────────────────┘ └────────────────────────────┘ │
-│ SERVICES ● samba ● jellyfin ▲ forgejo-runner — queue 7 jobs ● wireguard ● unbound ✖ restic-nightly │
-│ Display 1 of 2 · built-in panel "Built-in Display" · 1920×1080 · source: …   F11 · Esc · D · R · Ctrl+Q │
+│ Server status                                 ( ● ALL LIVE )                      14:02:11   │
+│ 2 hosts · 14/14 services up · 2/3 disks passed · 5/6 tailnet online   5 of 5 live  Mon 23 Nov│
+│ ┌ ● ALERT (only when needed): keyboard focus, or one line per stale or offline source ─────┐ │
+│ └──────────────────────────────────────────────────────────────────────────────────────────┘ │
+│ ┌ server  Glances ─────── ● LIVE ┐ ┌ This machine  local ─ ● LIVE ┐ ┌ Services  Kuma ● LIVE ┐ │
+│ │ OS · CPU model                 │ │ OS · CPU model               │ │ 14 of 14 up            │ │
+│ │ CPU ×6 ██░░░░░░░░░░     8 %    │ │ CPU ×8 ███░░░░░░░░   16 %    │ │ ● Service A 100.0 % 53 s│ │
+│ │ MEM    █████░░░░░ 13.5/31.1 GiB│ │ MEM    ████░░░  6.2/15.8 GiB │ │ ● Service B  99.8 % 17 s│ │
+│ │ DISK   ███░░░░░ 134/473 GiB    │ │ DISK   █████░░  301/476 GiB  │ │ ...                    │ │
+│ │ TEMP 53 °C  LOAD 2.88  UP 2 h  │ │ TEMP —  LOAD —  UP 1 d 4 h   │ │                        │ │
+│ └────────────────────────────────┘ └──────────────────────────────┘ │                        │ │
+│ ┌ Disks · server  Scrutiny ● LIVE┐ ┌ Tailnet  Tailscale ── ● LIVE ┐ │                        │ │
+│ │ ● nvme0  model · 477 GiB passed│ │ ● laptop   windows this machine│ │                        │ │
+│ │ ● sdb    model · 932 GiB  threshold failed │ ● server linux direct │ │                        │ │
+│ └────────────────────────────────┘ │ ● tablet   seen 2 d 3 h ago  │ └────────────────────────┘ │
+│ Display 1 of 2 · built-in panel "Built-in Display" · 1920×1080        F11 · Esc · D · R · Ctrl+Q │
 └──────────────────────────────────────────────────────────────────────────────────────────────┘
 ```
 
 The layout rules are:
 
-- The header shows the source state pill, the last update, and a large clock. You can read the clock
-  from across a room.
-- Host cards use a 3-column grid for 5 or more hosts and a 2-column grid for 4 or fewer hosts.
+- Each panel shows its own source state: `CONNECTING`, `LIVE`, `STALE · 12 s`, or `OFFLINE`.
+- The header pill shows the worst source state. The header summary counts hosts, services, disks,
+  and tailnet devices.
 - Bars are green below 75 %, amber from 75 %, and red from 90 %. Temperature is amber from 75 °C and
   red from 85 °C.
-- Stale values are gray. A stale card has an amber border. A down or offline card shows the reason
-  and the sample age instead of numbers.
+- Services sort problems first: down, pending, unknown, maintenance, then up.
+- Disks show Scrutiny's result: `passed`, `SMART failed`, `threshold failed`, or `failed`.
+- Tailnet devices show this machine first, then online devices, then offline devices with the last
+  seen time.
 - The footer holds only information that you do not need at a glance. On Windows, the taskbar can
   cover the bottom of the screen. See [Hands-on verification](#hands-on-verification).
 
-The screenshots in [docs/screenshots](docs/screenshots) show each state:
-
-| File | State |
-| --- | --- |
-| [00-two-display-simulation.png](docs/screenshots/00-two-display-simulation.png) | Two outputs. The status display is on output 1. A focused app on output 2 stands in for the game. |
-| [01-live-mixed.png](docs/screenshots/01-live-mixed.png) | Live source with one stale host, one down host, and one degraded service. |
-| [02-healthy.png](docs/screenshots/02-healthy.png) | All hosts and services healthy. |
-| [03-focus-warning.png](docs/screenshots/03-focus-warning.png) | The status window has keyboard focus. |
-| [04-source-stale.png](docs/screenshots/04-source-stale.png) | Source polls fail. Data is 12 seconds old. |
-| [05-source-offline.png](docs/screenshots/05-source-offline.png) | Source polls fail for more than 30 seconds. |
-| [06-small-display.png](docs/screenshots/06-small-display.png) | 1280 × 720 logical pixels, the size of a 1080p laptop panel at 150 % scale. |
-| [07-windowed.png](docs/screenshots/07-windowed.png) | Windowed mode after `Esc`. |
-| [08-http-source.png](docs/screenshots/08-http-source.png) | A real HTTP source with 3 hosts. Missing metrics show `—`. |
-
 ### Refresh, stale, and offline behavior
 
-The display polls the status source on a background thread. A 1-second tick redraws the clock and the
-age labels. The tick also starts a poll when the poll interval has passed. Only one poll runs at a
-time. A slow source does not stack requests.
+Each source is a separate feed with its own poll interval. Polls run on background threads. A
+1-second tick redraws the clock and the age labels, and starts each poll that is due. Only one poll
+per feed runs at a time, so a slow source does not stack requests. HTTP requests time out at 75 % of
+the poll interval, from 1.5 s to 10 s.
 
-The freshness limits come from the poll interval. With the default 2-second interval, the limits are:
+The freshness limits come from the poll interval of each feed:
 
-| Value | Rule | Default |
+| Value | Rule | 2 s feed | 30 s feed | 5 min feed |
+| --- | --- | --- | --- | --- |
+| Stale after | 3 missed polls | 6 s | 90 s | 15 min |
+| Offline after | 15 missed polls, and at least 30 s | 30 s | 7.5 min | 75 min |
+
+Each feed state uses the age of its last successful poll:
+
+| Feed state | Condition | Display |
 | --- | --- | --- |
-| Request timeout | 75 % of the interval, from 0.5 s to 10 s | 1.5 s |
-| Stale after | 3 missed polls | 6 s |
-| Offline after | 15 missed polls, and at least 30 s | 30 s |
+| `CONNECTING` | No successful poll yet, and the offline limit is not reached. | Blue badge. "Waiting for the first reading". |
+| `LIVE` | Last success is newer than the stale limit. | Green badge. Normal colors. |
+| `STALE` | Last success is between the stale and offline limits. | Amber badge with the data age, and an amber alert with the failed poll count and the last error. Values are gray. |
+| `OFFLINE` | Last success is older than the offline limit, or no success before it. | Red badge and red alert. The panel shows "No current data" and the last error. |
 
-The source state uses the age of the last successful poll:
-
-| Source state | Condition | Display |
-| --- | --- | --- |
-| `CONNECTING` | No successful poll yet, and less than 30 s since start. | Blue pill. "Waiting for the first status snapshot". |
-| `LIVE` | Last success is less than 6 s old. | Green pill. Normal colors. |
-| `STALE` | Last success is 6 s to 30 s old. | Amber pill and amber alert with the data age, the failed poll count, and the last error. All values are gray. Header says "Last known". |
-| `OFFLINE` | Last success is 30 s or more old, or no success in the first 30 s. | Red pill and red alert. Cards show "no current data". Host names stay visible. |
-
-Each host also has a state. The host state compares `sampled_at` with the snapshot `generated_at`,
-so a clock difference between the status source and the laptop has no effect:
-
-| Host state | Condition | Card |
-| --- | --- | --- |
-| `LIVE` | Sample age is less than 6 s. | Normal colors. |
-| `STALE · 14 s` | Sample age is 6 s to 30 s. | Gray values and amber border. |
-| `OFFLINE` | Sample age is 30 s or more. | "No recent sample" and the sample age. |
-| `DOWN` | `reachable` is `false`. | "Host unreachable" and the sample age. |
+Uptime Kuma, Scrutiny, and Tailscale report their own state inside a live feed. A down service, a
+failed disk check, or an offline device shows in its row. It does not make the feed stale.
 
 The display polls again immediately after the system wakes from sleep. GPUI reports wake events
 through `App::on_system_wake`
@@ -326,7 +285,7 @@ The app reopens the window instead of moving it. On Windows, GPUI stores the dis
 window enters fullscreen
 ([window.rs#L342-L348](https://github.com/zed-industries/zed/blob/6501df15765d66d6c2a2b66b1eb22434ccef3f86/crates/gpui_windows/src/window.rs#L342-L348)).
 A moved or resized fullscreen window can keep old bounds. A new window always uses the current bounds.
-The status data does not reset, because the poll model lives outside the window.
+The status data does not reset, because the feeds live outside the window.
 
 On Windows, GPUI receives `WM_DISPLAYCHANGE` on a hidden top-level window, so display events arrive
 with no window open
@@ -352,14 +311,19 @@ Each module has one concern:
 | File | Concern |
 | --- | --- |
 | `src/main.rs` | Command-line options, key bindings, and app start. |
-| `src/status_snapshot.rs` | JSON contract types. |
-| `src/status_source.rs` | HTTP polling with `ureq`, and the demo source switch. |
-| `src/status_demo.rs` | Demo data and the simulated outage. |
-| `src/status_freshness.rs` | Freshness limits and the source and host state rules. |
-| `src/status_board.rs` | GPUI model: poll loop, latest snapshot, and errors. |
-| `src/status_format.rs` | Number, size, rate, age, and clock text. |
+| `src/status_config.rs` | TOML configuration and the feed list. |
+| `src/status_collector.rs` | Collector switch for all sources. |
+| `src/collector_local.rs` | This machine through `sysinfo`. |
+| `src/collector_glances.rs` | Glances REST API version 4. |
+| `src/collector_kuma.rs` | Uptime Kuma public status page API. |
+| `src/collector_scrutiny.rs` | Scrutiny summary API. |
+| `src/collector_tailscale.rs` | `tailscale status --json`. |
+| `src/status_model.rs` | Reading types for hosts, services, disks, and devices. |
+| `src/status_board.rs` | GPUI model: feeds, poll loop, and errors. |
+| `src/status_freshness.rs` | Freshness limits and feed states. |
+| `src/status_format.rs` | Size, age, uptime, and clock text. |
 | `src/status_fonts.rs` | Bundled IBM Plex Sans font registration. |
-| `src/status_view.rs` | GPUI view: layout, alerts, buttons, and actions. |
+| `src/status_view.rs` | GPUI view: layout, panels, alerts, buttons, and actions. |
 | `src/status_window.rs` | Window open, fullscreen state, and monitor change handling. |
 | `src/display_select.rs` | Display selectors and the physical display ranking. |
 | `src/display_windows.rs` | Windows display configuration queries and `WS_EX_NOACTIVATE`. |
@@ -368,20 +332,21 @@ Each module has one concern:
 
 ### Verified in this version
 
-These checks ran on Linux (KDE Plasma, Wayland) with GPUI at the pinned commit:
+These checks ran on a Linux machine (KDE Plasma, Wayland) with GPUI at the pinned commit:
 
-- `cargo test` passes 13 unit tests. The tests cover the JSON contract, the freshness rules, the
-  formatting, the demo data, the display selectors, and the physical display ranking.
+- `cargo test` passes 17 unit tests. The tests cover the configuration, the Glances uptime and
+  temperature parsing, the Kuma, Scrutiny, and Tailscale response conversion, the freshness rules,
+  the formatting, the display selectors, and the physical display ranking. Test inputs use
+  `example.ts.net` names.
 - `cargo clippy --all-targets` reports no warnings for Linux.
 - `cargo clippy --all-targets --target x86_64-pc-windows-gnu` reports no warnings. This check
-  compiles the Windows display and focus code against the `windows` crate and `gpui_windows`. It
-  does not run the code. The check ran in a temporary copy with TLS turned off in `ureq`, because
-  the `ring` crate needs a MinGW C compiler. It used `llvm-windres` for the GPUI manifest.
-- The screenshots come from the app in a nested KWin Wayland session with two virtual outputs. The
-  stale and offline screenshots use `--demo-outage-after`.
-- The HTTP source polled a local JSON file through `http://127.0.0.1`. See `08-http-source.png`.
-- On Wayland, a focused app on the second output leaves the status window inactive. The focus alert
-  is hidden in that state and shows when the status window is focused.
+  compiles the Windows display, focus, `sysinfo`, and Tailscale command code. It does not run the
+  code. The check ran in a temporary copy with TLS turned off in `ureq`, because the `ring` crate
+  needs a MinGW C compiler. It used `llvm-windres` for the GPUI manifest.
+- The app ran against the real Glances, Uptime Kuma, Scrutiny, and Tailscale sources over Tailscale,
+  in a nested KWin Wayland session with two virtual outputs. A focused app on output 2 stood in for
+  the game.
+- A Glances entry for an offline tailnet device showed the `OFFLINE` panel and alert after 30 s.
 
 ### Hands-on verification
 
@@ -409,7 +374,7 @@ These items need a test on real hardware. Windows items come first:
 
 ## Open questions
 
-- Which collector produces the status snapshot: a custom aggregator, Prometheus, or Glances?
+- A host without a metrics server shows only as a tailnet row. Install Glances on that host to add
+  a host card.
 - Must the app start at sign-in on the Windows laptop? This version adds no startup entry or
   service.
-- Must the display move content over time to reduce image retention on an OLED panel?

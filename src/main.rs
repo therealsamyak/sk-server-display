@@ -2,20 +2,25 @@
 
 #![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
 
+mod collector_glances;
+mod collector_kuma;
+mod collector_local;
+mod collector_scrutiny;
+mod collector_tailscale;
 mod display_select;
 #[cfg(target_os = "windows")]
 mod display_windows;
 mod status_board;
-mod status_demo;
+mod status_collector;
+mod status_config;
 mod status_fonts;
 mod status_format;
 mod status_freshness;
-mod status_snapshot;
-mod status_source;
+mod status_model;
 mod status_view;
 mod status_window;
 
-use std::time::Duration;
+use std::path::PathBuf;
 
 use clap::Parser;
 use gpui::{App, Entity, Global, KeyBinding};
@@ -24,9 +29,7 @@ use time::UtcOffset;
 use crate::{
     display_select::DisplaySelector,
     status_board::StatusBoard,
-    status_demo::{DemoScenario, DemoStatusSource},
-    status_freshness::FreshnessPolicy,
-    status_source::StatusSource,
+    status_config::{build_status_feeds, load_status_config},
     status_view::{
         ExitFullscreen, NextStatusDisplay, QuitStatusDisplay, RefreshStatus,
         STATUS_VIEW_KEY_CONTEXT, ToggleFullscreen,
@@ -38,13 +41,10 @@ use crate::{
 #[derive(Debug, Parser)]
 #[command(version, about)]
 struct StatusDisplayArgs {
-    /// Status snapshot URL, or `demo` for built-in sample data.
-    #[arg(long, default_value = "demo")]
-    source: String,
-
-    /// Seconds between two status polls.
-    #[arg(long, default_value_t = 2.0)]
-    interval: f64,
+    /// Configuration file. Default: `server-status-display/config.toml` in
+    /// the user configuration folder.
+    #[arg(long)]
+    config: Option<PathBuf>,
 
     /// Display for the status window: `auto`, `primary`, or a number from 1.
     #[arg(long, default_value = "auto")]
@@ -57,14 +57,6 @@ struct StatusDisplayArgs {
     /// Windows: let a click give the status window keyboard focus.
     #[arg(long)]
     allow_focus: bool,
-
-    /// Demo data scenario.
-    #[arg(long, value_enum, default_value_t = DemoScenario::Mixed)]
-    demo_scenario: DemoScenario,
-
-    /// Demo only: make polls fail after this many seconds.
-    #[arg(long)]
-    demo_outage_after: Option<f64>,
 }
 
 /// Global that keeps the status display controller alive for the whole run.
@@ -79,15 +71,14 @@ fn main() {
     let args = StatusDisplayArgs::parse();
     env_logger_init();
 
-    let policy = FreshnessPolicy::from_poll_interval(Duration::from_secs_f64(args.interval));
-    let source = if args.source == "demo" {
-        StatusSource::Demo(DemoStatusSource::new(
-            args.demo_scenario,
-            args.demo_outage_after.map(Duration::from_secs_f64),
-        ))
-    } else {
-        StatusSource::http_status_source(args.source.clone(), &policy)
-    };
+    let feeds =
+        match load_status_config(args.config.as_deref()).and_then(|c| build_status_feeds(&c)) {
+            Ok(feeds) => feeds,
+            Err(error) => {
+                log::error!("{error:#}");
+                std::process::exit(2);
+            }
+        };
     let settings = StatusWindowSettings {
         selector: args.display,
         start_fullscreen: !args.windowed,
@@ -104,7 +95,7 @@ fn main() {
             }
         })
         .detach();
-        let board = StatusBoard::new_status_board(source, policy, cx);
+        let board = StatusBoard::new_status_board(feeds, cx);
         let app = StatusDisplayApp::start_status_display(board, settings, cx);
         cx.set_global(StatusDisplayRoot(app));
     });

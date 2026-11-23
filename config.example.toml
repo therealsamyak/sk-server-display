@@ -1,0 +1,32 @@
+# Server status display configuration.
+#
+# Copy this file to the default location and edit the URLs:
+#   Windows: %APPDATA%\server-status-display\config.toml
+#   macOS:   ~/Library/Application Support/server-status-display/config.toml
+#   Linux:   ~/.config/server-status-display/config.toml
+# Or start the app with --config <path>.
+#
+# Use full Tailscale MagicDNS names. Do not commit your real file.
+
+# Show CPU, memory, disk, and uptime of the machine that runs the display.
+show_this_machine = true
+
+# One block for each host that runs the Glances web server (glances -w).
+[[glances]]
+name = "server"
+url = "http://server.example.ts.net:61208"
+
+# A public Uptime Kuma status page. The app reads it without sign-in.
+[uptime_kuma]
+url = "http://server.example.ts.net:3001"
+status_page = "home"
+
+# Scrutiny SMART disk health.
+[scrutiny]
+name = "server"
+url = "http://server.example.ts.net:8080"
+
+# Tailnet devices from `tailscale status --json`.
+[tailscale]
+enabled = true
+command = "tailscale"

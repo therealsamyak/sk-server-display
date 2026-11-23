@@ -41,20 +41,6 @@ pub fn format_status_usage(used: u64, total: u64) -> String {
     format!("{used_value:.1} / {total_value:.1} {unit}")
 }
 
-/// Formats a network rate with decimal units, such as `12.4 MB/s`.
-pub fn format_status_rate(bytes_per_second: u64) -> String {
-    let value = bytes_per_second as f64;
-    if value >= 1e9 {
-        format!("{:.1} GB/s", value / 1e9)
-    } else if value >= 1e6 {
-        format!("{:.1} MB/s", value / 1e6)
-    } else if value >= 1e3 {
-        format!("{:.0} kB/s", value / 1e3)
-    } else {
-        format!("{bytes_per_second} B/s")
-    }
-}
-
 /// Formats an uptime, such as `41 d 6 h` or `3 h 12 m`.
 pub fn format_status_uptime(seconds: u64) -> String {
     let days = seconds / 86_400;
@@ -76,8 +62,10 @@ pub fn format_status_age(age: Duration) -> String {
         format!("{seconds} s")
     } else if seconds < 3_600 {
         format!("{} m {} s", seconds / 60, seconds % 60)
-    } else {
+    } else if seconds < 86_400 {
         format!("{} h {} m", seconds / 3_600, (seconds % 3_600) / 60)
+    } else {
+        format!("{} d {} h", seconds / 86_400, (seconds % 86_400) / 3_600)
     }
 }
 
@@ -114,11 +102,10 @@ mod tests {
 
     #[test]
     fn formats_rates_uptime_and_age() {
-        assert_eq!(format_status_rate(12_400_000), "12.4 MB/s");
-        assert_eq!(format_status_rate(950), "950 B/s");
         assert_eq!(format_status_uptime(3_564_000), "41 d 6 h");
         assert_eq!(format_status_uptime(11_520), "3 h 12 m");
         assert_eq!(format_status_age(Duration::from_secs(125)), "2 m 5 s");
+        assert_eq!(format_status_age(Duration::from_secs(185_000)), "2 d 3 h");
     }
 
     #[test]

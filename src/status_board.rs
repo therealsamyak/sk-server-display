@@ -1,48 +1,70 @@
-//! Status board: polls the status source and keeps the latest snapshot.
+//! Status board: polls every status feed and keeps its latest reading.
 
 use std::time::{Duration, Instant};
 
-use gpui::{App, AppContext as _, Context, Entity, Subscription, Task};
-use time::OffsetDateTime;
-
 use crate::{
-    status_freshness::{FreshnessPolicy, SourceFreshness, classify_source_freshness},
-    status_snapshot::StatusSnapshot,
-    status_source::StatusSource,
+    status_config::StatusFeedSpec,
+    status_freshness::{FeedFreshness, FreshnessPolicy, classify_feed_freshness},
+    status_model::FeedData,
 };
+use gpui::{App, AppContext as _, Context, Entity, Subscription, Task};
 
 /// Interval of the redraw tick that keeps clocks and age labels current.
 const STATUS_TICK_INTERVAL: Duration = Duration::from_secs(1);
 
-/// Status board model: latest snapshot, poll errors, and freshness.
-pub struct StatusBoard {
-    source: StatusSource,
-    policy: FreshnessPolicy,
-    started_at: Instant,
-    latest: Option<StatusSnapshot>,
+/// Status feed: one collector, its latest reading, and its poll state.
+pub struct StatusFeed {
+    pub spec: StatusFeedSpec,
+    pub policy: FreshnessPolicy,
+    data: Option<FeedData>,
     last_success_at: Option<Instant>,
-    last_success_wall: Option<OffsetDateTime>,
     last_error: Option<String>,
     consecutive_failures: u32,
     last_poll_started_at: Option<Instant>,
     poll_task: Option<Task<()>>,
+}
+
+impl StatusFeed {
+    /// Latest good reading, if any poll has succeeded.
+    pub fn latest_reading(&self) -> Option<&FeedData> {
+        self.data.as_ref()
+    }
+
+    /// Time since the last successful poll.
+    pub fn last_success_age(&self) -> Option<Duration> {
+        self.last_success_at.map(|at| at.elapsed())
+    }
+
+    /// Error text of the last failed poll, cleared by the next success.
+    pub fn last_poll_error(&self) -> Option<&str> {
+        self.last_error.as_deref()
+    }
+
+    /// Number of failed polls since the last success.
+    pub fn consecutive_failures(&self) -> u32 {
+        self.consecutive_failures
+    }
+}
+
+/// Status board model: all feeds and the poll loop.
+pub struct StatusBoard {
+    feeds: Vec<StatusFeed>,
+    started_at: Instant,
     _tick_task: Task<()>,
     _wake_subscription: Subscription,
 }
 
 impl StatusBoard {
     /// Creates the status board entity and starts the poll loop.
-    pub fn new_status_board(
-        source: StatusSource,
-        policy: FreshnessPolicy,
-        cx: &mut App,
-    ) -> Entity<Self> {
+    pub fn new_status_board(specs: Vec<StatusFeedSpec>, cx: &mut App) -> Entity<Self> {
         cx.new(|cx| {
             let tick_task = cx.spawn(async move |this, cx| {
                 loop {
                     let keep_running = this.update(cx, |board: &mut StatusBoard, cx| {
-                        if board.poll_is_due() {
-                            board.start_status_poll(cx);
+                        for index in 0..board.feeds.len() {
+                            if board.poll_is_due(index) {
+                                board.start_feed_poll(index, cx);
+                            }
                         }
                         cx.notify();
                     });
@@ -55,112 +77,87 @@ impl StatusBoard {
             let wake_subscription = cx.on_system_wake({
                 let this = cx.weak_entity();
                 move |cx| {
-                    this.update(cx, |board, cx| board.refresh_status_now(cx))
+                    this.update(cx, |board, cx| board.refresh_all_feeds(cx))
                         .ok();
                 }
             });
             Self {
-                source,
-                policy,
+                feeds: specs
+                    .into_iter()
+                    .map(|spec| StatusFeed {
+                        policy: FreshnessPolicy::from_poll_interval(spec.poll_interval),
+                        spec,
+                        data: None,
+                        last_success_at: None,
+                        last_error: None,
+                        consecutive_failures: 0,
+                        last_poll_started_at: None,
+                        poll_task: None,
+                    })
+                    .collect(),
                 started_at: Instant::now(),
-                latest: None,
-                last_success_at: None,
-                last_success_wall: None,
-                last_error: None,
-                consecutive_failures: 0,
-                last_poll_started_at: None,
-                poll_task: None,
                 _tick_task: tick_task,
                 _wake_subscription: wake_subscription,
             }
         })
     }
 
-    /// Starts a poll now, unless one is already running.
-    pub fn refresh_status_now(&mut self, cx: &mut Context<Self>) {
-        self.start_status_poll(cx);
+    /// Starts a poll of every feed now, unless one is already running.
+    pub fn refresh_all_feeds(&mut self, cx: &mut Context<Self>) {
+        for index in 0..self.feeds.len() {
+            self.start_feed_poll(index, cx);
+        }
     }
 
-    fn poll_is_due(&self) -> bool {
-        self.last_poll_started_at
-            .is_none_or(|started| started.elapsed() >= self.policy.poll_interval)
+    fn poll_is_due(&self, index: usize) -> bool {
+        let feed = &self.feeds[index];
+        feed.last_poll_started_at
+            .is_none_or(|started| started.elapsed() >= feed.policy.poll_interval)
     }
 
-    fn start_status_poll(&mut self, cx: &mut Context<Self>) {
-        if self.poll_task.is_some() {
+    fn start_feed_poll(&mut self, index: usize, cx: &mut Context<Self>) {
+        let feed = &mut self.feeds[index];
+        if feed.poll_task.is_some() {
             return;
         }
-        self.last_poll_started_at = Some(Instant::now());
-        let source = self.source.clone();
-        let fetch = cx.background_spawn(async move { source.fetch_status_snapshot() });
-        self.poll_task = Some(cx.spawn(async move |this, cx| {
+        feed.last_poll_started_at = Some(Instant::now());
+        let collector = feed.spec.collector.clone();
+        let fetch = cx.background_spawn(async move { collector.collect_status_reading() });
+        feed.poll_task = Some(cx.spawn(async move |this, cx| {
             let result = fetch.await;
             this.update(cx, |board, cx| {
-                board.poll_task = None;
-                board.apply_poll_result(result);
+                let feed = &mut board.feeds[index];
+                feed.poll_task = None;
+                match result {
+                    Ok(data) => {
+                        feed.data = Some(data);
+                        feed.last_success_at = Some(Instant::now());
+                        feed.last_error = None;
+                        feed.consecutive_failures = 0;
+                    }
+                    Err(error) => {
+                        log::warn!("{} poll failed: {error:#}", feed.spec.title);
+                        feed.last_error = Some(format!("{error:#}"));
+                        feed.consecutive_failures += 1;
+                    }
+                }
                 cx.notify();
             })
             .ok();
         }));
     }
 
-    fn apply_poll_result(&mut self, result: anyhow::Result<StatusSnapshot>) {
-        match result {
-            Ok(snapshot) => {
-                self.latest = Some(snapshot);
-                self.last_success_at = Some(Instant::now());
-                self.last_success_wall = Some(OffsetDateTime::now_utc());
-                self.last_error = None;
-                self.consecutive_failures = 0;
-            }
-            Err(error) => {
-                self.last_error = Some(format!("{error:#}"));
-                self.consecutive_failures += 1;
-            }
-        }
+    /// All feeds in display order.
+    pub fn status_feeds(&self) -> &[StatusFeed] {
+        &self.feeds
     }
 
-    /// Latest good snapshot, if any poll has succeeded.
-    pub fn latest_snapshot(&self) -> Option<&StatusSnapshot> {
-        self.latest.as_ref()
-    }
-
-    /// Freshness of the status source now.
-    pub fn source_freshness(&self) -> SourceFreshness {
-        classify_source_freshness(
-            &self.policy,
-            self.last_success_age(),
+    /// Freshness of one feed now.
+    pub fn feed_freshness(&self, feed: &StatusFeed) -> FeedFreshness {
+        classify_feed_freshness(
+            &feed.policy,
+            feed.last_success_age(),
             self.started_at.elapsed(),
         )
-    }
-
-    /// Time since the last successful poll.
-    pub fn last_success_age(&self) -> Option<Duration> {
-        self.last_success_at.map(|at| at.elapsed())
-    }
-
-    /// Wall-clock time of the last successful poll.
-    pub fn last_success_wall(&self) -> Option<OffsetDateTime> {
-        self.last_success_wall
-    }
-
-    /// Error text of the last failed poll, cleared by the next success.
-    pub fn last_poll_error(&self) -> Option<&str> {
-        self.last_error.as_deref()
-    }
-
-    /// Number of failed polls since the last success.
-    pub fn consecutive_failures(&self) -> u32 {
-        self.consecutive_failures
-    }
-
-    /// Freshness thresholds in use.
-    pub fn freshness_policy(&self) -> &FreshnessPolicy {
-        &self.policy
-    }
-
-    /// Footer label of the status source.
-    pub fn source_label(&self) -> String {
-        self.source.status_source_label()
     }
 }
