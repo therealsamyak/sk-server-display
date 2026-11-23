@@ -1,25 +1,62 @@
 //! Status board: polls every status feed and keeps its latest reading.
 
-use std::time::{Duration, Instant};
+use std::{
+    collections::VecDeque,
+    time::{Duration, Instant},
+};
 
 use crate::{
     status_config::StatusFeedSpec,
     status_freshness::{FeedFreshness, FreshnessPolicy, classify_feed_freshness},
-    status_model::FeedData,
+    status_model::{FeedData, HostMetrics},
 };
 use gpui::{App, AppContext as _, Context, Entity, Subscription, Task};
 
 /// Interval of the redraw tick that keeps clocks and age labels current.
 const STATUS_TICK_INTERVAL: Duration = Duration::from_secs(1);
 
+/// Number of host samples that the CPU and network graphs show. At the
+/// 2-second host poll interval this is 3 minutes.
+pub const HOST_HISTORY_SAMPLES: usize = 90;
+
+/// Recent host samples for the CPU and network graphs, oldest first.
+#[derive(Debug, Default)]
+pub struct HostHistory {
+    pub cpu_percent: VecDeque<f32>,
+    pub network_receive_rate: VecDeque<f64>,
+    pub network_send_rate: VecDeque<f64>,
+}
+
+impl HostHistory {
+    fn record_host_sample(&mut self, host: &HostMetrics) {
+        fn push<T>(samples: &mut VecDeque<T>, value: T) {
+            if samples.len() == HOST_HISTORY_SAMPLES {
+                samples.pop_front();
+            }
+            samples.push_back(value);
+        }
+        if let Some(cpu) = host.cpu_percent {
+            push(&mut self.cpu_percent, cpu);
+        }
+        push(
+            &mut self.network_receive_rate,
+            host.network_receive_rate.unwrap_or_default(),
+        );
+        push(
+            &mut self.network_send_rate,
+            host.network_send_rate.unwrap_or_default(),
+        );
+    }
+}
+
 /// Status feed: one collector, its latest reading, and its poll state.
 pub struct StatusFeed {
     pub spec: StatusFeedSpec,
     pub policy: FreshnessPolicy,
     data: Option<FeedData>,
+    history: HostHistory,
     last_success_at: Option<Instant>,
     last_error: Option<String>,
-    consecutive_failures: u32,
     last_poll_started_at: Option<Instant>,
     poll_task: Option<Task<()>>,
 }
@@ -30,6 +67,11 @@ impl StatusFeed {
         self.data.as_ref()
     }
 
+    /// Recent CPU and network samples. Empty for feeds without host metrics.
+    pub fn host_history(&self) -> &HostHistory {
+        &self.history
+    }
+
     /// Time since the last successful poll.
     pub fn last_success_age(&self) -> Option<Duration> {
         self.last_success_at.map(|at| at.elapsed())
@@ -38,11 +80,6 @@ impl StatusFeed {
     /// Error text of the last failed poll, cleared by the next success.
     pub fn last_poll_error(&self) -> Option<&str> {
         self.last_error.as_deref()
-    }
-
-    /// Number of failed polls since the last success.
-    pub fn consecutive_failures(&self) -> u32 {
-        self.consecutive_failures
     }
 }
 
@@ -88,9 +125,9 @@ impl StatusBoard {
                         policy: FreshnessPolicy::from_poll_interval(spec.poll_interval),
                         spec,
                         data: None,
+                        history: HostHistory::default(),
                         last_success_at: None,
                         last_error: None,
-                        consecutive_failures: 0,
                         last_poll_started_at: None,
                         poll_task: None,
                     })
@@ -130,15 +167,16 @@ impl StatusBoard {
                 feed.poll_task = None;
                 match result {
                     Ok(data) => {
+                        if let FeedData::Host(host) = &data {
+                            feed.history.record_host_sample(host);
+                        }
                         feed.data = Some(data);
                         feed.last_success_at = Some(Instant::now());
                         feed.last_error = None;
-                        feed.consecutive_failures = 0;
                     }
                     Err(error) => {
                         log::warn!("{} poll failed: {error:#}", feed.spec.title);
                         feed.last_error = Some(format!("{error:#}"));
-                        feed.consecutive_failures += 1;
                     }
                 }
                 cx.notify();

@@ -3,16 +3,25 @@
 use std::{
     path::Path,
     sync::{Arc, Mutex},
+    time::Instant,
 };
 
-use sysinfo::{Components, Disks, System};
+use sysinfo::{Components, Disks, Networks, System};
 
-use crate::status_model::HostMetrics;
+use crate::{status_collector::is_virtual_network_interface, status_model::HostMetrics};
 
-/// Local collector. It keeps one `System` so CPU usage has a time delta.
+/// Local collector state. CPU usage and network rates need the previous
+/// reading for a time delta.
+struct LocalSampler {
+    system: System,
+    networks: Networks,
+    networks_read_at: Instant,
+}
+
+/// Local collector for the machine that runs the display.
 #[derive(Clone)]
 pub struct LocalCollector {
-    system: Arc<Mutex<System>>,
+    sampler: Arc<Mutex<LocalSampler>>,
 }
 
 impl std::fmt::Debug for LocalCollector {
@@ -27,23 +36,32 @@ impl LocalCollector {
         let mut system = System::new()?;
         system.refresh_cpu_all();
         Ok(Self {
-            system: Arc::new(Mutex::new(system)),
+            sampler: Arc::new(Mutex::new(LocalSampler {
+                system,
+                networks: Networks::new_with_refreshed_list()?,
+                networks_read_at: Instant::now(),
+            })),
         })
     }
 
     /// Reads local host metrics. This call blocks; run it on a background thread.
     pub fn fetch_local_metrics(&self) -> anyhow::Result<HostMetrics> {
-        let mut system = self
-            .system
+        let mut sampler = self
+            .sampler
             .lock()
             .map_err(|_| anyhow::anyhow!("local metrics lock is poisoned"))?;
-        system.refresh_cpu_usage();
-        system.refresh_memory();
-        let cpu_model = system
-            .cpus()
-            .first()
-            .map(|cpu| cpu.brand().trim().to_string())
-            .unwrap_or_default();
+        let sampler = &mut *sampler;
+        sampler.system.refresh_cpu_usage();
+        sampler.system.refresh_memory();
+        sampler.networks.refresh(true);
+        let seconds = sampler.networks_read_at.elapsed().as_secs_f64().max(0.001);
+        sampler.networks_read_at = Instant::now();
+        let interface = sampler
+            .networks
+            .iter()
+            .filter(|(name, _)| !is_virtual_network_interface(&name.to_string_lossy()))
+            .max_by_key(|(_, data)| data.total_received() + data.total_transmitted())
+            .map(|(_, data)| data);
 
         let disks = Disks::new_with_refreshed_list()?;
         let system_disk = disks.iter().find(|disk| {
@@ -64,17 +82,12 @@ impl LocalCollector {
             });
         // Windows has no load average.
         let load = System::load_average().ok().map(|load| load.one as f32);
+        let system = &sampler.system;
 
         Ok(HostMetrics {
             name: System::host_name().unwrap_or_else(|_| "this machine".into()),
-            detail: [System::long_os_version().ok(), Some(cpu_model)]
-                .into_iter()
-                .flatten()
-                .filter(|part| !part.is_empty())
-                .collect::<Vec<_>>()
-                .join(" · "),
             cpu_percent: Some(system.global_cpu_usage()),
-            cpu_cores: Some(system.cpus().len()),
+            core_percents: system.cpus().iter().map(|cpu| cpu.usage()).collect(),
             memory_used_bytes: Some(system.used_memory()),
             memory_total_bytes: Some(system.total_memory()),
             disk_used_bytes: system_disk.map(|d| d.total_space() - d.available_space()),
@@ -82,6 +95,8 @@ impl LocalCollector {
             temperature_celsius: temperature,
             load_1m: load.filter(|load| cfg!(not(target_os = "windows")) || *load > 0.0),
             uptime_seconds: System::uptime().ok(),
+            network_receive_rate: interface.map(|data| data.received() as f64 / seconds),
+            network_send_rate: interface.map(|data| data.transmitted() as f64 / seconds),
         })
     }
 }

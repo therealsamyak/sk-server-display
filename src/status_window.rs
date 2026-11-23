@@ -1,7 +1,7 @@
 //! Status window controller: opens the status window on the chosen display
 //! and reopens it when monitors change.
 
-use std::time::Duration;
+use std::{path::PathBuf, time::Duration};
 
 use gpui::{
     App, AppContext as _, Bounds, Context, DisplayEvent, Entity, Subscription, Task,
@@ -14,7 +14,7 @@ use crate::{
         DisplayChoice, DisplaySelector, choose_status_display, ordered_status_displays,
     },
     status_board::StatusBoard,
-    status_view::StatusView,
+    status_view::{StatusView, StatusViewSettings},
 };
 
 /// Wait time after a display event before the window moves. Windows and
@@ -22,8 +22,10 @@ use crate::{
 const DISPLAY_CHANGE_SETTLE_DELAY: Duration = Duration::from_millis(750);
 
 /// Startup settings for the status window.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Debug)]
 pub struct StatusWindowSettings {
+    /// Background image file, if the configuration sets one.
+    pub wallpaper: Option<PathBuf>,
     pub selector: DisplaySelector,
     pub start_fullscreen: bool,
     /// Windows only: `false` stops clicks from taking keyboard focus.
@@ -69,9 +71,9 @@ impl StatusDisplayApp {
             });
             Self {
                 board,
-                settings,
                 selector: settings.selector,
                 fullscreen: settings.start_fullscreen,
+                settings,
                 window: None,
                 display: None,
                 reconcile_task: None,
@@ -162,6 +164,7 @@ impl StatusDisplayApp {
         let controller = cx.weak_entity();
         let label = choice.label.clone();
         let local_offset = self.settings.local_offset;
+        let wallpaper = self.settings.wallpaper.clone();
         #[cfg(target_os = "windows")]
         let allow_focus = self.settings.allow_focus;
         match cx.open_window(options, move |window, cx| {
@@ -170,7 +173,17 @@ impl StatusDisplayApp {
                 crate::display_windows::apply_no_activate_style(window);
             }
             cx.new(|cx| {
-                StatusView::new_status_view(board, controller, label, local_offset, window, cx)
+                StatusView::new_status_view(
+                    StatusViewSettings {
+                        display_label: label,
+                        local_offset,
+                        wallpaper,
+                    },
+                    board,
+                    controller,
+                    window,
+                    cx,
+                )
             })
         }) {
             Ok(window) => self.window = Some(window),

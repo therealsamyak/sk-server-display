@@ -18,9 +18,9 @@ The display reads these sources. Each one is optional, except the first two:
 
 | Panel | Source | How the app reads it | Poll interval |
 | --- | --- | --- | --- |
-| This machine | `sysinfo` crate | Local CPU, memory, system disk, temperature, load, and uptime. | 2 s |
+| This machine | `sysinfo` crate | Local CPU per core, memory, system disk, network rate, temperature, load, and uptime. | 2 s |
 | Tailnet | Tailscale | Runs `tailscale status --json` on the display machine. | 10 s |
-| Host cards | [Glances](https://glances.readthedocs.io/) | `GET /api/4/{cpu,mem,load,sensors,fs,uptime,quicklook,system}` on each host. | 2 s |
+| Host panels | [Glances](https://glances.readthedocs.io/) | `GET /api/4/{cpu,percpu,mem,load,sensors,fs,uptime,network}` on each host. | 2 s |
 | Services | [Uptime Kuma](https://github.com/louislam/uptime-kuma) | `GET /api/status-page/<slug>` and `/api/status-page/heartbeat/<slug>`. These public status page endpoints need no sign-in. | 30 s |
 | Disks | [Scrutiny](https://github.com/AnalogJ/scrutiny) | `GET /api/summary`. SMART result, temperature, and power-on hours per drive. | 5 min |
 
@@ -41,7 +41,8 @@ To run the display, do these steps:
 2. Replace the example URLs with full Tailscale MagicDNS names of your hosts.
 3. Run `cargo run --release`.
 
-Without a configuration file, the display shows this machine and the tailnet only. Git ignores
+Without a configuration file, the display shows this machine and the tailnet only, on a solid
+background. Git ignores
 `config.local.toml` in the repository root, so you can keep a private configuration there and pass
 it with `--config config.local.toml`.
 
@@ -64,9 +65,10 @@ The keyboard shortcuts work only when the status window has keyboard focus:
 | `R` | Poll all sources now. |
 | `Ctrl+Q` (macOS: `Cmd+Q`) | Quit. |
 
-The header also has `Fullscreen` or `Windowed`, `Next display`, `Refresh`, and `Quit` buttons. On
-Windows, these buttons are the main controls, because the window does not take keyboard focus by
-default.
+The window also has `Fullscreen` or `Windowed`, `Next display`, `Refresh`, and `Quit` buttons in the
+upper-right corner. The buttons and the display label show for 3 seconds after the pointer moves
+over the window. On Windows, these buttons are the main controls, because the window does not take
+keyboard focus by default.
 
 ## Private data
 
@@ -76,6 +78,7 @@ Git:
 - Git ignores `config.local.toml`. The committed `config.example.toml` uses `example.ts.net` names.
 - The repository has no screenshots of real data. Agent screenshots stay in the Git-ignored
   `.agent-screenshots/` folder.
+- Git ignores the `local/` folder. Keep the wallpaper file there or in the configuration folder.
 
 ## Design
 
@@ -91,45 +94,92 @@ The status display must do these things:
 
 ### Screen layout
 
-The layout fills the window and scales from a 1600-pixel reference width. Host cards fill the top
-row. Disks and the tailnet fill the bottom row. Services fill the right column. The wireframe shows
-a 1920 × 1080 display:
+The screen is a wallpaper with a large clock and translucent data panels. The upper part looks like a
+lock screen. The panels look like a terminal system monitor, such as btop. The layout fills the
+window and scales from a 1600-pixel reference width. The wireframe shows a 1920 × 1080 display with
+one Glances host and one alert:
 
 ```text
-┌──────────────────────────────────────────────────────────────────────────────────────────────┐
-│                                                [Windowed] [Next display] [Refresh] [Quit]    │
-│ Server status                                 ( ● ALL LIVE )                      14:02:11   │
-│ 2 hosts · 14/14 services up · 2/3 disks passed · 5/6 tailnet online   5 of 5 live  Mon 23 Nov│
-│ ┌ ● ALERT (only when needed): keyboard focus, or one line per stale or offline source ─────┐ │
-│ └──────────────────────────────────────────────────────────────────────────────────────────┘ │
-│ ┌ server  Glances ─────── ● LIVE ┐ ┌ This machine  local ─ ● LIVE ┐ ┌ Services  Kuma ● LIVE ┐ │
-│ │ OS · CPU model                 │ │ OS · CPU model               │ │ 14 of 14 up            │ │
-│ │ CPU ×6 ██░░░░░░░░░░     8 %    │ │ CPU ×8 ███░░░░░░░░   16 %    │ │ ● Service A 100.0 % 53 s│ │
-│ │ MEM    █████░░░░░ 13.5/31.1 GiB│ │ MEM    ████░░░  6.2/15.8 GiB │ │ ● Service B  99.8 % 17 s│ │
-│ │ DISK   ███░░░░░ 134/473 GiB    │ │ DISK   █████░░  301/476 GiB  │ │ ...                    │ │
-│ │ TEMP 53 °C  LOAD 2.88  UP 2 h  │ │ TEMP —  LOAD —  UP 1 d 4 h   │ │                        │ │
-│ └────────────────────────────────┘ └──────────────────────────────┘ │                        │ │
-│ ┌ Disks · server  Scrutiny ● LIVE┐ ┌ Tailnet  Tailscale ── ● LIVE ┐ │                        │ │
-│ │ ● nvme0  model · 477 GiB passed│ │ ● laptop   windows this machine│ │                        │ │
-│ │ ● sdb    model · 932 GiB  threshold failed │ ● server linux direct │ │                        │ │
-│ └────────────────────────────────┘ │ ● tablet   seen 2 d 3 h ago  │ └────────────────────────┘ │
-│ Display 1 of 2 · built-in panel "Built-in Display" · 1920×1080        F11 · Esc · D · R · Ctrl+Q │
-└──────────────────────────────────────────────────────────────────────────────────────────────┘
+┌────────────────────────────────────────────────────────────────────────────────────────────────┐
+│ wallpaper under a 28 % black layer      [Display 1 of 2 …] [Windowed] [Next display] [Refresh] │
+│                                         [Quit]  (only for 3 s after the pointer moves)         │
+│  15:42           clock, 128 px            ┌ alert, only when needed ─────────────────────────┐ │
+│  Monday 23 November                       │ laptop (local) is not responding.                │ │
+│                                           │ Data is 12s old. <last error>                    │ │
+│                                           └──────────────────────────────────────────────────┘ │
+│ ┌ server ─────────── up 6h 41m ┐ ┌ Services ─────── 14/14 up ┐ ┌ Disks ─────────── 2/3 passed ┐ │
+│ │ CPU 10%       38°C load 0.44 │ │ ● Service A          100% │ │ ● nvme0  41°C 477 GiB  passed│ │
+│ │ ▁▂▁▃▂▁▂▅▃▂▁▂▁▂▃▂▁  CPU graph │ │ ● Service B          100% │ │ ● sdb  39°C 932 GiB threshold│ │
+│ │ 0 ▬────── 9%  1 ▬────── 9%   │ │ ● Service C         99.8% │ └──────────────────────────────┘ │
+│ │ 2 ▬────── 6%  3 ▬────── 5%   │ │ ● Service D         99.9% │ ┌ Tailnet ───────── 5/6 online ┐ │
+│ │ Net ↓ 1.6 KiB/s ↑ 2.6 KiB/s  │ │ …                         │ │ ● server  linux this machine │ │
+│ │ ▁▁▂▁▁ receive  ▔▔▔ send      │ │                           │ │ ● laptop  windows       idle │ │
+│ │ Mem  ██████──── 12.6/31.1 GiB│ │                           │ │ ● tablet  android  2d 7h ago │ │
+│ │ Disk ███──────── 135/473 GiB │ │                           │ └──────────────────────────────┘ │
+│ └──────────────────────────────┘ └───────────────────────────┘                                  │
+└────────────────────────────────────────────────────────────────────────────────────────────────┘
 ```
 
 The layout rules are:
 
-- Each panel shows its own source state: `CONNECTING`, `LIVE`, `STALE · 12 s`, or `OFFLINE`.
-- The header pill shows the worst source state. The header summary counts hosts, services, disks,
-  and tailnet devices.
-- Bars are green below 75 %, amber from 75 %, and red from 90 %. Temperature is amber from 75 °C and
-  red from 85 °C.
-- Services sort problems first: down, pending, unknown, maintenance, then up.
-- Disks show Scrutiny's result: `passed`, `SMART failed`, `threshold failed`, or `failed`.
-- Tailnet devices show this machine first, then online devices, then offline devices with the last
-  seen time.
-- The footer holds only information that you do not need at a glance. On Windows, the taskbar can
-  cover the bottom of the screen. See [Hands-on verification](#hands-on-verification).
+- The panels fill the lower 64 % of the window. The clock, the date, and the alerts use the rest.
+- One host gets a wide first column. Two hosts get one column each. Three or more hosts share one
+  column.
+- A host panel shows the core grid only when the panel is tall enough. The CPU and network graphs
+  shrink first.
+- Each panel header shows one fact when the feed is live: uptime, services up, disks passed, or
+  devices online. A feed that is not live shows `connecting`, `stale 12s`, or `offline` there, and
+  the panel border changes color.
+- The CPU graph shows the last 90 samples, 3 minutes at the 2-second poll. Each bar uses the meter
+  colors.
+- The network graph shows receive rates above the center line in blue and send rates below it in
+  purple. Its scale is the highest rate of the shown samples, and at least 64 KiB/s, so idle traffic
+  stays flat. The scale value shows in the upper-left corner of the graph.
+- Meters and graph bars are green below 75 %, amber from 75 %, and red from 90 %. Temperature is
+  amber from 75 °C and red from 85 °C.
+- Services sort problems first: down, pending, unknown, maintenance, then up. A service that is not
+  up also shows its state and the time of its last heartbeat.
+- Disks show Scrutiny's result: `passed`, `SMART failed`, `threshold`, or `failed`.
+- Tailnet devices show this machine first, then online devices, then offline devices with the time
+  since Tailscale last saw them.
+
+The panels use IBM Plex Mono, so digits stay in their columns as values change. The clock and the
+date use IBM Plex Sans Light and Regular.
+
+### Wallpaper
+
+Set `wallpaper` in the configuration file to show an image behind the panels. A relative path
+starts from the folder of the configuration file. GPUI's `img` element loads the file. The app sets
+`ObjectFit::Cover`, so the image fills the window and keeps its aspect ratio
+([img.rs#L197-L205](https://github.com/zed-industries/zed/blob/6501df15765d66d6c2a2b66b1eb22434ccef3f86/crates/gpui/src/elements/img.rs#L197-L205),
+[style.rs#L28-L40](https://github.com/zed-industries/zed/blob/6501df15765d66d6c2a2b66b1eb22434ccef3f86/crates/gpui/src/style.rs#L28-L40)).
+GPUI reads JPEG, PNG, WebP, and the other formats in `Img::extensions`.
+
+The repository does not include a wallpaper. The test screenshots use the Windows XP "Bliss" photo
+as a placeholder. Microsoft owns that photo, so it stays in the Git-ignored `local/` folder. Replace
+it with your own image.
+
+A black layer at 28 % opacity covers the wallpaper, so the white clock stays readable on a bright
+image. The panels use a dark color at 78 % opacity.
+
+### Visual cleanup
+
+The screen follows the [unslop-ui](https://github.com/felipebasurto/unslop-ui) rules. These items
+were removed from the first version:
+
+- The "Server status" title and the summary line that chained counts with middle dots (U3, U6).
+- The overall "ALL LIVE" pill and the "5 of 5 sources live" caption. The alerts already name each
+  problem source (U9, U14).
+- The `LIVE` badge on each panel. Only a feed that is not live shows its state (U9).
+- The source name after each panel title, and the OS and CPU model subtitles (U3, U7).
+- The "24 h uptime · last check" caption, and the heartbeat age on services that are up (U5, U14).
+- The keyboard shortcut footer and the buttons that always showed. This file lists the shortcuts.
+  The buttons show when the pointer moves (U4, U5).
+- Uppercase labels such as `CPU ×6`, `MEM`, `TEMP`, and `LOAD` (U1).
+- Spaced units in compact values. The panels show `41°C`, `6h 41m`, and `2d 7h ago`.
+
+The remaining dots and state labels render from feed or row state. Spacing uses steps of 4 design
+pixels, with 2 and 6 pixels inside graphs and meters. The heaviest font weight is SemiBold. Nothing animates.
 
 ### Refresh, stale, and offline behavior
 
@@ -149,10 +199,10 @@ Each feed state uses the age of its last successful poll:
 
 | Feed state | Condition | Display |
 | --- | --- | --- |
-| `CONNECTING` | No successful poll yet, and the offline limit is not reached. | Blue badge. "Waiting for the first reading". |
-| `LIVE` | Last success is newer than the stale limit. | Green badge. Normal colors. |
-| `STALE` | Last success is between the stale and offline limits. | Amber badge with the data age, and an amber alert with the failed poll count and the last error. Values are gray. |
-| `OFFLINE` | Last success is older than the offline limit, or no success before it. | Red badge and red alert. The panel shows "No current data" and the last error. |
+| Connecting | No successful poll yet, and the offline limit is not reached. | Blue `connecting` in the panel header. "Waiting for data" in the panel. |
+| Live | Last success is newer than the stale limit. | The header fact, such as `14/14 up`. Normal colors. |
+| Stale | Last success is between the stale and offline limits. | Amber `stale 12s` and amber border. An amber alert with the data age and the last error. Values and graphs are gray. |
+| Offline | Last success is older than the offline limit, or no success before it. | Red `offline`, red border, and a red alert with the retry interval. The panel shows "No data" and the last error. |
 
 Uptime Kuma, Scrutiny, and Tailscale report their own state inside a live feed. A down service, a
 failed disk check, or an offline device shows in its row. It does not make the feed stale.
@@ -188,7 +238,7 @@ receiving input. The design prevents this in four ways:
    window. The view observes activation changes with `observe_window_activation`.
 
 The trade-off of `WS_EX_NOACTIVATE` is that the keyboard shortcuts do not work in the default Windows
-mode. The header buttons work with the mouse. Use them to leave fullscreen, change display, refresh,
+mode. The window buttons work with the mouse. Use them to leave fullscreen, change display, refresh,
 or quit.
 
 GPUI handles focus differently on each platform:
@@ -237,10 +287,10 @@ The app maps the chosen Windows display to a GPUI display with the GDI device na
 `DisplayId`
 ([gpui_windows/src/display.rs#L79-L81](https://github.com/zed-industries/zed/blob/6501df15765d66d6c2a2b66b1eb22434ccef3f86/crates/gpui_windows/src/display.rs#L79-L81)).
 This mapping is a GPUI implementation detail, not a public contract. If a GPUI update changes it,
-`auto` uses the primary display, and the footer label shows "primary".
+`auto` uses the primary display, and the display label shows "primary".
 
-The footer shows the chosen display, its number, its kind, and its size. Use this label to confirm
-the choice.
+The display label shows the chosen display, its number, its kind, and its size. It shows next to the
+window buttons after the pointer moves. Use this label to confirm the choice.
 
 ### Fullscreen and exit
 
@@ -258,7 +308,7 @@ Each platform uses a different fullscreen type:
 
 To leave fullscreen, do one of these things:
 
-- Click `Windowed` in the header. This works in every mode.
+- Move the pointer over the window, then click `Windowed`. This works in every mode.
 - Press `Esc` or `F11` when the window has keyboard focus.
 
 Leaving fullscreen does not quit the app. The window becomes a normal window at 80 % of the display
@@ -298,11 +348,12 @@ whole X screen and has no RandR change handler in this GPUI revision
 
 ### Fonts
 
-The app bundles IBM Plex Sans Regular and SemiBold in `assets/fonts/ibm-plex-sans` under the SIL
-Open Font License. GPUI on Linux maps the system UI font to IBM Plex Sans, but a standalone app does
+The app bundles IBM Plex Sans Light and Regular in `assets/fonts/ibm-plex-sans`, and IBM Plex Mono
+Regular and SemiBold in `assets/fonts/ibm-plex-mono`. Both use the SIL Open Font License. GPUI on
+Linux maps the system UI font to IBM Plex Sans, but a standalone app does
 not have that font
 ([gpui_linux/src/linux/platform.rs#L132](https://github.com/zed-industries/zed/blob/6501df15765d66d6c2a2b66b1eb22434ccef3f86/crates/gpui_linux/src/linux/platform.rs#L132)).
-The bundled font gives the same text on every platform.
+The bundled fonts give the same text on every platform.
 
 ### Module layout
 
@@ -319,11 +370,11 @@ Each module has one concern:
 | `src/collector_scrutiny.rs` | Scrutiny summary API. |
 | `src/collector_tailscale.rs` | `tailscale status --json`. |
 | `src/status_model.rs` | Reading types for hosts, services, disks, and devices. |
-| `src/status_board.rs` | GPUI model: feeds, poll loop, and errors. |
+| `src/status_board.rs` | GPUI model: feeds, poll loop, errors, and CPU and network history. |
 | `src/status_freshness.rs` | Freshness limits and feed states. |
-| `src/status_format.rs` | Size, age, uptime, and clock text. |
-| `src/status_fonts.rs` | Bundled IBM Plex Sans font registration. |
-| `src/status_view.rs` | GPUI view: layout, panels, alerts, buttons, and actions. |
+| `src/status_format.rs` | Size, rate, age, uptime, and clock text. |
+| `src/status_fonts.rs` | Bundled IBM Plex Sans and IBM Plex Mono font registration. |
+| `src/status_view.rs` | GPUI view: wallpaper, clock, panels, graphs, alerts, buttons, and actions. |
 | `src/status_window.rs` | Window open, fullscreen state, and monitor change handling. |
 | `src/display_select.rs` | Display selectors and the physical display ranking. |
 | `src/display_windows.rs` | Windows display configuration queries and `WS_EX_NOACTIVATE`. |
@@ -334,8 +385,8 @@ Each module has one concern:
 
 These checks ran on a Linux machine (KDE Plasma, Wayland) with GPUI at the pinned commit:
 
-- `cargo test` passes 17 unit tests. The tests cover the configuration, the Glances uptime and
-  temperature parsing, the Kuma, Scrutiny, and Tailscale response conversion, the freshness rules,
+- `cargo test` passes 19 unit tests. The tests cover the configuration, the Glances uptime and
+  temperature parsing, the network interface choice, the Kuma, Scrutiny, and Tailscale response conversion, the freshness rules,
   the formatting, the display selectors, and the physical display ranking. Test inputs use
   `example.ts.net` names.
 - `cargo clippy --all-targets` reports no warnings for Linux.
@@ -346,33 +397,40 @@ These checks ran on a Linux machine (KDE Plasma, Wayland) with GPUI at the pinne
 - The app ran against the real Glances, Uptime Kuma, Scrutiny, and Tailscale sources over Tailscale,
   in a nested KWin Wayland session with two virtual outputs. A focused app on output 2 stood in for
   the game.
-- A Glances entry for an offline tailnet device showed the `OFFLINE` panel and alert after 30 s.
+- A Glances entry for an offline tailnet device showed the offline panel and alert after 30 s.
+- The wallpaper, clock, CPU and network graphs, and core grid rendered at 1920 × 1080 and
+  1280 × 720. A Glances entry for a closed port showed the offline panel and alert. With no other
+  window focused, the keyboard focus alert showed.
+- The window buttons did not show in these screenshots, because the virtual session does not move
+  the pointer. The pointer reveal needs a hands-on check.
 
 ### Hands-on verification
 
 These items need a test on real hardware. Windows items come first:
 
 1. **Windows display ranking.** Start a Sunshine stream with the virtual display. Confirm that the
-   footer shows the built-in panel. Record the output technology that the virtual display driver
+   display label shows the built-in panel. Record the output technology that the virtual display driver
    reports. The ranking treats indirect virtual and unknown outputs as virtual.
 2. **Windows primary display swap.** Start and stop a stream that makes the virtual display primary.
    Confirm that the status window stays on, or returns to, the physical panel within about 1 second.
 3. **`HMONITOR` stability.** Confirm that GPUI `DisplayId` values match the `HMONITOR` values after a
    display change.
 4. **`WS_EX_NOACTIVATE` with GPUI.** Click the status window during a stream. Confirm that the game
-   keeps input and that the header buttons still work. Confirm that GPUI's DirectComposition
+   keeps input and that the window buttons show and work. Confirm that GPUI's DirectComposition
    renderer draws normally with this style.
 5. **Taskbar overlap.** The status window is not the foreground window, so Windows can draw the
-   taskbar over it. Check whether the taskbar covers the footer. If it does, use taskbar auto-hide or
+   taskbar over it. Check whether the taskbar covers the bottom of the panels. If it does, use taskbar auto-hide or
    move the taskbar to another display.
 6. **Sleep and lid.** Close and open the laptop lid during a stream. Confirm that the display
-   recovers and the source state returns to `LIVE`.
+   recovers and each panel header shows its live fact again.
 7. **macOS fullscreen focus.** Confirm whether native fullscreen takes focus from the streamed app.
    If it does, test `toggle_simple_fullscreen`.
 8. **Linux X11.** Confirm fullscreen placement with more than one monitor. GPUI X11 sees one display
    for the whole X screen.
 
 ## Open questions
+
+- Which wallpaper do you want? The placeholder is the Windows XP "Bliss" photo.
 
 - A host without a metrics server shows only as a tailnet row. Install Glances on that host to add
   a host card.

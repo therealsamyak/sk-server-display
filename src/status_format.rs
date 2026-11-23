@@ -41,46 +41,54 @@ pub fn format_status_usage(used: u64, total: u64) -> String {
     format!("{used_value:.1} / {total_value:.1} {unit}")
 }
 
-/// Formats an uptime, such as `41 d 6 h` or `3 h 12 m`.
+/// Formats a transfer rate, such as `38 B/s` or `1.2 MiB/s`.
+pub fn format_status_rate(bytes_per_second: f64) -> String {
+    format!(
+        "{}/s",
+        format_status_bytes(bytes_per_second.max(0.0).round() as u64)
+    )
+}
+
+/// Formats an uptime, such as `41d 6h` or `3h 12m`.
 pub fn format_status_uptime(seconds: u64) -> String {
     let days = seconds / 86_400;
     let hours = (seconds % 86_400) / 3_600;
     let minutes = (seconds % 3_600) / 60;
     if days > 0 {
-        format!("{days} d {hours} h")
+        format!("{days}d {hours}h")
     } else if hours > 0 {
-        format!("{hours} h {minutes} m")
+        format!("{hours}h {minutes}m")
     } else {
-        format!("{minutes} m")
+        format!("{minutes}m")
     }
 }
 
-/// Formats a data age, such as `4 s`, `2 m 5 s`, or `3 h 10 m`.
+/// Formats a data age, such as `4s`, `2m 5s`, or `3h 10m`.
 pub fn format_status_age(age: Duration) -> String {
     let seconds = age.as_secs();
     if seconds < 60 {
-        format!("{seconds} s")
+        format!("{seconds}s")
     } else if seconds < 3_600 {
-        format!("{} m {} s", seconds / 60, seconds % 60)
+        format!("{}m {}s", seconds / 60, seconds % 60)
     } else if seconds < 86_400 {
-        format!("{} h {} m", seconds / 3_600, (seconds % 3_600) / 60)
+        format!("{}h {}m", seconds / 3_600, (seconds % 3_600) / 60)
     } else {
-        format!("{} d {} h", seconds / 86_400, (seconds % 86_400) / 3_600)
+        format!("{}d {}h", seconds / 86_400, (seconds % 86_400) / 3_600)
     }
 }
 
-/// Formats a wall-clock time in the local offset, such as `14:02:11`.
+/// Formats a wall-clock time in the local offset, such as `14:02`.
 pub fn format_status_clock(at: OffsetDateTime, offset: UtcOffset) -> String {
     at.to_offset(offset)
-        .format(format_description!("[hour]:[minute]:[second]"))
+        .format(format_description!("[hour]:[minute]"))
         .unwrap_or_default()
 }
 
-/// Formats a calendar date in the local offset, such as `Mon 23 Nov 2026`.
+/// Formats a calendar date in the local offset, such as `Monday 23 November`.
 pub fn format_status_date(at: OffsetDateTime, offset: UtcOffset) -> String {
     at.to_offset(offset)
         .format(format_description!(
-            "[weekday repr:short] [day padding:none] [month repr:short] [year]"
+            "[weekday] [day padding:none] [month repr:long]"
         ))
         .unwrap_or_default()
 }
@@ -102,16 +110,18 @@ mod tests {
 
     #[test]
     fn formats_rates_uptime_and_age() {
-        assert_eq!(format_status_uptime(3_564_000), "41 d 6 h");
-        assert_eq!(format_status_uptime(11_520), "3 h 12 m");
-        assert_eq!(format_status_age(Duration::from_secs(125)), "2 m 5 s");
-        assert_eq!(format_status_age(Duration::from_secs(185_000)), "2 d 3 h");
+        assert_eq!(format_status_rate(38.0), "38 B/s");
+        assert_eq!(format_status_rate(1_258_291.0), "1.2 MiB/s");
+        assert_eq!(format_status_uptime(3_564_000), "41d 6h");
+        assert_eq!(format_status_uptime(11_520), "3h 12m");
+        assert_eq!(format_status_age(Duration::from_secs(125)), "2m 5s");
+        assert_eq!(format_status_age(Duration::from_secs(185_000)), "2d 3h");
     }
 
     #[test]
     fn formats_clock_in_local_offset() {
         let at = datetime!(2026-11-23 22:02:11 UTC);
-        assert_eq!(format_status_clock(at, offset!(-8)), "14:02:11");
-        assert_eq!(format_status_date(at, offset!(-8)), "Mon 23 Nov 2026");
+        assert_eq!(format_status_clock(at, offset!(-8)), "14:02");
+        assert_eq!(format_status_date(at, offset!(-8)), "Monday 23 November");
     }
 }

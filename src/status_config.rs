@@ -30,6 +30,11 @@ pub const DISK_POLL_INTERVAL: Duration = Duration::from_secs(300);
 #[derive(Debug, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct StatusConfig {
+    /// Background image of the status display. A relative path starts from
+    /// the folder of the configuration file. Without it the background is
+    /// a solid color.
+    #[serde(default)]
+    pub wallpaper: Option<PathBuf>,
     /// Shows metrics of the machine that runs the display.
     #[serde(default = "default_true")]
     pub show_this_machine: bool,
@@ -68,8 +73,6 @@ pub struct KumaConfig {
 #[derive(Debug, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct ScrutinyConfig {
-    /// Name of the host with the disks.
-    pub name: String,
     /// Scrutiny URL, such as `http://server.example.ts.net:8080`.
     pub url: String,
 }
@@ -97,6 +100,7 @@ impl Default for TailscaleConfig {
 impl Default for StatusConfig {
     fn default() -> Self {
         Self {
+            wallpaper: None,
             show_this_machine: true,
             glances: Vec::new(),
             uptime_kuma: None,
@@ -132,7 +136,12 @@ pub fn load_status_config(explicit: Option<&Path>) -> anyhow::Result<StatusConfi
     };
     let text = std::fs::read_to_string(&path)
         .with_context(|| format!("cannot read status config {}", path.display()))?;
-    toml::from_str(&text).with_context(|| format!("status config {} is not valid", path.display()))
+    let mut config: StatusConfig = toml::from_str(&text)
+        .with_context(|| format!("status config {} is not valid", path.display()))?;
+    if let (Some(wallpaper), Some(folder)) = (&config.wallpaper, path.parent()) {
+        config.wallpaper = Some(folder.join(wallpaper));
+    }
+    Ok(config)
 }
 
 /// One status feed: a collector and the panel that shows its readings.
@@ -173,7 +182,7 @@ pub fn build_status_feeds(config: &StatusConfig) -> anyhow::Result<Vec<StatusFee
     }
     if config.show_this_machine {
         feeds.push(StatusFeedSpec {
-            title: "This machine".into(),
+            title: sysinfo::System::host_name().unwrap_or_else(|_| "this machine".into()),
             source: "local",
             collector: StatusCollector::Local(LocalCollector::new_local_collector()?),
             poll_interval: HOST_POLL_INTERVAL,
@@ -193,7 +202,7 @@ pub fn build_status_feeds(config: &StatusConfig) -> anyhow::Result<Vec<StatusFee
     }
     if let Some(scrutiny) = &config.scrutiny {
         feeds.push(StatusFeedSpec {
-            title: format!("Disks · {}", scrutiny.name),
+            title: "Disks".into(),
             source: "Scrutiny",
             collector: StatusCollector::Scrutiny(ScrutinyCollector {
                 base_url: scrutiny.url.clone(),

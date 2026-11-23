@@ -71,15 +71,17 @@ fn main() {
     let args = StatusDisplayArgs::parse();
     env_logger_init();
 
-    let feeds =
-        match load_status_config(args.config.as_deref()).and_then(|c| build_status_feeds(&c)) {
-            Ok(feeds) => feeds,
-            Err(error) => {
-                log::error!("{error:#}");
-                std::process::exit(2);
-            }
-        };
+    let (config, feeds) = match load_status_config(args.config.as_deref())
+        .and_then(|config| build_status_feeds(&config).map(|feeds| (config, feeds)))
+    {
+        Ok(loaded) => loaded,
+        Err(error) => {
+            log::error!("{error:#}");
+            std::process::exit(2);
+        }
+    };
     let settings = StatusWindowSettings {
+        wallpaper: config.wallpaper,
         selector: args.display,
         start_fullscreen: !args.windowed,
         allow_focus: args.allow_focus,

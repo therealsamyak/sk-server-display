@@ -3,7 +3,7 @@
 use anyhow::Context as _;
 use serde::Deserialize;
 
-use crate::status_model::HostMetrics;
+use crate::{status_collector::is_virtual_network_interface, status_model::HostMetrics};
 
 /// Glances collector for one host.
 #[derive(Clone, Debug)]
@@ -16,7 +16,20 @@ pub struct GlancesCollector {
 #[derive(Deserialize)]
 struct GlancesCpu {
     total: f32,
-    cpucore: Option<usize>,
+}
+
+#[derive(Deserialize)]
+struct GlancesCoreCpu {
+    cpu_number: usize,
+    total: f32,
+}
+
+#[derive(Deserialize)]
+pub(crate) struct GlancesInterface {
+    pub interface_name: String,
+    pub bytes_all: u64,
+    pub bytes_recv_rate_per_sec: Option<f64>,
+    pub bytes_sent_rate_per_sec: Option<f64>,
 }
 
 #[derive(Deserialize)]
@@ -44,16 +57,6 @@ pub(crate) struct GlancesFilesystem {
     pub used: u64,
 }
 
-#[derive(Deserialize)]
-struct GlancesQuicklook {
-    cpu_name: Option<String>,
-}
-
-#[derive(Deserialize)]
-struct GlancesSystem {
-    hr_name: Option<String>,
-}
-
 impl GlancesCollector {
     fn get<T: serde::de::DeserializeOwned>(&self, plugin: &str) -> anyhow::Result<T> {
         let url = format!("{}/api/4/{plugin}", self.base_url.trim_end_matches('/'));
@@ -74,23 +77,16 @@ impl GlancesCollector {
         let sensors: Vec<GlancesSensor> = self.get("sensors").unwrap_or_default();
         let filesystems: Vec<GlancesFilesystem> = self.get("fs").unwrap_or_default();
         let uptime: String = self.get("uptime").unwrap_or_default();
-        let quicklook: Option<GlancesQuicklook> = self.get("quicklook").ok();
-        let system: Option<GlancesSystem> = self.get("system").ok();
+        let mut cores: Vec<GlancesCoreCpu> = self.get("percpu").unwrap_or_default();
+        cores.sort_by_key(|core| core.cpu_number);
+        let interfaces: Vec<GlancesInterface> = self.get("network").unwrap_or_default();
+        let interface = main_network_interface(&interfaces);
 
         let disk = filesystems.iter().max_by_key(|fs| fs.size);
-        let detail = [
-            system.and_then(|s| s.hr_name),
-            quicklook.and_then(|q| q.cpu_name),
-        ]
-        .into_iter()
-        .flatten()
-        .collect::<Vec<_>>()
-        .join(" · ");
         Ok(HostMetrics {
             name: self.name.clone(),
-            detail,
             cpu_percent: Some(cpu.total),
-            cpu_cores: cpu.cpucore,
+            core_percents: cores.into_iter().map(|core| core.total).collect(),
             memory_used_bytes: Some(memory.used),
             memory_total_bytes: Some(memory.total),
             disk_used_bytes: disk.map(|fs| fs.used),
@@ -98,8 +94,18 @@ impl GlancesCollector {
             temperature_celsius: cpu_temperature(&sensors),
             load_1m: Some(load.min1),
             uptime_seconds: parse_glances_uptime(&uptime),
+            network_receive_rate: interface.and_then(|i| i.bytes_recv_rate_per_sec),
+            network_send_rate: interface.and_then(|i| i.bytes_sent_rate_per_sec),
         })
     }
+}
+
+/// Picks the main network interface: the physical one with the most traffic.
+pub(crate) fn main_network_interface(interfaces: &[GlancesInterface]) -> Option<&GlancesInterface> {
+    interfaces
+        .iter()
+        .filter(|i| !is_virtual_network_interface(&i.interface_name))
+        .max_by_key(|i| i.bytes_all)
 }
 
 /// Picks the CPU temperature from Glances sensors: the CPU package sensor,
@@ -149,6 +155,28 @@ mod tests {
             kind: "temperature_core".into(),
             value,
         }
+    }
+
+    fn interface(name: &str, bytes_all: u64) -> GlancesInterface {
+        GlancesInterface {
+            interface_name: name.into(),
+            bytes_all,
+            bytes_recv_rate_per_sec: Some(1.0),
+            bytes_sent_rate_per_sec: Some(2.0),
+        }
+    }
+
+    #[test]
+    fn picks_busiest_physical_interface() {
+        let interfaces = [
+            interface("lo", 900),
+            interface("tailscale0", 800),
+            interface("docker0", 700),
+            interface("eth0", 500),
+            interface("wlan0", 100),
+        ];
+        let main = main_network_interface(&interfaces).unwrap();
+        assert_eq!(main.interface_name, "eth0");
     }
 
     #[test]

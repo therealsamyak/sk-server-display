@@ -7,10 +7,9 @@ use time::OffsetDateTime;
 pub struct HostMetrics {
     /// Machine name, such as `server`.
     pub name: String,
-    /// Short description, such as the OS and CPU model.
-    pub detail: String,
     pub cpu_percent: Option<f32>,
-    pub cpu_cores: Option<usize>,
+    /// Usage of each logical CPU core, in core order.
+    pub core_percents: Vec<f32>,
     pub memory_used_bytes: Option<u64>,
     pub memory_total_bytes: Option<u64>,
     pub disk_used_bytes: Option<u64>,
@@ -18,6 +17,10 @@ pub struct HostMetrics {
     pub temperature_celsius: Option<f32>,
     pub load_1m: Option<f32>,
     pub uptime_seconds: Option<u64>,
+    /// Network receive rate of the main interface, in bytes per second.
+    pub network_receive_rate: Option<f64>,
+    /// Network send rate of the main interface, in bytes per second.
+    pub network_send_rate: Option<f64>,
 }
 
 /// Service health state, as Uptime Kuma reports it.

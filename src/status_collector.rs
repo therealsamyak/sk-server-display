@@ -28,3 +28,44 @@ impl StatusCollector {
         })
     }
 }
+
+/// Returns `true` for loopback, VPN, container, and virtual machine network
+/// interfaces. The status display shows the traffic of a physical interface.
+pub fn is_virtual_network_interface(name: &str) -> bool {
+    const VIRTUAL_PREFIXES: [&str; 5] = ["lo", "br-", "veth", "virbr", "vEthernet"];
+    const VIRTUAL_PARTS: [&str; 6] = [
+        "loopback",
+        "tailscale",
+        "docker",
+        "virtualbox",
+        "vmware",
+        "wsl",
+    ];
+    let lower = name.to_lowercase();
+    VIRTUAL_PREFIXES
+        .iter()
+        .any(|prefix| name.starts_with(prefix))
+        || VIRTUAL_PARTS.iter().any(|part| lower.contains(part))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn detects_virtual_network_interfaces() {
+        for name in [
+            "lo",
+            "tailscale0",
+            "docker0",
+            "br-1a2b",
+            "vethab12",
+            "vEthernet (WSL)",
+        ] {
+            assert!(is_virtual_network_interface(name), "{name}");
+        }
+        for name in ["eth0", "enp5s0", "wlan0", "Ethernet", "Wi-Fi"] {
+            assert!(!is_virtual_network_interface(name), "{name}");
+        }
+    }
+}

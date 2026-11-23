@@ -8,6 +8,10 @@
 #
 # Use full Tailscale MagicDNS names. Do not commit your real file.
 
+# Background image: a JPEG, PNG, or WebP file. A relative path starts from
+# the folder of this file. Remove the line for a solid background.
+wallpaper = "wallpaper.jpg"
+
 # Show CPU, memory, disk, and uptime of the machine that runs the display.
 show_this_machine = true
 
@@ -23,7 +27,6 @@ status_page = "home"
 
 # Scrutiny SMART disk health.
 [scrutiny]
-name = "server"
 url = "http://server.example.ts.net:8080"
 
 # Tailnet devices from `tailscale status --json`.
