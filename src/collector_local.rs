@@ -73,10 +73,18 @@ impl LocalCollector {
             .max_by_key(|(_, data)| data.total_received() + data.total_transmitted())
             .map(|(_, data)| data);
 
-        let system_disk = sampler.disks.iter_mut().find(|disk| {
-            let mount = disk.mount_point();
-            mount == Path::new("/") || mount == Path::new("C:\\")
-        });
+        // macOS keeps user data on the APFS Data volume. Its `/` volume is the
+        // sealed system volume with a small fixed size in use.
+        let system_disk = ["/System/Volumes/Data", "/", "C:\\"]
+            .into_iter()
+            .find_map(|mount| {
+                let mount = Path::new(mount);
+                sampler
+                    .disks
+                    .iter()
+                    .position(|disk| disk.mount_point() == mount)
+            })
+            .map(|index| &mut sampler.disks[index]);
         let system_disk = system_disk.map(|disk| {
             disk.refresh_specifics(DiskRefreshKind::nothing().with_storage());
             (disk.total_space(), disk.available_space())

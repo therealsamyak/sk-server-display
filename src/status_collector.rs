@@ -48,8 +48,22 @@ impl StatusCollector {
 
 /// Returns `true` for loopback, VPN, container, and virtual machine network
 /// interfaces. The status display shows the traffic of a physical interface.
+/// macOS names its tunnels `utun` (Tailscale too), and its Apple wireless
+/// links `awdl` and `llw`.
 pub fn is_virtual_network_interface(name: &str) -> bool {
-    const VIRTUAL_PREFIXES: [&str; 5] = ["lo", "br-", "veth", "virbr", "vEthernet"];
+    const VIRTUAL_PREFIXES: [&str; 11] = [
+        "lo",
+        "br-",
+        "veth",
+        "virbr",
+        "vEthernet",
+        "utun",
+        "awdl",
+        "llw",
+        "anpi",
+        "gif",
+        "stf",
+    ];
     const VIRTUAL_PARTS: [&str; 6] = [
         "loopback",
         "tailscale",
@@ -78,10 +92,13 @@ mod tests {
             "br-1a2b",
             "vethab12",
             "vEthernet (WSL)",
+            "utun4",
+            "awdl0",
+            "llw0",
         ] {
             assert!(is_virtual_network_interface(name), "{name}");
         }
-        for name in ["eth0", "enp5s0", "wlan0", "Ethernet", "Wi-Fi"] {
+        for name in ["eth0", "enp5s0", "wlan0", "Ethernet", "Wi-Fi", "en0", "en1"] {
             assert!(!is_virtual_network_interface(name), "{name}");
         }
     }

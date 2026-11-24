@@ -449,9 +449,10 @@ Each module has one concern:
 
 These checks ran on a Linux machine (KDE Plasma, Wayland) with GPUI at the pinned commit:
 
-- `cargo test` passes 28 unit tests. The tests cover the
+- `cargo test` passes 30 unit tests. The tests cover the
   configuration, the Glances uptime and temperature parsing, the network interface choice, the
-  Kuma, Scrutiny, and Tailscale response conversion, the shared Tailscale result, the feed history,
+  Kuma, Scrutiny, and Tailscale response conversion, the macOS interface and APFS volume choice,
+  the Glances presence fallback, the shared Tailscale result, the feed history,
   the freshness rules and their next change, the formatting and the redraw times, the wallpaper
   size, the display selectors, and the physical display ranking. Test inputs use `example.ts.net`
   names.
@@ -471,6 +472,12 @@ These checks ran on a Linux machine (KDE Plasma, Wayland) with GPUI at the pinne
   window focused, the keyboard focus alert showed.
 - The window buttons did not show in these screenshots, because the virtual session does not move
   the pointer. The pointer reveal needs a hands-on check.
+- A temporary Glances 4 server ran on an Apple silicon Mac (`uvx --from "glances[web]" glances -w`)
+  and was then stopped. The Mac card showed CPU, memory, uptime, and network rates. The disk meter
+  showed the APFS Data volume, and the network rates came from the Wi-Fi interface, not from the
+  Tailscale tunnel. Glances reports no CPU temperature on that Mac, so the card shows none. When
+  Glances stopped, the card changed to the presence card with the amber note and no alert. When
+  Glances started again, the metrics came back. An offline Mac showed the gray presence card.
 - The benchmark in [bench/README.md](bench/README.md) compared the build before and after the
   changes in "Rendering and resource use". App CPU use fell from 1.38 % to 0.55 % of one core, GPU
   busy time from 0.90 % to 0.35 %, and resident memory from 155 MiB to 106 MiB. The first frame
@@ -504,9 +511,10 @@ These items need a test on real hardware. Windows items come first:
 ## Open questions
 
 - Which wallpaper do you want? The placeholder is the Windows XP "Bliss" photo.
-- The Macs were offline while this version was built. The design assumes that each Mac runs
-  Glances on the default port 61208, the same as the Linux server. Until Glances answers, each Mac
-  card shows its Tailscale presence. Confirm the port when you install Glances on the Macs.
+- Glances is not installed on the Macs. The design assumes that each Mac runs Glances on the
+  default port 61208, the same as the Linux server. Until Glances answers, each Mac card shows its
+  Tailscale presence. Glances must start at sign-in on each Mac to keep the card filled. This
+  version does not set that up.
 - Must the app start at sign-in on the Windows laptop? This version adds no startup entry or
   service.
 

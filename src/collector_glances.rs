@@ -33,7 +33,9 @@ struct GlancesCoreCpu {
 #[derive(Deserialize)]
 pub(crate) struct GlancesInterface {
     pub interface_name: String,
-    pub bytes_all: u64,
+    /// Bytes received and sent since Glances started. `bytes_all` counts
+    /// only the last update interval, so it changes with each poll.
+    pub bytes_all_gauge: u64,
     pub bytes_recv_rate_per_sec: Option<f64>,
     pub bytes_sent_rate_per_sec: Option<f64>,
 }
@@ -105,7 +107,7 @@ impl GlancesCollector {
         let interfaces: Vec<GlancesInterface> = self.get("network").unwrap_or_default();
         let interface = main_network_interface(&interfaces);
 
-        let disk = filesystems.iter().max_by_key(|fs| fs.size);
+        let disk = main_filesystem(&filesystems);
         Ok(HostMetrics {
             name: self.name.clone(),
             cpu_percent: Some(cpu.total),
@@ -128,7 +130,14 @@ pub(crate) fn main_network_interface(interfaces: &[GlancesInterface]) -> Option<
     interfaces
         .iter()
         .filter(|i| !is_virtual_network_interface(&i.interface_name))
-        .max_by_key(|i| i.bytes_all)
+        .max_by_key(|i| i.bytes_all_gauge)
+}
+
+/// Picks the main filesystem: the largest one. On macOS, the APFS volumes
+/// of one container all report the container size, so the volume with the
+/// most used space wins: `/System/Volumes/Data`, where user data lives.
+pub(crate) fn main_filesystem(filesystems: &[GlancesFilesystem]) -> Option<&GlancesFilesystem> {
+    filesystems.iter().max_by_key(|fs| (fs.size, fs.used))
 }
 
 /// Picks the CPU temperature from Glances sensors: the CPU package sensor,
@@ -208,10 +217,10 @@ mod tests {
         }
     }
 
-    fn interface(name: &str, bytes_all: u64) -> GlancesInterface {
+    fn interface(name: &str, bytes_all_gauge: u64) -> GlancesInterface {
         GlancesInterface {
             interface_name: name.into(),
-            bytes_all,
+            bytes_all_gauge,
             bytes_recv_rate_per_sec: Some(1.0),
             bytes_sent_rate_per_sec: Some(2.0),
         }
@@ -228,6 +237,23 @@ mod tests {
         ];
         let main = main_network_interface(&interfaces).unwrap();
         assert_eq!(main.interface_name, "eth0");
+        // macOS: Tailscale and Apple wireless links are not physical.
+        let interfaces = [
+            interface("utun4", 900),
+            interface("awdl0", 800),
+            interface("llw0", 700),
+            interface("en1", 500),
+        ];
+        let main = main_network_interface(&interfaces).unwrap();
+        assert_eq!(main.interface_name, "en1");
+    }
+
+    #[test]
+    fn picks_the_apfs_data_volume() {
+        let fs = |size: u64, used: u64| GlancesFilesystem { size, used };
+        // `/`, `/System/Volumes/Data`, and `/System/Volumes/Update/mnt1`.
+        let filesystems = [fs(460, 15), fs(460, 197), fs(460, 15), fs(4, 2)];
+        assert_eq!(main_filesystem(&filesystems).unwrap().used, 197);
     }
 
     #[test]
