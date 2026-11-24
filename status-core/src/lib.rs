@@ -15,3 +15,4 @@ pub mod status_feed;
 pub mod status_format;
 pub mod status_freshness;
 pub mod status_model;
+pub mod status_startup;

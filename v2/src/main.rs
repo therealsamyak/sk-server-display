@@ -17,13 +17,14 @@ use server_status_core::{
     status_config::{build_status_feeds, load_status_config},
     status_display::DisplaySelector,
     status_feed::StatusFeed,
+    status_startup::{self, StartupMilestone, log_startup_milestone},
 };
 use time::UtcOffset;
 
 use crate::{
     display_placement::{
         DisplayPlacement, choose_display_option, rune_display_options, start_placement_watcher,
-        windowed_position,
+        windowed_position, windowed_size,
     },
     status_poller::{new_status_poll_jobs, start_status_pollers},
     status_state::{StatusState, StatusStateParts},
@@ -62,6 +63,7 @@ struct StatusDisplayArgs {
 }
 
 fn main() {
+    status_startup::record_process_start();
     // Read the local offset before any thread starts. The `time` crate
     // refuses this lookup in a multithreaded process on Unix.
     let local_offset = UtcOffset::current_local_offset().unwrap_or(UtcOffset::UTC);
@@ -83,6 +85,8 @@ fn main() {
         }
     };
 
+    // Linux compositors match the window to a `.desktop` entry by this ID.
+    rune::set_app_id("server-status-display");
     rune::run_windows(move |displays| {
         let startup_displays = rune_display_options(displays);
         let choice = choose_display_option(args.display, &startup_displays);
@@ -105,7 +109,7 @@ fn main() {
             poll: Some(StatusState::poll_status_clock),
             on_key: Some(StatusState::handle_status_key),
             ..AppSpec::new(
-                "Server status",
+                "Server status display",
                 STATUS_WINDOW_SIZE,
                 || unreachable!("App::init builds the status state"),
                 status_view,
@@ -127,12 +131,16 @@ fn main() {
         let app = app
             .init(move || StatusState::new_status_state(state_parts))
             .window_options(WindowOptions {
-                position: choice.map(|choice| windowed_position(&choice.display)),
+                position: choice
+                    .as_ref()
+                    .map(|choice| windowed_position(&choice.display)),
+                physical_size: choice.as_ref().map(|choice| windowed_size(&choice.display)),
                 ..WindowOptions::default()
             })
             .full_screen(full_screen)
             .open_inactive()
             .on_focus(StatusState::record_window_focus)
+            .on_frame_drawn(|_| log_startup_milestone(StartupMilestone::FirstFramePresented))
             .on_window(move |window| {
                 if !allow_focus {
                     apply_no_activate_style(window);

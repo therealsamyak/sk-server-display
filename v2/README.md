@@ -82,9 +82,9 @@ The poll scheduling uses Rune's threading model:
 A feed thread polls only once at a time, so a slow source does not stack requests. HTTP timeouts are
 the same as in v1.
 
-Rune has no system wake event. After sleep, each feed polls again at its next interval. The 2-second
-host feeds recover within seconds. The 5-minute disk feed can show `stale` for up to 5 minutes after
-a long sleep. Press `R` or click `Refresh` to poll at once.
+Rune has no system wake event. The clock tick detects a wake instead: when the wall clock moves more
+than 30 seconds between two 1-second ticks, every feed polls at once. v1 gets the same result from
+GPUI's `App::on_system_wake`.
 
 ### Keyboard focus
 
@@ -173,8 +173,8 @@ To leave fullscreen, do one of these things:
 - Move the pointer over the window, then click `Windowed`. This works in every mode.
 - Press `Esc` or `F11` when the window has keyboard focus.
 
-Leaving fullscreen does not quit the app. The window returns to its windowed frame on the same
-display. To quit, click `Quit`, press `Ctrl+Q` (macOS: `Cmd+Q`), or close the window.
+Leaving fullscreen does not quit the app. The window returns to a windowed frame at 80 % of the
+display size, in the middle of the display, as in v1. To quit, click `Quit`, press `Ctrl+Q` (macOS: `Cmd+Q`), or close the window.
 
 The app keeps its own fullscreen flag for the button label. If you leave fullscreen through the
 operating system, for example with a window manager shortcut, the label can be wrong until the next
@@ -193,7 +193,9 @@ It has no display change event. v2 uses a placement watcher thread instead:
 2. It runs the display selection again.
 3. It stops if the chosen display has the same position and size as before.
 4. Otherwise, it leaves fullscreen, waits 300 ms, moves the window with `AppHandle::set_position`,
-   waits 300 ms, and enters fullscreen again. Winit's borderless fullscreen uses the current monitor
+   sets the windowed size to 80 % of the new display, waits 300 ms, and enters fullscreen again.
+   The Windows display configuration has no scale, so the resize uses the startup scale of the
+   same display, or 1.0 for a display that Rune did not see at startup. Winit's borderless fullscreen uses the current monitor
    of the window, so the window fills the new display.
 5. It updates the display label.
 

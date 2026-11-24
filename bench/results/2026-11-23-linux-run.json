@@ -1,0 +1,490 @@
+{
+  "v1-gpui": {
+    "startup_runs": [
+      {
+        "first view built": {
+          "in_app_ms": 93.2,
+          "observed_ms": 98.0
+        },
+        "first frame presented": {
+          "in_app_ms": 126.2,
+          "observed_ms": 130.9
+        },
+        "all feeds polled": {
+          "in_app_ms": 253.4,
+          "observed_ms": 258.1
+        }
+      },
+      {
+        "first view built": {
+          "in_app_ms": 79.3,
+          "observed_ms": 84.4
+        },
+        "first frame presented": {
+          "in_app_ms": 117.0,
+          "observed_ms": 122.0
+        },
+        "all feeds polled": {
+          "in_app_ms": 190.6,
+          "observed_ms": 195.7
+        }
+      },
+      {
+        "first view built": {
+          "in_app_ms": 79.1,
+          "observed_ms": 84.3
+        },
+        "first frame presented": {
+          "in_app_ms": 115.2,
+          "observed_ms": 120.2
+        },
+        "all feeds polled": {
+          "in_app_ms": 195.8,
+          "observed_ms": 200.8
+        }
+      },
+      {
+        "first view built": {
+          "in_app_ms": 82.9,
+          "observed_ms": 84.2
+        },
+        "first frame presented": {
+          "in_app_ms": 119.4,
+          "observed_ms": 120.7
+        },
+        "all feeds polled": {
+          "in_app_ms": 206.8,
+          "observed_ms": 208.2
+        }
+      },
+      {
+        "first view built": {
+          "in_app_ms": 82.5,
+          "observed_ms": 85.1
+        },
+        "first frame presented": {
+          "in_app_ms": 122.3,
+          "observed_ms": 124.9
+        },
+        "all feeds polled": {
+          "in_app_ms": 200.4,
+          "observed_ms": 202.9
+        }
+      },
+      {
+        "first view built": {
+          "in_app_ms": 112.6,
+          "observed_ms": 117.3
+        },
+        "first frame presented": {
+          "in_app_ms": 148.1,
+          "observed_ms": 152.8
+        },
+        "all feeds polled": {
+          "in_app_ms": 234.6,
+          "observed_ms": 239.3
+        }
+      },
+      {
+        "first view built": {
+          "in_app_ms": 112.1,
+          "observed_ms": 117.1
+        },
+        "first frame presented": {
+          "in_app_ms": 150.0,
+          "observed_ms": 155.0
+        },
+        "all feeds polled": {
+          "in_app_ms": 231.4,
+          "observed_ms": 236.5
+        }
+      },
+      {
+        "first view built": {
+          "in_app_ms": 78.2,
+          "observed_ms": 82.8
+        },
+        "first frame presented": {
+          "in_app_ms": 113.6,
+          "observed_ms": 118.2
+        },
+        "all feeds polled": {
+          "in_app_ms": 194.8,
+          "observed_ms": 199.5
+        }
+      },
+      {
+        "first view built": {
+          "in_app_ms": 102.6,
+          "observed_ms": 105.5
+        },
+        "first frame presented": {
+          "in_app_ms": 135.7,
+          "observed_ms": 138.4
+        },
+        "all feeds polled": {
+          "in_app_ms": 222.5,
+          "observed_ms": 225.2
+        }
+      },
+      {
+        "first view built": {
+          "in_app_ms": 79.2,
+          "observed_ms": 84.1
+        },
+        "first frame presented": {
+          "in_app_ms": 114.7,
+          "observed_ms": 119.6
+        },
+        "all feeds polled": {
+          "in_app_ms": 169.2,
+          "observed_ms": 174.0
+        }
+      }
+    ],
+    "steady_runs": [
+      {
+        "cpu_percent": 1.3,
+        "gpu_percent": 0.87,
+        "rss_mib_mean": 155.5,
+        "rss_mib_max": 155.8,
+        "pss_mib_mean": 129.1,
+        "threads": 22
+      },
+      {
+        "cpu_percent": 1.42,
+        "gpu_percent": 0.887,
+        "rss_mib_mean": 155.5,
+        "rss_mib_max": 155.7,
+        "pss_mib_mean": 129.1,
+        "threads": 21
+      },
+      {
+        "cpu_percent": 1.53,
+        "gpu_percent": 0.893,
+        "rss_mib_mean": 155.8,
+        "rss_mib_max": 156.1,
+        "pss_mib_mean": 129.3,
+        "threads": 22
+      }
+    ],
+    "summary": {
+      "first view built in_app_ms": {
+        "median": 82.7,
+        "min": 78.2,
+        "max": 112.6,
+        "n": 10
+      },
+      "first view built observed_ms": {
+        "median": 84.8,
+        "min": 82.8,
+        "max": 117.3,
+        "n": 10
+      },
+      "first frame presented in_app_ms": {
+        "median": 120.8,
+        "min": 113.6,
+        "max": 150.0,
+        "n": 10
+      },
+      "first frame presented observed_ms": {
+        "median": 123.5,
+        "min": 118.2,
+        "max": 155.0,
+        "n": 10
+      },
+      "all feeds polled in_app_ms": {
+        "median": 203.6,
+        "min": 169.2,
+        "max": 253.4,
+        "n": 10
+      },
+      "all feeds polled observed_ms": {
+        "median": 205.6,
+        "min": 174.0,
+        "max": 258.1,
+        "n": 10
+      },
+      "steady cpu_percent": {
+        "median": 1.4,
+        "min": 1.3,
+        "max": 1.5,
+        "n": 3
+      },
+      "steady gpu_percent": {
+        "median": 0.9,
+        "min": 0.9,
+        "max": 0.9,
+        "n": 3
+      },
+      "steady rss_mib_mean": {
+        "median": 155.5,
+        "min": 155.5,
+        "max": 155.8,
+        "n": 3
+      },
+      "steady rss_mib_max": {
+        "median": 155.8,
+        "min": 155.7,
+        "max": 156.1,
+        "n": 3
+      },
+      "steady pss_mib_mean": {
+        "median": 129.1,
+        "min": 129.1,
+        "max": 129.3,
+        "n": 3
+      },
+      "steady threads": {
+        "median": 22,
+        "min": 21,
+        "max": 22,
+        "n": 3
+      }
+    }
+  },
+  "v2-rune": {
+    "startup_runs": [
+      {
+        "first view built": {
+          "in_app_ms": 521.7,
+          "observed_ms": 525.0
+        },
+        "first frame presented": {
+          "in_app_ms": 566.4,
+          "observed_ms": 569.8
+        },
+        "all feeds polled": {
+          "in_app_ms": 627.1,
+          "observed_ms": 630.5
+        }
+      },
+      {
+        "first view built": {
+          "in_app_ms": 84.9,
+          "observed_ms": 88.2
+        },
+        "first frame presented": {
+          "in_app_ms": 111.4,
+          "observed_ms": 114.7
+        },
+        "all feeds polled": {
+          "in_app_ms": 176.2,
+          "observed_ms": 179.6
+        }
+      },
+      {
+        "first view built": {
+          "in_app_ms": 42.6,
+          "observed_ms": 45.9
+        },
+        "first frame presented": {
+          "in_app_ms": 69.0,
+          "observed_ms": 72.4
+        },
+        "all feeds polled": {
+          "in_app_ms": 112.1,
+          "observed_ms": 115.5
+        }
+      },
+      {
+        "first view built": {
+          "in_app_ms": 40.3,
+          "observed_ms": 43.7
+        },
+        "first frame presented": {
+          "in_app_ms": 64.9,
+          "observed_ms": 68.6
+        },
+        "all feeds polled": {
+          "in_app_ms": 135.5,
+          "observed_ms": 138.8
+        }
+      },
+      {
+        "first view built": {
+          "in_app_ms": 35.8,
+          "observed_ms": 39.3
+        },
+        "first frame presented": {
+          "in_app_ms": 62.1,
+          "observed_ms": 65.5
+        },
+        "all feeds polled": {
+          "in_app_ms": 134.8,
+          "observed_ms": 138.3
+        }
+      },
+      {
+        "first view built": {
+          "in_app_ms": 42.4,
+          "observed_ms": 43.3
+        },
+        "first frame presented": {
+          "in_app_ms": 68.2,
+          "observed_ms": 69.1
+        },
+        "all feeds polled": {
+          "in_app_ms": 112.4,
+          "observed_ms": 113.3
+        }
+      },
+      {
+        "first view built": {
+          "in_app_ms": 38.9,
+          "observed_ms": 42.2
+        },
+        "first frame presented": {
+          "in_app_ms": 65.2,
+          "observed_ms": 68.5
+        },
+        "all feeds polled": {
+          "in_app_ms": 107.4,
+          "observed_ms": 110.7
+        }
+      },
+      {
+        "first view built": {
+          "in_app_ms": 50.5,
+          "observed_ms": 53.7
+        },
+        "first frame presented": {
+          "in_app_ms": 76.6,
+          "observed_ms": 79.9
+        },
+        "all feeds polled": {
+          "in_app_ms": 143.5,
+          "observed_ms": 146.8
+        }
+      },
+      {
+        "first view built": {
+          "in_app_ms": 79.9,
+          "observed_ms": 82.9
+        },
+        "first frame presented": {
+          "in_app_ms": 107.0,
+          "observed_ms": 110.0
+        },
+        "all feeds polled": {
+          "in_app_ms": 148.3,
+          "observed_ms": 151.3
+        }
+      },
+      {
+        "first view built": {
+          "in_app_ms": 80.4,
+          "observed_ms": 83.7
+        },
+        "first frame presented": {
+          "in_app_ms": 106.8,
+          "observed_ms": 110.1
+        },
+        "all feeds polled": {
+          "in_app_ms": 166.3,
+          "observed_ms": 169.6
+        }
+      }
+    ],
+    "steady_runs": [
+      {
+        "cpu_percent": 0.87,
+        "gpu_percent": 3.064,
+        "rss_mib_mean": 103.1,
+        "rss_mib_max": 103.2,
+        "pss_mib_mean": 92.7,
+        "threads": 17
+      },
+      {
+        "cpu_percent": 0.83,
+        "gpu_percent": 3.084,
+        "rss_mib_mean": 102.8,
+        "rss_mib_max": 103.0,
+        "pss_mib_mean": 92.5,
+        "threads": 17
+      },
+      {
+        "cpu_percent": 0.95,
+        "gpu_percent": 3.175,
+        "rss_mib_mean": 102.9,
+        "rss_mib_max": 103.1,
+        "pss_mib_mean": 92.6,
+        "threads": 17
+      }
+    ],
+    "summary": {
+      "first view built in_app_ms": {
+        "median": 46.5,
+        "min": 35.8,
+        "max": 521.7,
+        "n": 10
+      },
+      "first view built observed_ms": {
+        "median": 49.8,
+        "min": 39.3,
+        "max": 525.0,
+        "n": 10
+      },
+      "first frame presented in_app_ms": {
+        "median": 72.8,
+        "min": 62.1,
+        "max": 566.4,
+        "n": 10
+      },
+      "first frame presented observed_ms": {
+        "median": 76.2,
+        "min": 65.5,
+        "max": 569.8,
+        "n": 10
+      },
+      "all feeds polled in_app_ms": {
+        "median": 139.5,
+        "min": 107.4,
+        "max": 627.1,
+        "n": 10
+      },
+      "all feeds polled observed_ms": {
+        "median": 142.8,
+        "min": 110.7,
+        "max": 630.5,
+        "n": 10
+      },
+      "steady cpu_percent": {
+        "median": 0.9,
+        "min": 0.8,
+        "max": 0.9,
+        "n": 3
+      },
+      "steady gpu_percent": {
+        "median": 3.1,
+        "min": 3.1,
+        "max": 3.2,
+        "n": 3
+      },
+      "steady rss_mib_mean": {
+        "median": 102.9,
+        "min": 102.8,
+        "max": 103.1,
+        "n": 3
+      },
+      "steady rss_mib_max": {
+        "median": 103.1,
+        "min": 103.0,
+        "max": 103.2,
+        "n": 3
+      },
+      "steady pss_mib_mean": {
+        "median": 92.6,
+        "min": 92.5,
+        "max": 92.7,
+        "n": 3
+      },
+      "steady threads": {
+        "median": 17,
+        "min": 17,
+        "max": 17,
+        "n": 3
+      }
+    }
+  }
+}

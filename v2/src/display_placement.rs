@@ -29,7 +29,7 @@ const DISPLAY_WATCH_INTERVAL: Duration = Duration::from_secs(2);
 const WINDOW_MOVE_STEP_DELAY: Duration = Duration::from_millis(300);
 
 /// One display that can show the status window.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct DisplayOption {
     /// Top-left corner in physical desktop pixels.
     pub position: (i32, i32),
@@ -38,10 +38,12 @@ pub struct DisplayOption {
     /// Platform name. On Windows this is the GDI device name.
     pub name: Option<String>,
     pub is_primary: bool,
+    /// Points to physical pixels, such as 1.5 at 150 % scaling.
+    pub scale: f64,
 }
 
 /// The display chosen for the status window, with its label.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct DisplayChoice {
     pub display: DisplayOption,
     /// 1-based number in left-to-right, top-to-bottom order.
@@ -60,6 +62,7 @@ pub fn rune_display_options(displays: &[rune::Display]) -> Vec<DisplayOption> {
             size: display.size,
             name: display.name.clone(),
             is_primary: display.primary,
+            scale: display.scale,
         })
         .collect();
     options.sort_by_key(|option| option.position);
@@ -130,6 +133,12 @@ fn current_display_options(startup: &[DisplayOption]) -> Vec<DisplayOption> {
             server_status_core::display_windows::list_windows_displays()
                 .into_iter()
                 .map(|display| DisplayOption {
+                    // The display configuration has no scale. Use the
+                    // startup scale of the same display, if Rune saw it.
+                    scale: startup
+                        .iter()
+                        .find(|s| s.name.as_deref() == Some(display.gdi_device_name.as_str()))
+                        .map_or(1.0, |s| s.scale),
                     position: display.position,
                     size: display.size,
                     name: Some(display.gdi_device_name),
@@ -266,10 +275,20 @@ fn move_status_window(
         std::thread::sleep(WINDOW_MOVE_STEP_DELAY);
     }
     handle.set_position(windowed_position(&choice.display));
+    let (width, height) = windowed_size(&choice.display);
+    let scale = choice.display.scale.max(0.1) as f32;
+    handle.update(move |_, tx| {
+        tx.resize_window_instant((width as f32 / scale, height as f32 / scale))
+    });
     if full_screen {
         std::thread::sleep(WINDOW_MOVE_STEP_DELAY);
         handle.update(|_, tx| tx.toggle_full_screen());
     }
+}
+
+/// Windowed size on a display: 80 % of its size, in physical pixels, as in v1.
+pub fn windowed_size(display: &DisplayOption) -> (u32, u32) {
+    (display.size.0 * 4 / 5, display.size.1 * 4 / 5)
 }
 
 /// Window position on a display: 10 % in from its top-left corner, so the
@@ -291,6 +310,7 @@ mod tests {
             size: (1920, 1080),
             name: None,
             is_primary,
+            scale: 1.0,
         }
     }
 
@@ -310,7 +330,8 @@ mod tests {
     }
 
     #[test]
-    fn windowed_position_is_inside_the_display() {
+    fn windowed_frame_is_centered_at_80_percent() {
         assert_eq!(windowed_position(&option(1920, false)), (2112, 108));
+        assert_eq!(windowed_size(&option(1920, false)), (1536, 864));
     }
 }

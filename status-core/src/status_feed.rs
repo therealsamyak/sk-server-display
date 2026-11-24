@@ -70,6 +70,11 @@ impl StatusFeed {
         }
     }
 
+    /// `true` after the first poll result, data or error.
+    pub fn has_poll_result(&self) -> bool {
+        self.data.is_some() || self.last_error.is_some()
+    }
+
     /// Stores the result of one poll: a new reading, or the poll error.
     pub fn record_feed_poll(&mut self, result: anyhow::Result<FeedData>) {
         match result {

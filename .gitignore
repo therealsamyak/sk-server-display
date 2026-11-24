@@ -1,3 +1,4 @@
 /target
 /config.local.toml
 /local/
+__pycache__/

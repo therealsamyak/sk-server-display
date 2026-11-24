@@ -24,6 +24,7 @@ The workspace has three crates:
 | `status-core/` | `server-status-core` (library) | Configuration, collectors, readings, feed history, freshness rules, text formats, and the Windows display queries. No UI code. |
 | `v1/` | `server-status-display-v1` (binary) | GPUI app. See [v1/README.md](v1/README.md). |
 | `v2/` | `server-status-display-v2` (binary) | Rune app. See [v2/README.md](v2/README.md). |
+| `bench/` | Python script | Benchmark of the two apps. See [bench/README.md](bench/README.md). |
 
 The workspace root holds the shared files:
 
@@ -120,10 +121,14 @@ The two versions differ in how the UI framework handles windows and displays:
 | First open without focus | Windows and macOS. | Windows and macOS. |
 | Click without focus on Windows | `WS_EX_NOACTIVATE` through the GPUI window handle. | `WS_EX_NOACTIVATE` through the Rune window handle. |
 | Fullscreen on Windows | GPUI borderless fullscreen on the window's display. | winit borderless fullscreen on the window's display. |
-| Poll after system wake | Yes, through `App::on_system_wake`. | No wake event. The next scheduled poll updates the data. |
+| Poll after system wake | Yes, through `App::on_system_wake`. | Yes. A wall-clock jump of more than 30 s between two clock ticks counts as a wake. |
 | Screenshots without a display | No. Needs a compositor session. | Yes. Rune's headless `--snap` mode in debug builds. |
 
 Each version README lists its source citations and the items that need a hands-on test.
+
+[bench/README.md](bench/README.md) compares startup time, CPU, GPU, memory, and build cost of the two
+versions at feature parity. On Linux, v2 starts about 50 ms faster and uses less CPU and memory.
+v1 uses about one third of the GPU time.
 
 ## Private data
 

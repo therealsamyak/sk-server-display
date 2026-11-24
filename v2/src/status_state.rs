@@ -5,7 +5,10 @@ use std::{path::PathBuf, sync::Arc, time::Instant};
 
 use rune::{ImageCache, Key, KeyEvent, Tx, Waker};
 use server_status_core::{
-    status_feed::StatusFeed, status_freshness::FeedFreshness, status_model::FeedData,
+    status_feed::StatusFeed,
+    status_freshness::FeedFreshness,
+    status_model::FeedData,
+    status_startup::{StartupMilestone, log_startup_milestone},
 };
 use time::{OffsetDateTime, UtcOffset};
 
@@ -16,6 +19,9 @@ const CONTROLS_VISIBLE_SECONDS: f64 = 3.0;
 
 /// Interval of the clock tick that keeps the clock and the data ages current.
 const STATUS_TICK_SECONDS: f64 = 1.0;
+
+/// Wall-clock gap between two ticks that counts as a system wake.
+const WAKE_GAP: time::Duration = time::Duration::seconds(30);
 
 /// Status state: everything the status view shows.
 pub struct StatusState {
@@ -79,6 +85,9 @@ impl StatusState {
         if let Some(feed) = self.feeds.get_mut(index) {
             feed.record_feed_poll(result);
         }
+        if self.feeds.iter().all(StatusFeed::has_poll_result) {
+            log_startup_milestone(StartupMilestone::AllFeedsPolled);
+        }
     }
 
     /// Freshness of one feed now.
@@ -116,7 +125,14 @@ impl StatusState {
             changed = true;
         }
         if clock >= self.next_tick {
+            let previous = self.now;
             self.now = OffsetDateTime::now_utc();
+            // Rune has no system wake event. A wall-clock jump much longer
+            // than the tick means the system slept, so every feed polls now.
+            if self.now - previous > WAKE_GAP {
+                log::info!("system wake detected; polling all feeds");
+                self.refresh_status();
+            }
             self.next_tick = clock + STATUS_TICK_SECONDS;
             changed = true;
         }

@@ -1,0 +1,18 @@
+{
+  "v1-gpui": {
+    "clean_build_seconds": 194.1,
+    "incremental_build_seconds": 2.9,
+    "binary_bytes": 47297144,
+    "stripped_binary_bytes": 35341480,
+    "dependency_crates": 467,
+    "binary_path": "/tmp/status-bench/target-v1-gpui/release/server-status-display-v1"
+  },
+  "v2-rune": {
+    "clean_build_seconds": 189.2,
+    "incremental_build_seconds": 3.2,
+    "binary_bytes": 47768224,
+    "stripped_binary_bytes": 37310568,
+    "dependency_crates": 335,
+    "binary_path": "/tmp/status-bench/target-v2-rune/release/server-status-display-v2"
+  }
+}

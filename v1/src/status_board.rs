@@ -4,7 +4,10 @@ use std::time::{Duration, Instant};
 
 use gpui::{App, AppContext as _, Context, Entity, Subscription, Task};
 use server_status_core::{
-    status_config::StatusFeedSpec, status_feed::StatusFeed, status_freshness::FeedFreshness,
+    status_config::StatusFeedSpec,
+    status_feed::StatusFeed,
+    status_freshness::FeedFreshness,
+    status_startup::{StartupMilestone, log_startup_milestone},
 };
 
 /// Interval of the redraw tick that keeps clocks and age labels current.
@@ -90,6 +93,9 @@ impl StatusBoard {
             this.update(cx, |board, cx| {
                 board.polls[index].task = None;
                 board.feeds[index].record_feed_poll(result);
+                if board.feeds.iter().all(StatusFeed::has_poll_result) {
+                    log_startup_milestone(StartupMilestone::AllFeedsPolled);
+                }
                 cx.notify();
             })
             .ok();

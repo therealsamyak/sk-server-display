@@ -16,6 +16,7 @@ use server_status_core::{
         DiskHealth, DiskState, FeedData, HostMetrics, ServiceHealth, ServiceState,
         TailnetConnection, TailnetDevice,
     },
+    status_startup::{StartupMilestone, log_startup_milestone},
 };
 use time::OffsetDateTime;
 
@@ -79,6 +80,7 @@ fn label(content: impl Into<String>, style: TextStyle, color: Color) -> El {
 
 /// `AppSpec::view`: the whole status display.
 pub fn status_view(state: &StatusState, cx: &mut Cx<StatusState>) -> El {
+    log_startup_milestone(StartupMilestone::FirstViewBuilt);
     let [width, height] = cx
         .layout_size(STATUS_ROOT_KEY)
         .unwrap_or([STATUS_WINDOW_SIZE.0, STATUS_WINDOW_SIZE.1]);

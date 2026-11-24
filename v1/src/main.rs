@@ -57,6 +57,7 @@ struct StatusDisplayRoot(#[allow(dead_code)] Entity<StatusDisplayApp>);
 impl Global for StatusDisplayRoot {}
 
 fn main() {
+    server_status_core::status_startup::record_process_start();
     // Read the local offset before GPUI starts threads. The `time` crate
     // refuses this lookup in a multithreaded process on Unix.
     let local_offset = UtcOffset::current_local_offset().unwrap_or(UtcOffset::UTC);
