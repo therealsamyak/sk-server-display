@@ -25,6 +25,7 @@ mod status_model;
 mod status_panel;
 mod status_redraw;
 mod status_startup;
+mod status_style;
 mod status_theme;
 mod status_view;
 mod status_wallpaper;
@@ -93,6 +94,7 @@ fn main() {
             std::process::exit(2);
         }
     };
+    status_style::set_status_style(config.style);
     let settings = StatusWindowSettings {
         wallpaper: config.wallpaper,
         selector: args.display,

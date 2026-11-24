@@ -18,6 +18,7 @@ use crate::{
     collector_scrutiny::ScrutinyCollector,
     collector_tailscale::{TailnetHostCollector, TailscaleCollector, TailscaleStatusReader},
     status_collector::StatusCollector,
+    status_style::StatusStyleName,
 };
 
 /// Poll interval of host metrics from this machine and from Glances.
@@ -38,6 +39,10 @@ pub struct StatusConfig {
     /// a solid color.
     #[serde(default)]
     pub wallpaper: Option<PathBuf>,
+    /// Look of the display: palette, fonts, and panel placement. Pick the
+    /// style made for the wallpaper. Default: `hills`.
+    #[serde(default)]
+    pub style: StatusStyleName,
     /// Host cards, in column order. Empty: one card for this machine.
     #[serde(default, rename = "host")]
     pub hosts: Vec<HostConfig>,

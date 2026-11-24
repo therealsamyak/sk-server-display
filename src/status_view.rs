@@ -14,14 +14,15 @@ use crate::{
     status_board::StatusBoard,
     status_collector::StatusCollector,
     status_feed::StatusFeed,
-    status_fonts::{STATUS_CLOCK_FONT_FAMILY, STATUS_PANEL_FONT_FAMILY},
+    status_fonts::STATUS_MONO_FONT_FAMILY,
     status_format::{
         format_status_age, format_status_clock, format_status_date, status_clock_text_valid_for,
     },
     status_freshness::FeedFreshness,
-    status_panel::FeedPanelView,
+    status_panel::{FeedPanelView, HostBodyKind, side_panel_height},
     status_redraw::StatusRedrawTimer,
     status_startup::{StartupMilestone, log_startup_milestone},
+    status_style::{PanelGroup, StyleAnchor, StyleArea, StyleArrangement, active_status_style},
     status_theme::{PANEL_GAP, PRESENCE_PANEL_HEIGHT, Scale, StatusLayout, StatusTheme},
     status_wallpaper::load_status_wallpaper,
     status_window::StatusDisplayApp,
@@ -29,8 +30,8 @@ use crate::{
 use gpui::{
     AnyElement, App, AppContext as _, ClickEvent, Context, Div, Entity, FocusHandle, FontWeight,
     Hsla, IntoElement, ObjectFit, Render, RenderImage, Size, Stateful, StyleRefinement,
-    StyledImage as _, Subscription, Task, WeakEntity, Window, actions, div, img, prelude::*,
-    relative,
+    StyledImage as _, Subscription, Task, WeakEntity, Window, actions, div, img, linear_color_stop,
+    linear_gradient, prelude::*, relative,
 };
 use time::{OffsetDateTime, UtcOffset};
 
@@ -75,6 +76,8 @@ pub struct StatusView {
     panels: Vec<Entity<FeedPanelView>>,
     /// Number of host panels that share the host column.
     host_rows: usize,
+    /// Devices with a host card. The tailnet panel leaves them out.
+    carded: Vec<String>,
     wallpaper: StatusWallpaper,
     pointer_moved_at: Option<Instant>,
     first_frame_requested: bool,
@@ -116,11 +119,18 @@ impl StatusView {
             .filter(is_host)
             .map(|feed| feed.spec.title.clone())
             .collect();
+        let host_body = match active_status_style().arrangement {
+            StyleArrangement::Sides { .. } => HostBodyKind::Stacked,
+            StyleArrangement::Band if host_rows > 1 => HostBodyKind::Row,
+            StyleArrangement::Band => HostBodyKind::Full,
+        };
         let panels = (0..feeds.len())
             .map(|index| {
                 let board = board.clone();
                 let carded = carded.clone();
-                cx.new(|cx| FeedPanelView::new_feed_panel(board, index, host_rows, carded, cx))
+                cx.new(|cx| {
+                    FeedPanelView::new_feed_panel(board, index, host_rows, host_body, carded, cx)
+                })
             })
             .collect();
         Self {
@@ -130,6 +140,7 @@ impl StatusView {
             focus_handle,
             panels,
             host_rows,
+            carded,
             wallpaper: StatusWallpaper::default(),
             pointer_moved_at: None,
             first_frame_requested: false,
@@ -250,23 +261,12 @@ impl Render for StatusView {
             }
         }
 
-        let clock = div()
-            .flex()
-            .flex_col()
-            .font_family(STATUS_CLOCK_FONT_FAMILY)
-            .child(
-                div()
-                    .text_size(s(128.))
-                    .line_height(relative(1.))
-                    .font_weight(FontWeight::LIGHT)
-                    .child(format_status_clock(now, offset)),
-            )
-            .child(
-                div()
-                    .pl(s(6.))
-                    .text_size(s(28.))
-                    .child(format_status_date(now, offset)),
-            );
+        let style = active_status_style();
+        let clock_end = matches!(
+            style.arrangement,
+            StyleArrangement::Sides { left, .. } if left.clock.is_none()
+        );
+        let clock = status_clock(s, now, offset, clock_end);
 
         let is_fullscreen = window.is_fullscreen();
         let controls_left = self
@@ -277,6 +277,8 @@ impl Render for StatusView {
         }
         let controls = div()
             .flex()
+            .flex_wrap()
+            .when(clock_end, |row| row.justify_end())
             .items_center()
             .gap(s(8.))
             .child(
@@ -322,87 +324,33 @@ impl Render for StatusView {
                     this.quit(&QuitStatusDisplay, window, cx)
                 }),
             ));
-
-        let top = div()
-            .flex_1()
-            .min_h_0()
+        let notices = div()
+            .w_full()
             .flex()
-            .justify_between()
-            .items_start()
-            .gap(s(32.))
-            .child(clock)
-            .child(
-                div()
-                    .w(relative(0.5))
-                    .flex()
-                    .flex_col()
-                    .items_end()
-                    .gap(s(8.))
-                    .when(controls_left.is_some(), |column| column.child(controls))
-                    .children(alerts),
-            );
+            .flex_col()
+            .when(clock_end, |column| column.items_end())
+            .gap(s(8.))
+            .when(controls_left.is_some(), |column| column.child(controls))
+            .children(alerts);
 
-        // Each panel is a cached view laid out at this style. GPUI reuses
+        // Each panel is a cached view laid out at its style. GPUI reuses
         // its last drawing until the panel is notified.
-        let panel_style = || StyleRefinement::default().flex_1().min_w_0().min_h_0();
-        // A status card has a fixed height. Metric cards share the rest of
-        // the column.
-        let status_card_style = || {
-            StyleRefinement::default()
-                .flex_none()
-                .min_w_0()
-                .h(s(PRESENCE_PANEL_HEIGHT))
-        };
-        let mut host_panels = Vec::new();
-        let mut service_panels = Vec::new();
-        let mut side_panels = Vec::new();
-        for (feed, panel) in board.status_feeds().iter().zip(&self.panels) {
-            let style = match feed.spec.collector {
-                StatusCollector::TailnetHost(_) => status_card_style(),
-                _ => panel_style(),
-            };
-            let panel = panel.clone().cached(style).into_any_element();
-            match &feed.spec.collector {
-                StatusCollector::Glances(_)
-                | StatusCollector::Local(_)
-                | StatusCollector::TailnetHost(_) => host_panels.push(panel),
-                StatusCollector::Kuma(_) => service_panels.push(panel),
-                StatusCollector::Scrutiny(_) | StatusCollector::Tailscale(_) => {
-                    side_panels.push(panel)
-                }
+        let content = match style.arrangement {
+            StyleArrangement::Band => {
+                self.band_content(s, layout, board, clock, notices.w(relative(0.5)))
             }
-        }
-        let host_count = host_panels.len();
-        let column = |panels: Vec<AnyElement>, grow: f32| {
-            (!panels.is_empty()).then(|| {
-                let mut column = div()
-                    .min_w_0()
-                    .h_full()
-                    .flex()
-                    .flex_col()
-                    .gap(s(PANEL_GAP))
-                    .children(panels);
-                column.style().flex_grow = Some(grow);
-                column.style().flex_basis = Some(relative(0.).into());
-                column
-            })
+            StyleArrangement::Sides { left, right } => {
+                self.sides_content(s, layout, board, clock.child(notices), left, right)
+            }
         };
-        let host_columns = if self.host_rows == 1 {
-            let grow = if host_count == 1 { 1.3 } else { 1. };
-            host_panels
+        let shades = match style.arrangement {
+            StyleArrangement::Band => Vec::new(),
+            StyleArrangement::Sides { left, right } => [(left, false), (right, true)]
                 .into_iter()
-                .filter_map(|panel| column(vec![panel], grow))
-                .collect()
-        } else {
-            column(host_panels, 1.3).into_iter().collect::<Vec<_>>()
+                .filter(|(area, _)| area.width > 0.)
+                .map(|(area, is_right)| area_shade(s, layout, area, is_right))
+                .collect(),
         };
-        let panels = div()
-            .h(s(layout.panel_area))
-            .flex()
-            .gap(s(PANEL_GAP))
-            .children(host_columns)
-            .children(column(service_panels, 1.))
-            .children(column(side_panels, 1.));
 
         let root = div()
             .id("status-root")
@@ -427,7 +375,7 @@ impl Render for StatusView {
             .relative()
             .size_full()
             .bg(StatusTheme::background())
-            .font_family(STATUS_PANEL_FONT_FAMILY)
+            .font_family(STATUS_MONO_FONT_FAMILY)
             .line_height(relative(1.25))
             .text_color(StatusTheme::text())
             .children(self.wallpaper.image.clone().map(|image| {
@@ -438,17 +386,8 @@ impl Render for StatusView {
                     .object_fit(ObjectFit::Cover)
             }))
             .child(div().absolute().inset_0().bg(StatusTheme::scrim()))
-            .child(
-                div()
-                    .relative()
-                    .size_full()
-                    .flex()
-                    .flex_col()
-                    .gap(s(24.))
-                    .p(s(32.))
-                    .child(top)
-                    .child(panels),
-            );
+            .children(shades)
+            .child(content);
         self.redraw.schedule_status_redraw(cx);
         root
     }
@@ -511,7 +450,8 @@ fn alert_row(s: Scale, color: Hsla, title: String, detail: String) -> Div {
             div()
                 .text_size(s(13.))
                 .text_color(StatusTheme::muted())
-                .truncate()
+                .text_ellipsis()
+                .line_clamp(2)
                 .child(detail),
         )
 }
@@ -536,4 +476,312 @@ fn control_button(
         .hover(|style| style.text_color(StatusTheme::text()))
         .on_click(on_click)
         .child(label)
+}
+
+impl StatusView {
+    /// Band arrangement: the clock and the notices at the top, all panels in
+    /// a band at the bottom.
+    fn band_content(
+        &self,
+        s: Scale,
+        layout: StatusLayout,
+        board: &StatusBoard,
+        clock: Div,
+        notices: Div,
+    ) -> Div {
+        let top = div()
+            .flex_1()
+            .min_h_0()
+            .flex()
+            .justify_between()
+            .items_start()
+            .gap(s(32.))
+            .child(clock)
+            .child(notices.items_end());
+        let panel_style = || StyleRefinement::default().flex_1().min_w_0().min_h_0();
+        // A status card has a fixed height. Metric cards share the rest of
+        // the column.
+        let status_card_style = || {
+            StyleRefinement::default()
+                .flex_none()
+                .min_w_0()
+                .h(s(PRESENCE_PANEL_HEIGHT))
+        };
+        let mut host_panels = Vec::new();
+        let mut service_panels = Vec::new();
+        let mut side_panels = Vec::new();
+        for (feed, panel) in board.status_feeds().iter().zip(&self.panels) {
+            let style = match feed.spec.collector {
+                StatusCollector::TailnetHost(_) => status_card_style(),
+                _ => panel_style(),
+            };
+            let panel = panel.clone().cached(style).into_any_element();
+            match &feed.spec.collector {
+                StatusCollector::Glances(_)
+                | StatusCollector::Local(_)
+                | StatusCollector::TailnetHost(_) => host_panels.push(panel),
+                StatusCollector::Kuma(_) => service_panels.push(panel),
+                StatusCollector::Scrutiny(_) | StatusCollector::Tailscale(_) => {
+                    side_panels.push(panel)
+                }
+            }
+        }
+        let host_count = host_panels.len();
+        let column = |panels: Vec<AnyElement>, grow: f32| {
+            (!panels.is_empty()).then(|| {
+                let mut column = div()
+                    .min_w_0()
+                    .h_full()
+                    .flex()
+                    .flex_col()
+                    .gap(s(PANEL_GAP))
+                    .children(panels);
+                column.style().flex_grow = Some(grow);
+                column.style().flex_basis = Some(relative(0.).into());
+                column
+            })
+        };
+        let host_columns = if self.host_rows == 1 {
+            let grow = if host_count == 1 { 1.3 } else { 1. };
+            host_panels
+                .into_iter()
+                .filter_map(|panel| column(vec![panel], grow))
+                .collect()
+        } else {
+            column(host_panels, 1.3).into_iter().collect::<Vec<_>>()
+        };
+        let panels = div()
+            .h(s(layout.panel_area))
+            .flex()
+            .gap(s(PANEL_GAP))
+            .children(host_columns)
+            .children(column(service_panels, 1.))
+            .children(column(side_panels, 1.));
+        div()
+            .relative()
+            .size_full()
+            .flex()
+            .flex_col()
+            .gap(s(24.))
+            .p(s(SCREEN_PADDING))
+            .child(top)
+            .child(panels)
+    }
+
+    /// Side arrangement: one column area at each edge, the middle free for
+    /// the art. `clock` holds the clock and the notices.
+    fn sides_content(
+        &self,
+        s: Scale,
+        layout: StatusLayout,
+        board: &StatusBoard,
+        clock: Div,
+        left: StyleArea,
+        right: StyleArea,
+    ) -> Div {
+        let mut hosts = Vec::new();
+        let mut others = Vec::new();
+        for (feed, panel) in board.status_feeds().iter().zip(&self.panels) {
+            let height = side_panel_height(feed, &self.carded);
+            // Only a host card with metrics gives up height when the column
+            // is full: its CPU graph is shorter then.
+            let style = match feed.spec.collector {
+                StatusCollector::Glances(_) | StatusCollector::Local(_) => {
+                    StyleRefinement::default()
+                        .flex_shrink(1.)
+                        .min_h(s(STACKED_HOST_MIN_HEIGHT))
+                }
+                _ => StyleRefinement::default().flex_none(),
+            }
+            .w_full()
+            .h(s(height));
+            let panel = panel.clone().cached(style).into_any_element();
+            if feed.spec.collector.is_host_collector() {
+                hosts.push(panel);
+            } else {
+                others.push(panel);
+            }
+        }
+        let mut clock = Some(clock);
+        let mut groups = Some((hosts, others));
+        let inner_width = layout.width - 2. * SCREEN_PADDING;
+        let mut area = |area: StyleArea, is_right: bool| {
+            (area.width > 0.).then(|| {
+                let area_clock = area
+                    .clock
+                    .and_then(|anchor| clock.take().map(|c| (anchor, c)));
+                let (hosts, others) = groups.take().unwrap_or_default();
+                let (mut hosts, mut others) = (Some(hosts), Some(others));
+                let mut columns: Vec<SideColumn> = area
+                    .groups
+                    .iter()
+                    .map(|group| {
+                        let panels = match group {
+                            PanelGroup::Hosts => hosts.take(),
+                            PanelGroup::Others => others.take(),
+                        };
+                        let grow = match group {
+                            PanelGroup::Hosts => 1.,
+                            PanelGroup::Others => OTHERS_COLUMN_GROW,
+                        };
+                        (None, panels.unwrap_or_default(), grow)
+                    })
+                    .collect();
+                // Panels not placed in this area go to the other area.
+                groups = Some((hosts.unwrap_or_default(), others.unwrap_or_default()));
+                // The clock stands on the host column, or alone.
+                let clock_column = area
+                    .groups
+                    .iter()
+                    .position(|group| *group == PanelGroup::Hosts)
+                    .unwrap_or(0);
+                match columns.get_mut(clock_column) {
+                    Some(column) => column.0 = area_clock,
+                    None => columns.push((area_clock, Vec::new(), 1.)),
+                }
+                if is_right {
+                    columns.reverse();
+                }
+                div()
+                    .flex_none()
+                    .w(s(area.width * inner_width))
+                    .h_full()
+                    .flex()
+                    .gap(s(PANEL_GAP))
+                    .children(columns.into_iter().map(|(clock, panels, grow)| {
+                        side_column(s, clock, panels, area.panels, grow)
+                    }))
+            })
+        };
+        // The left area takes its groups first. The right area gets the rest.
+        let left_area = area(left, false);
+        let right_area = area(right, true);
+        div()
+            .relative()
+            .size_full()
+            .flex()
+            .gap(s(PANEL_GAP))
+            .p(s(SCREEN_PADDING))
+            .children(left_area)
+            .child(div().flex_1())
+            .children(right_area)
+    }
+}
+
+/// One column of a side area: the clock block with its anchor, if any, and
+/// the panels.
+type SideColumn = (Option<(StyleAnchor, Div)>, Vec<AnyElement>, f32);
+
+/// Width share of the services, disks, and tailnet column next to a host
+/// column. Its rows have more columns than the host cards.
+const OTHERS_COLUMN_GROW: f32 = 1.15;
+
+/// Lowest height of a stacked host card, in design pixels.
+const STACKED_HOST_MIN_HEIGHT: f32 = 152.;
+
+/// Padding at the window edges, in design pixels.
+const SCREEN_PADDING: f32 = 32.;
+
+/// Width of the shade fade beyond a side area, in design pixels.
+const SHADE_FADE: f32 = 200.;
+
+/// One column of a side area: the clock block, if any, and a panel stack.
+fn side_column(
+    s: Scale,
+    clock: Option<(StyleAnchor, Div)>,
+    panels: Vec<AnyElement>,
+    anchor: StyleAnchor,
+    grow: f32,
+) -> Div {
+    let stack = (!panels.is_empty()).then(|| {
+        div()
+            .w_full()
+            .min_h_0()
+            .flex_shrink(1.)
+            .flex()
+            .flex_col()
+            .gap(s(PANEL_GAP))
+            .children(panels)
+    });
+    let mut column = div().min_w_0().h_full().flex().flex_col().gap(s(24.));
+    column.style().flex_grow = Some(grow);
+    column.style().flex_basis = Some(relative(0.).into());
+    match (clock, stack) {
+        (Some((clock_anchor, clock)), Some(stack)) => {
+            let clock = clock.flex_none();
+            // A free space between the two blocks puts each at its own edge.
+            let spacer = (clock_anchor != anchor).then(|| div().flex_1());
+            let column = column.when(
+                clock_anchor == StyleAnchor::Bottom && anchor == StyleAnchor::Bottom,
+                |column| column.justify_end(),
+            );
+            match clock_anchor {
+                StyleAnchor::Top => column.child(clock).children(spacer).child(stack),
+                StyleAnchor::Bottom => column.child(stack).children(spacer).child(clock),
+            }
+        }
+        (Some((clock_anchor, clock)), None) => column
+            .when(clock_anchor == StyleAnchor::Bottom, |column| {
+                column.justify_end()
+            })
+            .child(clock),
+        (None, Some(stack)) => column
+            .when(anchor == StyleAnchor::Bottom, |column| column.justify_end())
+            .child(stack),
+        (None, None) => column,
+    }
+}
+
+/// Shade behind one side area. It fades out toward the middle of the screen.
+fn area_shade(s: Scale, layout: StatusLayout, area: StyleArea, is_right: bool) -> Div {
+    let solid = SCREEN_PADDING + area.width * (layout.width - 2. * SCREEN_PADDING);
+    let total = solid + SHADE_FADE;
+    let shade = StatusTheme::shade();
+    let gradient = linear_gradient(
+        if is_right { 270. } else { 90. },
+        linear_color_stop(shade, solid / total),
+        linear_color_stop(shade.opacity(0.), 1.),
+    );
+    let strip = div().absolute().top_0().bottom_0().w(s(total)).bg(gradient);
+    if is_right {
+        strip.right_0()
+    } else {
+        strip.left_0()
+    }
+}
+
+/// Clock and date. `at_end` aligns them to the right edge.
+fn status_clock(s: Scale, now: OffsetDateTime, offset: UtcOffset, at_end: bool) -> Div {
+    let kind = active_status_style().kind;
+    div()
+        .flex()
+        .flex_col()
+        .when(at_end, |clock| clock.items_end())
+        .gap(s(16.))
+        .child(
+            div()
+                .flex()
+                .flex_col()
+                .when(at_end, |clock| clock.items_end())
+                .font_family(kind.clock_family)
+                .child(
+                    div()
+                        .text_size(s(kind.clock_size))
+                        .line_height(relative(1.))
+                        .whitespace_nowrap()
+                        .when(kind.clock_light, |clock| {
+                            clock.font_weight(FontWeight::LIGHT)
+                        })
+                        .text_color(StatusTheme::clock())
+                        .child(format_status_clock(now, offset)),
+                )
+                .child(
+                    div()
+                        .px(s(4.))
+                        .whitespace_nowrap()
+                        .text_size(s(28.))
+                        .text_color(StatusTheme::date())
+                        .child(format_status_date(now, offset)),
+                ),
+        )
 }

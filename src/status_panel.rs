@@ -21,9 +21,10 @@ use crate::{
         TailnetConnection, TailnetDevice,
     },
     status_redraw::StatusRedrawTimer,
+    status_style::active_status_style,
     status_theme::{
-        CORE_GRID_ROW_HEIGHT, HOST_PANEL_BASE_HEIGHT, Scale, StatusLayout, StatusTheme,
-        threshold_color,
+        CORE_GRID_ROW_HEIGHT, HOST_PANEL_BASE_HEIGHT, PRESENCE_PANEL_HEIGHT, Scale, StatusLayout,
+        StatusTheme, threshold_color,
     },
 };
 use gpui::{
@@ -35,9 +36,10 @@ use gpui::{
 pub struct FeedPanelView {
     board: Entity<StatusBoard>,
     index: usize,
-    /// Number of host panels that share the host column. More than one gives
-    /// compact host panels.
+    /// Number of host panels that share the host column, in the band
+    /// arrangement.
     host_rows: usize,
+    host_body: HostBodyKind,
     /// Devices with their own host card. The tailnet panel leaves them out.
     carded: Vec<String>,
     redraw: StatusRedrawTimer,
@@ -50,6 +52,7 @@ impl FeedPanelView {
         board: Entity<StatusBoard>,
         index: usize,
         host_rows: usize,
+        host_body: HostBodyKind,
         carded: Vec<String>,
         cx: &mut Context<Self>,
     ) -> Self {
@@ -62,6 +65,7 @@ impl FeedPanelView {
             board,
             index,
             host_rows,
+            host_body,
             carded,
             redraw: StatusRedrawTimer::default(),
             _subscription: subscription,
@@ -86,11 +90,14 @@ impl Render for FeedPanelView {
                 redraw: &self.redraw,
                 now: OffsetDateTime::now_utc(),
             };
-            let compact = self.host_rows > 1;
+            let compact = self.host_body != HostBodyKind::Full;
             match &feed.spec.collector {
-                StatusCollector::Glances(_) | StatusCollector::Local(_) => {
-                    host_panel(s, &view, layout.host_panel_height(self.host_rows), compact)
-                }
+                StatusCollector::Glances(_) | StatusCollector::Local(_) => host_panel(
+                    s,
+                    &view,
+                    layout.host_panel_height(self.host_rows),
+                    self.host_body,
+                ),
                 StatusCollector::TailnetHost(_) => presence_panel(s, &view, compact),
                 StatusCollector::Kuma(_) => services_panel(s, &view),
                 StatusCollector::Scrutiny(_) => disks_panel(s, &view),
@@ -100,6 +107,59 @@ impl Render for FeedPanelView {
         self.redraw.schedule_status_redraw(cx);
         panel
     }
+}
+
+/// Host card body: what a host card with metrics shows.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum HostBodyKind {
+    /// Graphs, the core grid, and meters, for a host with its own column.
+    Full,
+    /// Meters at the left and the CPU graph at the right, for a shared
+    /// host column in the band arrangement.
+    Row,
+    /// Meters above the CPU graph, for a narrow side column.
+    Stacked,
+}
+
+/// Height of a stacked host card, in design pixels.
+const STACKED_HOST_PANEL_HEIGHT: f32 = 208.0;
+
+/// Line height of panel text, as a part of the text size.
+pub const PANEL_LINE_HEIGHT: f32 = 1.25;
+
+/// Height of a list panel with `rows` rows, in design pixels: border,
+/// padding, title row, gap, rows, and the gaps between rows.
+fn list_panel_height(rows: usize) -> f32 {
+    let title = 17. * PANEL_LINE_HEIGHT;
+    let body = if rows == 0 {
+        40.
+    } else {
+        rows as f32 * 14. * PANEL_LINE_HEIGHT + (rows - 1) as f32 * 8.
+    };
+    2. + 2. * 16. + title + 12. + body + 4.
+}
+
+/// Height of the panel of `feed` in a side column, in design pixels.
+/// `carded` lists the devices that the tailnet panel leaves out.
+pub fn side_panel_height(feed: &StatusFeed, carded: &[String]) -> f32 {
+    let rows = match (&feed.spec.collector, feed.latest_reading()) {
+        (StatusCollector::Glances(_) | StatusCollector::Local(_), _) => {
+            return STACKED_HOST_PANEL_HEIGHT;
+        }
+        (StatusCollector::TailnetHost(_), _) => return PRESENCE_PANEL_HEIGHT,
+        (_, Some(FeedData::Services(services))) => services.len(),
+        (_, Some(FeedData::Disks(disks))) => disks.len(),
+        (_, Some(FeedData::Tailnet(devices))) => devices
+            .iter()
+            .filter(|device| {
+                !carded
+                    .iter()
+                    .any(|name| name.eq_ignore_ascii_case(&device.name))
+            })
+            .count(),
+        _ => 0,
+    };
+    list_panel_height(rows)
 }
 
 /// What a feed panel shows, with the feed's freshness applied.
@@ -154,6 +214,7 @@ fn feed_panel(
         ),
         FeedFreshness::Offline => (Some("offline".to_string()), StatusTheme::bad()),
     };
+    let kind = active_status_style().kind;
     let border = match view.freshness {
         FeedFreshness::Stale => StatusTheme::warn().opacity(0.7),
         FeedFreshness::Offline => StatusTheme::bad().opacity(0.7),
@@ -165,7 +226,7 @@ fn feed_panel(
         .flex_col()
         .gap(s(gap))
         .p(s(padding))
-        .rounded(s(8.))
+        .rounded(s(kind.radius))
         .bg(StatusTheme::panel())
         .border_1()
         .border_color(border)
@@ -179,8 +240,11 @@ fn feed_panel(
                 .child(
                     div()
                         .min_w_0()
+                        .font_family(kind.title_family)
                         .text_size(s(17.))
-                        .font_weight(FontWeight::SEMIBOLD)
+                        .when(kind.title_semibold, |title| {
+                            title.font_weight(FontWeight::SEMIBOLD)
+                        })
                         .truncate()
                         .child(view.feed.spec.title.clone()),
                 )
@@ -312,7 +376,8 @@ fn core_grid(s: Scale, cores: &[f32], dim: bool) -> Div {
         }))
 }
 
-fn host_panel(s: Scale, view: &FeedView, panel_height: f32, compact: bool) -> Div {
+fn host_panel(s: Scale, view: &FeedView, panel_height: f32, kind: HostBodyKind) -> Div {
+    let compact = kind != HostBodyKind::Full;
     let host = match view.reading() {
         Some(FeedData::Host(host)) => host,
         // Glances does not answer, and Tailscale knows the host.
@@ -320,11 +385,12 @@ fn host_panel(s: Scale, view: &FeedView, panel_height: f32, compact: bool) -> Di
         _ => return feed_panel(s, view, None, empty_body(s, view), compact),
     };
     let history = view.feed.host_history();
-    let body = if compact {
-        compact_host_body(s, host, history, view.dim()).into_any_element()
-    } else {
-        host_body(s, host, history, panel_height, view.dim()).into_any_element()
-    };
+    let body = match kind {
+        HostBodyKind::Row => compact_host_body(s, host, history, view.dim(), false),
+        HostBodyKind::Stacked => compact_host_body(s, host, history, view.dim(), true),
+        HostBodyKind::Full => host_body(s, host, history, panel_height, view.dim()),
+    }
+    .into_any_element();
     feed_panel(
         s,
         view,
@@ -335,9 +401,16 @@ fn host_panel(s: Scale, view: &FeedView, panel_height: f32, compact: bool) -> Di
     )
 }
 
-/// Compact host body for a shared host column: CPU, memory, and disk meters
-/// on the left; the CPU graph and the network rates on the right.
-fn compact_host_body(s: Scale, host: &HostMetrics, history: &HostHistory, dim: bool) -> Div {
+/// Compact host body: CPU, memory, and disk meters, then the CPU graph and
+/// the network rates. `stacked` puts the graph under the meters for a
+/// narrow column. Otherwise the graph is at the right of the meters.
+fn compact_host_body(
+    s: Scale,
+    host: &HostMetrics,
+    history: &HostHistory,
+    dim: bool,
+    stacked: bool,
+) -> Div {
     let ratio = |used: Option<u64>, total: Option<u64>| match (used, total) {
         (Some(used), Some(total)) if total > 0 => Some(used as f32 / total as f32),
         _ => None,
@@ -353,7 +426,7 @@ fn compact_host_body(s: Scale, host: &HostMetrics, history: &HostHistory, dim: b
     let rate_text = |rate: Option<f64>| rate.map_or("—".into(), format_status_rate);
     let rate_color = |color: Hsla| if dim { StatusTheme::muted() } else { color };
     let meters = div()
-        .w(relative(0.6))
+        .when(!stacked, |meters| meters.w(relative(0.6)))
         .flex_none()
         .flex()
         .flex_col()
@@ -408,7 +481,8 @@ fn compact_host_body(s: Scale, host: &HostMetrics, history: &HostHistory, dim: b
         .flex_1()
         .min_h_0()
         .flex()
-        .gap(s(20.))
+        .when(stacked, |body| body.flex_col())
+        .gap(s(if stacked { 8. } else { 20. }))
         .child(meters)
         .child(activity)
 }
@@ -435,7 +509,7 @@ fn compact_metric_row(
         .child(meter(s, fraction, 5., dim))
         .child(
             div()
-                .w(s(160.))
+                .w(s(148.))
                 .flex_none()
                 .flex()
                 .justify_end()
@@ -569,7 +643,7 @@ fn list_row(s: Scale, color: Hsla, name: String, columns: Vec<(String, f32, Hsla
     div()
         .flex()
         .items_center()
-        .gap(s(12.))
+        .gap(s(10.))
         .text_size(s(14.))
         .child(status_dot(s, color))
         .child(div().flex_1().min_w_0().truncate().child(name))
@@ -680,15 +754,15 @@ fn disks_panel(s: Scale, view: &FeedView) -> Div {
                 (
                     disk.temperature_celsius
                         .map_or(String::new(), |t| format!("{t:.0}°C")),
-                    48.,
+                    40.,
                     StatusTheme::muted(),
                 ),
                 (
                     format_status_bytes(disk.capacity_bytes),
-                    72.,
+                    64.,
                     StatusTheme::muted(),
                 ),
-                (state.to_string(), 88., color),
+                (state.to_string(), 80., color),
             ],
         )
     });
@@ -727,7 +801,7 @@ fn tailnet_panel(s: Scale, view: &FeedView, carded: &[String]) -> Div {
             device.name.clone(),
             vec![
                 (device.os.clone(), 64., StatusTheme::muted()),
-                (connection, 104., StatusTheme::muted()),
+                (connection, 96., StatusTheme::muted()),
             ],
         )
         .when(!device.online, |row| row.text_color(StatusTheme::muted()))

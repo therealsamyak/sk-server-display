@@ -12,6 +12,10 @@
 # the folder of this file. Remove the line for a solid background.
 wallpaper = "wallpaper.jpg"
 
+# Look of the display: palette, fonts, and panel placement. Each style is
+# made for one wallpaper. See "Styles" in README.md. Default: "hills".
+style = "hills"
+
 # Host cards for the left column, in order. Each card reads one source:
 # - glances_url: CPU, memory, disk, network, and uptime from Glances
 #   (glances -w) on that host. While Glances does not answer, for example

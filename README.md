@@ -41,6 +41,7 @@ To configure the display, do these steps:
    block with only `name` shows a status card: the online state of that device.
 3. Replace the example URLs with full Tailscale MagicDNS names of your hosts.
 4. Set `wallpaper` to an image file, or remove the line for a solid background.
+5. Set `style` to the style made for your wallpaper. See [Styles](#styles).
 
 Without `[[host]]` blocks, the display shows one card for this machine. Without a configuration
 file, it shows this machine and the tailnet only, on a solid
@@ -260,8 +261,8 @@ The layout rules are:
 - Tailnet devices show this machine first, then online devices, then offline devices with the time
   since Tailscale last saw them.
 
-The panels use IBM Plex Mono, so digits stay in their columns as values change. The clock and the
-date use IBM Plex Sans Light and Regular.
+The panels use IBM Plex Mono, so digits stay in their columns as values change. The clock, the
+date, and the panel titles use the fonts of the style: IBM Plex Sans, Serif, or Mono.
 
 ### Wallpaper
 
@@ -277,8 +278,75 @@ The repository does not include a wallpaper. The test screenshots use the Window
 as a placeholder. Microsoft owns that photo, so it stays in the Git-ignored `local/` folder. Replace
 it with your own image.
 
-A black layer at 28 % opacity covers the wallpaper, so the white clock stays readable on a bright
-image. The panels use a dark color at 78 % opacity.
+In the `hills` style, a black layer at 28 % opacity covers the wallpaper, so the white clock stays
+readable on a bright image. The panels use a dark color at 78 % opacity. The other styles set
+their own layers. See [Styles](#styles).
+
+### Styles
+
+A style sets the palette, the fonts, and the place of the clock and the panels for one wallpaper.
+The art comes first: the panels go where the art is quiet, and the colors come from the art. Set
+the style with the `style` key in the configuration file.
+
+The `hills` style is the default. It puts the clock at the top and all panels in a band at the
+bottom, for a landscape photo. The other styles use a side arrangement:
+
+- One column area at the left edge, one at the right edge, or both. The middle of the screen stays
+  free for the character.
+- Each area holds the host cards, the services, disks, and tailnet panels, or both groups side by
+  side. The clock and the alerts stand on top of or under the host column.
+- Each panel has a fixed height from its row count. A host card with metrics gives up height when
+  its column is full, so the CPU graph gets shorter. Lists do not shrink.
+- A shade behind each area fades out toward the middle. It uses one color of the art, so it
+  changes the tone only, not the hue.
+- In a side area, the host cards show the stacked body: meters above the CPU graph.
+
+The wireframe shows the `kokomi` style at 1920 × 1080: the clock and the hosts at the left, the
+other panels at the right, and the character free in the middle:
+
+```text
+┌──────────────────────────────────────────────────────────────────────────────────────────┐
+│ 13:46                                                         ┌ Services ──── 14/14 up ┐ │
+│ Tuesday 24 November                                           │ ● Service A       100% │ │
+│ ┌ alert, only when needed ──┐                                 │ ● Service B      99.8% │ │
+│ └───────────────────────────┘                                 │ …                      │ │
+│ ┌ server ───── up 4h 46m ───┐            character            └────────────────────────┘ │
+│ │ CPU  ▬─────    10%  41°C  │           (no panels)           ┌ Disks ───── 2/3 passed ┐ │
+│ │ Mem  ▬▬▬───  13.1/31.1 GiB│                                 │ ● nvme0  40°C  477 GiB │ │
+│ │ Disk ▬▬────   140/473 GiB │                                 └────────────────────────┘ │
+│ │ ▁▂▁▃▂▁▂ CPU graph   ↓  ↑  │                                 ┌ Tailnet ──── 1/2 online┐ │
+│ └───────────────────────────┘                                 │ ● phone   iOS     idle │ │
+│ ┌ laptop ──────────── idle ─┐                                 └────────────────────────┘ │
+│ │ ● online          windows │                                                            │
+│ └───────────────────────────┘                                                            │
+└──────────────────────────────────────────────────────────────────────────────────────────┘
+```
+
+The styles below are drafts, one for each wallpaper. The wallpapers are illustrations by
+[Yolanda on pixiv](https://www.pixiv.net/en/users/8349252/illustrations). The artist owns them,
+so the repository does not include them or screenshots of them. Download a wallpaper from its
+pixiv page into the Git-ignored `local/` folder, then point `wallpaper` at it.
+
+| Style | Wallpaper | Arrangement | Palette and type |
+| --- | --- | --- | --- |
+| `kokomi` | [Kokomi among jellyfish](https://www.pixiv.net/en/artworks/101664845) | Clock and hosts at the left, other panels at the right | Navy glass, aqua and pink, Plex Sans |
+| `nilou` | [Nilou in a gold mandala](https://www.pixiv.net/en/artworks/102143351) | Other panels at the left, clock and hosts at the right | Ink and gold hairlines, Plex Serif |
+| `raiden` | [Raiden Shogun and Ei](https://www.pixiv.net/en/artworks/115029674) | Clock and hosts over the starfield, other panels over the city | Violet night, Plex Sans |
+| `acheron` | [Acheron and Black Swan](https://www.pixiv.net/en/artworks/117657717) | Clock and hosts at the left, other panels at the right | Black and white with one red, square corners, Plex Mono |
+| `nahida` | [Nahida in a flower ring](https://www.pixiv.net/en/artworks/124030045) | All panels at the left, clock under the hosts | Light: pale leaf cards, forest green type |
+| `fugue` | [Fugue as a fox spirit](https://www.pixiv.net/en/artworks/125521081) | All panels and the clock at the left. The moon stays free | Warm night, moonlight and fox red |
+| `aglaea` | [Aglaea in a cathedral](https://www.pixiv.net/en/artworks/126929805) | Clock and hosts at the left, other panels at the right | Candle brown and gold, Plex Serif |
+| `evernight` | [Evernight among letters](https://www.pixiv.net/en/artworks/136562527) | Clock and hosts at the left, other panels at the right | Light paper cards, dark red type, Plex Serif |
+| `yaoguang` | [Yaoguang with peacock feathers](https://www.pixiv.net/en/artworks/141114001) | All panels and the clock at the left | Teal glass and pale gold |
+| `yae` | [Yae Miko at the shrine](https://www.pixiv.net/en/artworks/96514892) | All panels and the clock at the right, over the sky | Light: sakura cards, plum type, Plex Serif |
+| `ayaka` | [Ayaka at a lotus pond](https://www.pixiv.net/en/artworks/91396400) | All panels and the clock at the left, over the bright water | Light: cream cards, indigo type |
+| `yoimiya` | [Yoimiya over a festival town](https://www.pixiv.net/en/artworks/92270720) | Clock and hosts at the left, other panels at the right | Warm night, lantern and firework colors |
+
+The `evernight` file has black bars at the top and the bottom. Crop them before you use it. The
+display fills the window with `ObjectFit::Cover`, so it keeps the bars otherwise.
+
+The styles are in `src/status_style.rs`. Each style is one constant. Remove the styles that you do
+not keep.
 
 ### Visual cleanup
 
@@ -300,6 +368,15 @@ were removed from the first version:
 
 The remaining dots and state labels render from feed or row state. Spacing uses steps of 4 design
 pixels, with 2 and 6 pixels inside graphs and meters. The heaviest font weight is SemiBold. Nothing animates.
+
+The styles keep these rules:
+
+- Each style takes its colors from its wallpaper. The shade behind a panel area goes from one
+  color to the same color at zero opacity, so no gradient goes from one hue to another (U17).
+- State colors stay state colors. Green, amber, and red show only feed, row, and meter state. The
+  `acheron` style shows a healthy state in white and keeps red for problems.
+- No panel has an accent stripe on one edge (U24). Borders are 1 pixel on all sides.
+- Panel titles are short nouns in sentence case, with no uppercase labels (U1).
 
 ### Refresh, stale, and offline behavior
 
@@ -502,8 +579,13 @@ The benchmark results for these changes are in [bench/README.md](bench/README.md
 
 ### Fonts
 
-The app bundles IBM Plex Sans Light and Regular in `assets/fonts/ibm-plex-sans`, and IBM Plex Mono
-Regular and SemiBold in `assets/fonts/ibm-plex-mono`. Both use the SIL Open Font License. GPUI on
+The app bundles these fonts, all under the SIL Open Font License:
+
+- IBM Plex Sans Light, Regular, and SemiBold in `assets/fonts/ibm-plex-sans`.
+- IBM Plex Serif Light and Regular in `assets/fonts/ibm-plex-serif`.
+- IBM Plex Mono Regular and SemiBold in `assets/fonts/ibm-plex-mono`.
+
+GPUI on
 Linux maps the system UI font to IBM Plex Sans, but a standalone app does
 not have that font
 ([gpui_linux/src/linux/platform.rs#L132](https://github.com/zed-industries/zed/blob/6501df15765d66d6c2a2b66b1eb22434ccef3f86/crates/gpui_linux/src/linux/platform.rs#L132)).
@@ -517,12 +599,13 @@ Each module has one concern:
 | --- | --- |
 | `src/main.rs` | Command-line options, key bindings, and app start. |
 | `src/status_board.rs` | GPUI model: the poll loop, the feed events, and the wake refresh. |
-| `src/status_fonts.rs` | Bundled IBM Plex Sans and IBM Plex Mono font registration. |
-| `src/status_view.rs` | Root GPUI view: wallpaper, clock, alerts, buttons, actions, and the panel layout. |
+| `src/status_fonts.rs` | Bundled IBM Plex Sans, Serif, and Mono font registration. |
+| `src/status_view.rs` | Root GPUI view: wallpaper, clock, alerts, buttons, actions, and the band and side arrangements. |
 | `src/status_panel.rs` | Cached GPUI view for each feed panel: hosts, services, disks, and tailnet. |
 | `src/status_graph.rs` | CPU and network history graphs on a canvas. |
 | `src/status_redraw.rs` | Redraw timer for clock, age, and freshness text. |
-| `src/status_theme.rs` | Colors and the layout scale. |
+| `src/status_theme.rs` | Colors of the active style and the layout scale. |
+| `src/status_style.rs` | Built-in styles: palette, fonts, and panel arrangement for each wallpaper. |
 | `src/status_wallpaper.rs` | Wallpaper decode and scale to the display size. |
 | `src/status_window.rs` | Window open, fullscreen state, and monitor change handling. |
 | `src/display_select.rs` | Display selectors mapped to GPUI displays. |
@@ -546,7 +629,8 @@ Each module has one concern:
 
 These checks ran on a Linux machine (KDE Plasma, Wayland) with GPUI at the pinned commit:
 
-- `cargo test` passes 30 unit tests. The tests cover the
+- `cargo test` passes 32 unit tests. The tests cover the style names and the panel group
+  placement of each side style, the
   configuration, the Glances uptime and temperature parsing, the network interface choice, the
   Kuma, Scrutiny, and Tailscale response conversion, the macOS interface and APFS volume choice,
   the Glances presence fallback, the shared Tailscale result, the feed history,
@@ -579,6 +663,10 @@ These checks ran on a Linux machine (KDE Plasma, Wayland) with GPUI at the pinne
   A request with the MagicDNS host name got status 200. A request with another `Host` header got
   status 400, and so did a request for the disabled process list. Glances used 0.1 % CPU at idle.
   A restart of the Mac did not run, so the start at sign-in needs a hands-on check.
+- Each of the twelve side styles rendered at 1920 × 1080 in the nested KWin session with its
+  wallpaper and live data. The clock stayed on one line, and no list row lost its name. The
+  screenshots stay out of Git, because the art belongs to the artist. The `hills` style rendered
+  the band arrangement as before.
 - The benchmark in [bench/README.md](bench/README.md) compared the build before and after the
   changes in "Rendering and resource use". App CPU use fell from 1.38 % to 0.55 % of one core, GPU
   busy time from 0.90 % to 0.35 %, and resident memory from 155 MiB to 106 MiB. The first frame
@@ -611,7 +699,8 @@ These items need a test on real hardware. Windows items come first:
 
 ## Open questions
 
-- Which wallpaper do you want? The placeholder is the Windows XP "Bliss" photo.
+- Which styles do you keep? The repository has twelve drafts for wallpapers by Yolanda, and the
+  `hills` style for the Windows XP "Bliss" placeholder.
 - Must the app start at sign-in on the Windows laptop? This version adds no startup entry or
   service.
 
