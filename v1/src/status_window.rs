@@ -9,10 +9,10 @@ use gpui::{
 };
 use time::UtcOffset;
 
+use server_status_core::status_display::DisplaySelector;
+
 use crate::{
-    display_select::{
-        DisplayChoice, DisplaySelector, choose_status_display, ordered_status_displays,
-    },
+    display_select::{DisplayChoice, choose_status_display, ordered_status_displays},
     status_board::StatusBoard,
     status_view::{StatusView, StatusViewSettings},
 };

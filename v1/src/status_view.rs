@@ -11,12 +11,9 @@ use gpui::{
     ObjectFit, Pixels, Render, Stateful, StyledImage as _, Subscription, WeakEntity, Window,
     actions, div, img, prelude::*, px, relative, rgb,
 };
-use time::{OffsetDateTime, UtcOffset};
-
-use crate::{
-    status_board::{HOST_HISTORY_SAMPLES, HostHistory, StatusBoard, StatusFeed},
+use server_status_core::{
     status_collector::StatusCollector,
-    status_fonts::{STATUS_CLOCK_FONT_FAMILY, STATUS_PANEL_FONT_FAMILY},
+    status_feed::{HOST_HISTORY_SAMPLES, HostHistory, StatusFeed},
     status_format::{
         format_status_age, format_status_bytes, format_status_clock, format_status_date,
         format_status_rate, format_status_uptime, format_status_usage,
@@ -26,6 +23,12 @@ use crate::{
         DiskHealth, DiskState, FeedData, HostMetrics, ServiceHealth, ServiceState,
         TailnetConnection, TailnetDevice,
     },
+};
+use time::{OffsetDateTime, UtcOffset};
+
+use crate::{
+    status_board::StatusBoard,
+    status_fonts::{STATUS_CLOCK_FONT_FAMILY, STATUS_PANEL_FONT_FAMILY},
     status_window::StatusDisplayApp,
 };
 

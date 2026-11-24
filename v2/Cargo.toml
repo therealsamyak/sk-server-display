@@ -1,0 +1,28 @@
+[package]
+name = "server-status-display-v2"
+description = "Full-screen, continuously updating server status display built with Rune."
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "server-status-display-v2"
+path = "src/main.rs"
+
+[features]
+# Rune's headless tools (`--snap`, `--tree`, `--realtime`) in release builds.
+# Debug builds always have them.
+tooling = ["rune/tooling"]
+
+[dependencies]
+server-status-core.workspace = true
+anyhow.workspace = true
+clap.workspace = true
+env_logger.workspace = true
+log.workspace = true
+time.workspace = true
+rune = { git = "https://github.com/anomalyco/rune", rev = "791ee9669248bcf16fe2672d9c5e6f5d69e714ce" }
+
+[target.'cfg(target_os = "windows")'.dependencies]
+raw-window-handle.workspace = true

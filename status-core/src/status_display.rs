@@ -1,8 +1,7 @@
-//! Status display selection: which monitor shows the status window.
+//! Status display choice: the display selector and the physical display
+//! ranking that keeps the status window off virtual displays.
 
-use std::{rc::Rc, str::FromStr};
-
-use gpui::{App, Bounds, DisplayId, Pixels, PlatformDisplay};
+use std::str::FromStr;
 
 /// Display selector from the command line.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -33,78 +32,7 @@ impl FromStr for DisplaySelector {
     }
 }
 
-/// The display chosen for the status window, with a label for the footer.
-#[derive(Clone, Debug, PartialEq)]
-pub struct DisplayChoice {
-    pub id: DisplayId,
-    pub bounds: Bounds<Pixels>,
-    pub label: String,
-}
-
-/// Returns all displays in left-to-right, top-to-bottom order.
-pub fn ordered_status_displays(cx: &App) -> Vec<Rc<dyn PlatformDisplay>> {
-    let mut displays = cx.displays();
-    displays.sort_by(|a, b| {
-        let (a, b) = (a.bounds().origin, b.bounds().origin);
-        a.x.partial_cmp(&b.x)
-            .unwrap_or(std::cmp::Ordering::Equal)
-            .then(a.y.partial_cmp(&b.y).unwrap_or(std::cmp::Ordering::Equal))
-    });
-    displays
-}
-
-/// Chooses the status display for a selector. Returns `None` with no displays.
-pub fn choose_status_display(selector: DisplaySelector, cx: &App) -> Option<DisplayChoice> {
-    let displays = ordered_status_displays(cx);
-    let number_of = |id: DisplayId| displays.iter().position(|d| d.id() == id).map(|i| i + 1);
-    let choice = |display: &Rc<dyn PlatformDisplay>, detail: &str| {
-        let number = number_of(display.id()).unwrap_or(0);
-        DisplayChoice {
-            id: display.id(),
-            bounds: display.bounds(),
-            label: format!("Display {number} of {} ({detail})", displays.len()),
-        }
-    };
-
-    match selector {
-        DisplaySelector::Number(number) => {
-            let display = displays.get(number - 1).or_else(|| displays.first())?;
-            Some(choice(display, "selected"))
-        }
-        DisplaySelector::Primary => {
-            primary_or_first(cx, &displays).map(|(d, detail)| choice(&d, detail))
-        }
-        DisplaySelector::Auto => {
-            #[cfg(target_os = "windows")]
-            if let Some(physical) = crate::display_windows::find_physical_status_display()
-                && let Some(display) = displays.iter().find(|d| d.id() == physical.display_id)
-            {
-                return Some(choice(display, &physical.description));
-            }
-            primary_or_first(cx, &displays).map(|(d, detail)| choice(&d, detail))
-        }
-    }
-}
-
-/// Returns the primary display, or the first display when the platform
-/// reports no primary display. Wayland in GPUI reports none.
-fn primary_or_first(
-    cx: &App,
-    displays: &[Rc<dyn PlatformDisplay>],
-) -> Option<(Rc<dyn PlatformDisplay>, &'static str)> {
-    cx.primary_display()
-        .and_then(|primary| displays.iter().find(|d| d.id() == primary.id()).cloned())
-        .map(|display| (display, "primary"))
-        .or_else(|| {
-            displays
-                .first()
-                .cloned()
-                .map(|display| (display, "first display"))
-        })
-}
-
 /// Kind of display output, as Windows display configuration reports it.
-#[cfg_attr(not(target_os = "windows"), allow(dead_code))]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum DisplayOutputKind {
     /// Built-in laptop panel (internal, embedded DisplayPort, or embedded UDI).
@@ -117,8 +45,19 @@ pub enum DisplayOutputKind {
     Virtual,
 }
 
+impl DisplayOutputKind {
+    /// Display label text, such as `built-in panel`.
+    pub fn display_kind_label(self) -> &'static str {
+        match self {
+            Self::BuiltIn => "built-in panel",
+            Self::External => "external monitor",
+            Self::IndirectWired => "USB display",
+            Self::Virtual => "virtual display",
+        }
+    }
+}
+
 /// One display candidate for the physical status display ranking.
-#[cfg_attr(not(target_os = "windows"), allow(dead_code))]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PhysicalDisplayCandidate {
     pub kind: DisplayOutputKind,
@@ -129,7 +68,6 @@ pub struct PhysicalDisplayCandidate {
 ///
 /// Order: built-in panel, primary external, other external, indirect wired.
 /// A virtual display is never chosen.
-#[cfg_attr(not(target_os = "windows"), allow(dead_code))]
 pub fn rank_physical_display_candidates(candidates: &[PhysicalDisplayCandidate]) -> Option<usize> {
     let score = |candidate: &PhysicalDisplayCandidate| -> Option<u8> {
         let kind = match candidate.kind {

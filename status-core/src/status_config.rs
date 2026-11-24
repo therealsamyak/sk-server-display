@@ -230,7 +230,7 @@ mod tests {
 
     #[test]
     fn parses_example_config() {
-        let text = include_str!("../config.example.toml");
+        let text = include_str!("../../config.example.toml");
         let config: StatusConfig = toml::from_str(text).expect("example config parses");
         assert!(config.show_this_machine);
         assert_eq!(config.glances.len(), 1);

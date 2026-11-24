@@ -1,10 +1,9 @@
-//! Windows display helpers: find the physical status display and stop the
-//! status window from taking keyboard focus away from a streamed game.
+//! Windows display helpers: list active displays with their output kind,
+//! find the physical status display, and stop the status window from taking
+//! keyboard focus away from a streamed game.
 
 use std::ffi::c_void;
 
-use gpui::{DisplayId, Window};
-use raw_window_handle::{HasWindowHandle, RawWindowHandle};
 use windows::Win32::{
     Devices::Display::{
         DISPLAYCONFIG_DEVICE_INFO_GET_SOURCE_NAME, DISPLAYCONFIG_DEVICE_INFO_GET_TARGET_NAME,
@@ -28,17 +27,39 @@ use windows::Win32::{
 };
 use windows::core::BOOL;
 
-use crate::display_select::{
+use crate::status_display::{
     DisplayOutputKind, PhysicalDisplayCandidate, rank_physical_display_candidates,
 };
 
-/// The physical display that Windows display configuration selects.
-#[derive(Clone, Debug)]
-pub struct PhysicalStatusDisplay {
-    /// GPUI display ID. GPUI on Windows uses the `HMONITOR` value as the ID.
-    pub display_id: DisplayId,
-    /// Footer text, such as `built-in panel "Built-in Display"`.
-    pub description: String,
+/// One active Windows display: its monitor handle, desktop rectangle, and
+/// output kind.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct WindowsDisplay {
+    /// `HMONITOR` value. GPUI on Windows uses it as the display ID.
+    pub monitor_handle: isize,
+    /// GDI device name, such as `\\.\DISPLAY1`. winit reports it as the
+    /// monitor name.
+    pub gdi_device_name: String,
+    /// Monitor name from the display configuration, such as `Built-in Display`.
+    pub friendly_name: String,
+    pub kind: DisplayOutputKind,
+    pub is_primary: bool,
+    /// Top-left corner in physical desktop pixels.
+    pub position: (i32, i32),
+    /// Size in physical pixels.
+    pub size: (u32, u32),
+}
+
+impl WindowsDisplay {
+    /// Display label detail, such as `built-in panel "Built-in Display"`.
+    pub fn windows_display_description(&self) -> String {
+        let name = if self.friendly_name.is_empty() {
+            self.gdi_device_name.trim_start_matches(r"\\.\")
+        } else {
+            &self.friendly_name
+        };
+        format!("{} \"{name}\"", self.kind.display_kind_label())
+    }
 }
 
 struct ActiveDisplayPath {
@@ -51,61 +72,58 @@ struct ActiveMonitor {
     handle: HMONITOR,
     gdi_device_name: String,
     is_primary: bool,
+    rect: RECT,
+}
+
+/// Lists the active displays that have both a display path and a monitor.
+pub fn list_windows_displays() -> Vec<WindowsDisplay> {
+    let Some(paths) = query_active_display_paths() else {
+        return Vec::new();
+    };
+    let monitors = enumerate_active_monitors();
+    paths
+        .into_iter()
+        .filter_map(|path| {
+            let monitor = monitors
+                .iter()
+                .find(|monitor| monitor.gdi_device_name == path.gdi_device_name)?;
+            Some(WindowsDisplay {
+                monitor_handle: monitor.handle.0 as isize,
+                gdi_device_name: path.gdi_device_name,
+                friendly_name: path.friendly_name,
+                kind: path.kind,
+                is_primary: monitor.is_primary,
+                position: (monitor.rect.left, monitor.rect.top),
+                size: (
+                    (monitor.rect.right - monitor.rect.left).max(0) as u32,
+                    (monitor.rect.bottom - monitor.rect.top).max(0) as u32,
+                ),
+            })
+        })
+        .collect()
 }
 
 /// Finds the physical status display: the built-in panel first, then a
 /// physical external monitor. Virtual displays are never returned.
-pub fn find_physical_status_display() -> Option<PhysicalStatusDisplay> {
-    let paths = query_active_display_paths()?;
-    let monitors = enumerate_active_monitors();
-    let matched: Vec<(&ActiveDisplayPath, &ActiveMonitor)> = paths
+pub fn find_physical_windows_display(displays: &[WindowsDisplay]) -> Option<&WindowsDisplay> {
+    let candidates: Vec<PhysicalDisplayCandidate> = displays
         .iter()
-        .filter_map(|path| {
-            monitors
-                .iter()
-                .find(|monitor| monitor.gdi_device_name == path.gdi_device_name)
-                .map(|monitor| (path, monitor))
+        .map(|display| PhysicalDisplayCandidate {
+            kind: display.kind,
+            is_primary: display.is_primary,
         })
         .collect();
-    let candidates: Vec<PhysicalDisplayCandidate> = matched
-        .iter()
-        .map(|(path, monitor)| PhysicalDisplayCandidate {
-            kind: path.kind,
-            is_primary: monitor.is_primary,
-        })
-        .collect();
-    let (path, monitor) = matched[rank_physical_display_candidates(&candidates)?];
-    let kind = match path.kind {
-        DisplayOutputKind::BuiltIn => "built-in panel",
-        DisplayOutputKind::External => "external monitor",
-        DisplayOutputKind::IndirectWired => "USB display",
-        DisplayOutputKind::Virtual => "virtual display",
-    };
-    let name = if path.friendly_name.is_empty() {
-        path.gdi_device_name.trim_start_matches(r"\\.\").to_string()
-    } else {
-        path.friendly_name.clone()
-    };
-    Some(PhysicalStatusDisplay {
-        display_id: DisplayId::new(monitor.handle.0 as u64),
-        description: format!("{kind} \"{name}\""),
-    })
+    displays.get(rank_physical_display_candidates(&candidates)?)
 }
 
-/// Stops the status window from becoming the foreground window on click.
+/// Stops a window from becoming the foreground window on click.
 ///
 /// Sunshine sends remote keyboard input to the foreground window. Without
 /// this style, one local click on the status display moves the game's input
-/// to the status window.
-pub fn apply_no_activate_style(window: &Window) {
-    let Ok(handle) = HasWindowHandle::window_handle(window) else {
-        return;
-    };
-    let RawWindowHandle::Win32(handle) = handle.as_raw() else {
-        return;
-    };
-    let hwnd = HWND(handle.hwnd.get() as *mut c_void);
-    // SAFETY: `hwnd` is the live top-level window that GPUI owns.
+/// to the status window. `hwnd` is the window's `HWND` value.
+pub fn apply_no_activate_style(hwnd: isize) {
+    let hwnd = HWND(hwnd as *mut c_void);
+    // SAFETY: the caller passes the live top-level window of its UI framework.
     unsafe {
         let style = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
         SetWindowLongPtrW(hwnd, GWL_EXSTYLE, style | WS_EX_NOACTIVATE.0 as isize);
@@ -227,6 +245,7 @@ fn enumerate_active_monitors() -> Vec<ActiveMonitor> {
                 handle,
                 gdi_device_name: wide_to_string(&info.szDevice),
                 is_primary: info.monitorInfo.dwFlags & MONITORINFOF_PRIMARY != 0,
+                rect: info.monitorInfo.rcMonitor,
             })
         })
         .collect()
