@@ -16,7 +16,7 @@ use crate::{
     collector_kuma::KumaCollector,
     collector_local::LocalCollector,
     collector_scrutiny::ScrutinyCollector,
-    collector_tailscale::{TailnetHostCollector, TailscaleCollector},
+    collector_tailscale::{TailnetHostCollector, TailscaleCollector, TailscaleStatusReader},
     status_collector::StatusCollector,
 };
 
@@ -161,9 +161,11 @@ pub fn build_status_feeds(config: &StatusConfig) -> anyhow::Result<Vec<StatusFee
             .build()
             .into()
     };
+    // One reader for all Tailscale feeds, so they share each command run.
+    let tailscale = TailscaleStatusReader::new_tailscale_reader(config.tailscale.command.clone());
     let mut feeds = Vec::new();
     for host in &config.hosts {
-        feeds.push(host_feed_spec(host, config, agent(HOST_POLL_INTERVAL))?);
+        feeds.push(host_feed_spec(host, &tailscale, agent(HOST_POLL_INTERVAL))?);
     }
     if config.hosts.is_empty() {
         let name = sysinfo::System::host_name().unwrap_or_else(|_| "this machine".into());
@@ -196,9 +198,7 @@ pub fn build_status_feeds(config: &StatusConfig) -> anyhow::Result<Vec<StatusFee
         feeds.push(StatusFeedSpec {
             title: "Tailnet".into(),
             source: "Tailscale",
-            collector: StatusCollector::Tailscale(TailscaleCollector {
-                command: config.tailscale.command.clone(),
-            }),
+            collector: StatusCollector::Tailscale(TailscaleCollector { reader: tailscale }),
             poll_interval: TAILNET_POLL_INTERVAL,
         });
     }
@@ -208,7 +208,7 @@ pub fn build_status_feeds(config: &StatusConfig) -> anyhow::Result<Vec<StatusFee
 /// Builds the feed of one host card.
 fn host_feed_spec(
     host: &HostConfig,
-    config: &StatusConfig,
+    tailscale: &TailscaleStatusReader,
     agent: ureq::Agent,
 ) -> anyhow::Result<StatusFeedSpec> {
     if host.glances_url.is_some() && host.this_machine {
@@ -236,7 +236,7 @@ fn host_feed_spec(
         title: host.name.clone(),
         source: "Tailscale",
         collector: StatusCollector::TailnetHost(TailnetHostCollector {
-            command: config.tailscale.command.clone(),
+            reader: tailscale.clone(),
             name: host.name.clone(),
         }),
         poll_interval: TAILNET_POLL_INTERVAL,

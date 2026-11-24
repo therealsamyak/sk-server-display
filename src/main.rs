@@ -20,9 +20,14 @@ mod status_feed;
 mod status_fonts;
 mod status_format;
 mod status_freshness;
+mod status_graph;
 mod status_model;
+mod status_panel;
+mod status_redraw;
 mod status_startup;
+mod status_theme;
 mod status_view;
+mod status_wallpaper;
 mod status_window;
 
 use std::path::PathBuf;
@@ -32,7 +37,7 @@ use crate::{
     status_display::DisplaySelector,
 };
 use clap::Parser;
-use gpui::{App, Entity, Global, KeyBinding};
+use gpui::{App, Application, Entity, Global, KeyBinding};
 use time::UtcOffset;
 
 use crate::{
@@ -96,7 +101,11 @@ fn main() {
         local_offset,
     };
 
-    gpui_platform::application().run(move |cx: &mut App| {
+    // No AccessKit adapter, as in Zed by default: a screen reader cannot
+    // read the status display. The adapter adds a platform accessibility
+    // connection to each window, and a wall display has no use for it.
+    let application = Application::new_inaccessible(gpui_platform::current_platform(false));
+    application.run(move |cx: &mut App| {
         status_fonts::load_status_fonts(cx);
         bind_status_keys(cx);
         cx.on_window_closed(|cx, _| {

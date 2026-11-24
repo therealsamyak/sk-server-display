@@ -4618,6 +4618,7 @@ dependencies = [
  "env_logger",
  "gpui",
  "gpui_platform",
+ "image",
  "log",
  "raw-window-handle",
  "serde",

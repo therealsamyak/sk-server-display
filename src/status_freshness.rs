@@ -55,6 +55,24 @@ pub fn classify_feed_freshness(
     }
 }
 
+/// Time until the freshness of a feed changes next, with the same inputs as
+/// [`classify_feed_freshness`]. `None` when the feed is offline and stays
+/// offline until a poll succeeds.
+pub fn next_freshness_change(
+    policy: &FreshnessPolicy,
+    last_success_age: Option<Duration>,
+    running_for: Duration,
+) -> Option<Duration> {
+    let (age, limits) = match last_success_age {
+        Some(age) => (age, [policy.stale_after, policy.offline_after]),
+        None => (running_for, [policy.offline_after, policy.offline_after]),
+    };
+    limits
+        .into_iter()
+        .find(|limit| age < *limit)
+        .map(|limit| limit - age)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -83,6 +101,22 @@ mod tests {
         assert_eq!(
             classify_feed_freshness(&policy, None, Duration::from_secs(31)),
             FeedFreshness::Offline
+        );
+    }
+
+    #[test]
+    fn next_freshness_change_finds_the_next_limit() {
+        let policy = FreshnessPolicy::from_poll_interval(Duration::from_secs(2));
+        let start = Duration::from_secs(1);
+        let f =
+            |age: Option<u64>| next_freshness_change(&policy, age.map(Duration::from_secs), start);
+        assert_eq!(f(Some(1)), Some(Duration::from_secs(5)));
+        assert_eq!(f(Some(10)), Some(Duration::from_secs(20)));
+        assert_eq!(f(Some(30)), None);
+        assert_eq!(f(None), Some(Duration::from_secs(29)));
+        assert_eq!(
+            next_freshness_change(&policy, None, Duration::from_secs(31)),
+            None
         );
     }
 }

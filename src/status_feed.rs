@@ -7,7 +7,9 @@ use std::{
 
 use crate::{
     status_config::StatusFeedSpec,
-    status_freshness::{FeedFreshness, FreshnessPolicy, classify_feed_freshness},
+    status_freshness::{
+        FeedFreshness, FreshnessPolicy, classify_feed_freshness, next_freshness_change,
+    },
     status_model::{FeedData, HostMetrics},
 };
 
@@ -117,6 +119,11 @@ impl StatusFeed {
     /// display started, so a feed that never answers becomes offline.
     pub fn feed_freshness(&self, running_for: Duration) -> FeedFreshness {
         classify_feed_freshness(&self.policy, self.last_success_age(), running_for)
+    }
+
+    /// Time until [`Self::feed_freshness`] changes without a new poll result.
+    pub fn next_freshness_change(&self, running_for: Duration) -> Option<Duration> {
+        next_freshness_change(&self.policy, self.last_success_age(), running_for)
     }
 }
 

@@ -77,6 +77,25 @@ pub fn format_status_age(age: Duration) -> String {
     }
 }
 
+/// Time until the text of [`format_status_age`] changes, as the age grows.
+pub fn status_age_text_valid_for(age: Duration) -> Duration {
+    let step = match age.as_secs() {
+        0..3_600 => 1,
+        3_600..86_400 => 60,
+        _ => 3_600,
+    };
+    let step = Duration::from_secs(step);
+    step - Duration::from_nanos((age.as_nanos() % step.as_nanos()) as u64)
+}
+
+/// Time until the text of [`format_status_clock`] changes: the time to the
+/// next minute.
+pub fn status_clock_text_valid_for(at: OffsetDateTime) -> Duration {
+    let into_minute = Duration::from_secs(u64::from(at.second()))
+        + Duration::from_nanos(u64::from(at.nanosecond()));
+    Duration::from_secs(60).saturating_sub(into_minute)
+}
+
 /// Formats a wall-clock time in the local offset, such as `14:02`.
 pub fn format_status_clock(at: OffsetDateTime, offset: UtcOffset) -> String {
     at.to_offset(offset)
@@ -116,6 +135,17 @@ mod tests {
         assert_eq!(format_status_uptime(11_520), "3h 12m");
         assert_eq!(format_status_age(Duration::from_secs(125)), "2m 5s");
         assert_eq!(format_status_age(Duration::from_secs(185_000)), "2d 3h");
+    }
+
+    #[test]
+    fn age_and_clock_text_change_at_the_next_step() {
+        let ms = Duration::from_millis;
+        assert_eq!(status_age_text_valid_for(ms(4_250)), ms(750));
+        assert_eq!(status_age_text_valid_for(ms(125_000)), ms(1_000));
+        assert_eq!(status_age_text_valid_for(ms(3_630_000)), ms(30_000));
+        assert_eq!(status_age_text_valid_for(ms(90_600_000)), ms(3_000_000));
+        let at = datetime!(2026-11-23 22:02:11.5 UTC);
+        assert_eq!(status_clock_text_valid_for(at), ms(48_500));
     }
 
     #[test]

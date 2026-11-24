@@ -164,11 +164,12 @@ date use IBM Plex Sans Light and Regular.
 ### Wallpaper
 
 Set `wallpaper` in the configuration file to show an image behind the panels. A relative path
-starts from the folder of the configuration file. GPUI's `img` element loads the file. The app sets
-`ObjectFit::Cover`, so the image fills the window and keeps its aspect ratio
+starts from the folder of the configuration file. The app decodes the file once on a background
+thread and scales it down to the physical size of the window's display. GPUI's `img` element then
+shows it with `ObjectFit::Cover`, so the image fills the window and keeps its aspect ratio
 ([img.rs#L197-L205](https://github.com/zed-industries/zed/blob/6501df15765d66d6c2a2b66b1eb22434ccef3f86/crates/gpui/src/elements/img.rs#L197-L205),
 [style.rs#L28-L40](https://github.com/zed-industries/zed/blob/6501df15765d66d6c2a2b66b1eb22434ccef3f86/crates/gpui/src/style.rs#L28-L40)).
-GPUI reads JPEG, PNG, WebP, and the other formats in `Img::extensions`.
+The app reads JPEG, PNG, and the other formats that GPUI turns on in the `image` crate.
 
 The repository does not include a wallpaper. The test screenshots use the Windows XP "Bliss" photo
 as a placeholder. Microsoft owns that photo, so it stays in the Git-ignored `local/` folder. Replace
@@ -201,8 +202,9 @@ pixels, with 2 and 6 pixels inside graphs and meters. The heaviest font weight i
 ### Refresh, stale, and offline behavior
 
 Each source is a separate feed with its own poll interval. Polls run on background threads. A
-1-second tick redraws the clock and the age labels, and starts each poll that is due. Only one poll
-per feed runs at a time, so a slow source does not stack requests. HTTP requests time out at 75 % of
+1-second tick starts each poll that is due. Only one poll per feed runs at a time, so a slow source
+does not stack requests. The tick does not draw. A panel draws again when its feed has a new poll
+result, or when its age text or its freshness changes. The clock draws again once a minute. HTTP requests time out at 75 % of
 the poll interval, from 1.5 s to 10 s.
 
 The freshness limits come from the poll interval of each feed:
@@ -230,8 +232,8 @@ through `App::on_system_wake`
 
 GPUI limits the frame rate of an inactive window to about 30 frames per second by default
 ([platform.rs#L2734-L2738](https://github.com/zed-industries/zed/blob/6501df15765d66d6c2a2b66b1eb22434ccef3f86/crates/gpui/src/platform.rs#L2734-L2738)).
-The status window is inactive while you play. It redraws once per second, so this limit has no
-visible effect.
+The status window is inactive while you play. It redraws at most once per second, so this limit
+has no visible effect.
 
 ### Keyboard focus
 
@@ -364,6 +366,37 @@ On Linux, the Wayland backend reports output changes. The X11 backend reports on
 whole X screen and has no RandR change handler in this GPUI revision
 ([x11/display.rs#L14-L36](https://github.com/zed-industries/zed/blob/6501df15765d66d6c2a2b66b1eb22434ccef3f86/crates/gpui_linux/src/linux/x11/display.rs#L14-L36)).
 
+### Rendering and resource use
+
+The display is idle for most of its run time. It draws only when visible text changes, and each
+redraw draws only the views that changed. These techniques come from Zed and from other open-source
+GPUI apps:
+
+| Technique | What the app does | Source |
+| --- | --- | --- |
+| Cached panel views | Each feed panel is its own GPUI entity in the layout through `Entity::cached`. GPUI reuses the last drawing of a cached view until its entity is notified. A notify marks only that view and its parent views as dirty. | GPUI [view.rs#L249-L258](https://github.com/zed-industries/zed/blob/6501df15765d66d6c2a2b66b1eb22434ccef3f86/crates/gpui/src/view.rs#L249-L258) and [window.rs#L2563-L2575](https://github.com/zed-industries/zed/blob/6501df15765d66d6c2a2b66b1eb22434ccef3f86/crates/gpui/src/window.rs#L2563-L2575). Zed panes [pane_group.rs#L536](https://github.com/zed-industries/zed/blob/6501df15765d66d6c2a2b66b1eb22434ccef3f86/crates/workspace/src/pane_group.rs#L536) and docks [dock.rs#L1356](https://github.com/zed-industries/zed/blob/6501df15765d66d6c2a2b66b1eb22434ccef3f86/crates/workspace/src/dock.rs#L1356). gpui-component tabs [tab_panel.rs#L811](https://github.com/longbridge/gpui-component/blob/146eaf025d8bb4f0f20119b4d64c4917940bd9ad/crates/component/src/dock/tab_panel.rs#L811). |
+| Feed events | The board emits `StatusFeedUpdated` for each poll result and does not notify. Only the panel of that feed subscribes to its index and draws again. | `src/status_board.rs`, `src/status_panel.rs` |
+| Redraw timers | While a view renders, it records the next time that its clock, age, or freshness text changes. One timer notifies the view at that time. A view without time-based text never wakes up. | `src/status_redraw.rs` |
+| Canvas graphs | One `canvas` paints all bars of a graph with `paint_quad`. Before, each bar was a `div`, so one host panel had more than 500 layout nodes for its graphs. | GPUI [canvas.rs#L10-L19](https://github.com/zed-industries/zed/blob/6501df15765d66d6c2a2b66b1eb22434ccef3f86/crates/gpui/src/elements/canvas.rs#L10-L19). gpui-component charts [candlestick_chart.rs#L383](https://github.com/longbridge/gpui-component/blob/146eaf025d8bb4f0f20119b4d64c4917940bd9ad/crates/component/src/chart/candlestick_chart.rs#L383). |
+| Wallpaper at display size | The app scales the wallpaper to the display before GPUI gets it. GPUI keeps a decoded image at its file size, so a 3840 × 2160 file used about 32 MiB for a 1920 × 1080 display. | GPUI [platform.rs#L3462-L3487](https://github.com/zed-industries/zed/blob/6501df15765d66d6c2a2b66b1eb22434ccef3f86/crates/gpui/src/platform.rs#L3462-L3487) |
+| No accessibility adapter | The app starts with `Application::new_inaccessible`, as Zed does unless `ZED_EXPERIMENTAL_A11Y=1`. A screen reader cannot read the status display. | Zed [main.rs#L96-L101](https://github.com/zed-industries/zed/blob/6501df15765d66d6c2a2b66b1eb22434ccef3f86/crates/zed/src/main.rs#L96-L101), GPUI [app.rs#L250-L263](https://github.com/zed-industries/zed/blob/6501df15765d66d6c2a2b66b1eb22434ccef3f86/crates/gpui/src/app.rs#L250-L263) |
+| Shared Tailscale reads | The tailnet panel and the presence cards share one `tailscale status --json` run for each poll round, instead of one run for each feed. | `src/collector_tailscale.rs` |
+| Kept `sysinfo` lists | The local collector keeps its disk and sensor lists and refreshes only their values. On Windows, this keeps one WMI connection for the temperature sensors. | sysinfo [windows/component.rs#L72-L78](https://github.com/GuillaumeGomez/sysinfo/blob/v0.40.4/src/windows/component.rs#L72-L78) |
+| Release profile | ThinLTO and one codegen unit, as Zed and tty7 use. Stripped symbols, as gpui-component and OpenLogi use. | Zed [Cargo.toml#L1159-L1162](https://github.com/zed-industries/zed/blob/6501df15765d66d6c2a2b66b1eb22434ccef3f86/Cargo.toml#L1159-L1162), [tty7 Cargo.toml#L429-L431](https://github.com/l0ng-ai/tty7/blob/5cc39fd486becd36425691184f98beb56ec4d8a2/Cargo.toml#L429-L431), [gpui-component Cargo.toml#L187-L188](https://github.com/longbridge/gpui-component/blob/146eaf025d8bb4f0f20119b4d64c4917940bd9ad/Cargo.toml#L187-L188), [OpenLogi Cargo.toml#L167-L170](https://github.com/AprilNEA/OpenLogi/blob/da245558a4cafef5271480cc10e633c901f62a82/Cargo.toml#L167-L170) |
+
+The app does not use these techniques:
+
+- **mimalloc.** Zed has it as an optional feature that is off by default
+  ([crates/zed/Cargo.toml#L167](https://github.com/zed-industries/zed/blob/6501df15765d66d6c2a2b66b1eb22434ccef3f86/crates/zed/Cargo.toml#L167),
+  [main.rs#L91-L93](https://github.com/zed-industries/zed/blob/6501df15765d66d6c2a2b66b1eb22434ccef3f86/crates/zed/src/main.rs#L91-L93)). The display allocates little between
+  polls.
+- **`uniform_list`.** A virtual list helps long lists that scroll. The panels show at most about 20
+  rows and do not scroll.
+- **Size optimization.** Some GPUI apps build with `opt-level = "s"` and keep GPUI and `taffy` at
+  `opt-level = 3`. This version does not test that setting.
+
+The benchmark results for these changes are in [bench/README.md](bench/README.md).
+
 ### Fonts
 
 The app bundles IBM Plex Sans Light and Regular in `assets/fonts/ibm-plex-sans`, and IBM Plex Mono
@@ -380,12 +413,16 @@ Each module has one concern:
 | File | Concern |
 | --- | --- |
 | `src/main.rs` | Command-line options, key bindings, and app start. |
-| `src/status_board.rs` | GPUI model: the poll loop, the redraw tick, and the wake refresh. |
+| `src/status_board.rs` | GPUI model: the poll loop, the feed events, and the wake refresh. |
 | `src/status_fonts.rs` | Bundled IBM Plex Sans and IBM Plex Mono font registration. |
-| `src/status_view.rs` | GPUI view: wallpaper, clock, panels, graphs, alerts, buttons, and actions. |
+| `src/status_view.rs` | Root GPUI view: wallpaper, clock, alerts, buttons, actions, and the panel layout. |
+| `src/status_panel.rs` | Cached GPUI view for each feed panel: hosts, services, disks, and tailnet. |
+| `src/status_graph.rs` | CPU and network history graphs on a canvas. |
+| `src/status_redraw.rs` | Redraw timer for clock, age, and freshness text. |
+| `src/status_theme.rs` | Colors and the layout scale. |
+| `src/status_wallpaper.rs` | Wallpaper decode and scale to the display size. |
 | `src/status_window.rs` | Window open, fullscreen state, and monitor change handling. |
 | `src/display_select.rs` | Display selectors mapped to GPUI displays. |
-| `src/display_windows.rs` | `WS_EX_NOACTIVATE` on the GPUI window handle. |
 | `src/status_config.rs` | TOML configuration and the feed list. |
 | `src/status_collector.rs` | Collector switch for all sources. |
 | `src/collector_local.rs` | This machine through `sysinfo`. |
@@ -406,11 +443,12 @@ Each module has one concern:
 
 These checks ran on a Linux machine (KDE Plasma, Wayland) with GPUI at the pinned commit:
 
-- `cargo test` passes 23 unit tests. The tests cover the
+- `cargo test` passes 28 unit tests. The tests cover the
   configuration, the Glances uptime and temperature parsing, the network interface choice, the
-  Kuma, Scrutiny, and Tailscale response conversion, the feed history, the freshness rules, the
-  formatting, the display selectors, and the physical display ranking. Test inputs use
-  `example.ts.net` names.
+  Kuma, Scrutiny, and Tailscale response conversion, the shared Tailscale result, the feed history,
+  the freshness rules and their next change, the formatting and the redraw times, the wallpaper
+  size, the display selectors, and the physical display ranking. Test inputs use `example.ts.net`
+  names.
 - `cargo clippy --all-targets` reports no warnings for Linux.
 - `cargo clippy --all-targets --target x86_64-pc-windows-gnu` reports no warnings. This check
   compiles the Windows display, focus, `sysinfo`, and Tailscale command code. It does not run the
@@ -427,6 +465,11 @@ These checks ran on a Linux machine (KDE Plasma, Wayland) with GPUI at the pinne
   window focused, the keyboard focus alert showed.
 - The window buttons did not show in these screenshots, because the virtual session does not move
   the pointer. The pointer reveal needs a hands-on check.
+- The benchmark in [bench/README.md](bench/README.md) compared the build before and after the
+  changes in "Rendering and resource use". App CPU use fell from 1.38 % to 0.55 % of one core, GPU
+  busy time from 0.90 % to 0.35 %, and resident memory from 155 MiB to 106 MiB. The first frame
+  showed at the same time. Screenshots of both builds showed the same layout and data, and the
+  panels kept updating.
 
 ### Hands-on verification
 

@@ -1,4 +1,7 @@
 //! Status board: polls every status feed on the GPUI background executor.
+//!
+//! The board does not notify its views. It emits [`StatusFeedUpdated`] for
+//! each poll result, so only the panel of that feed draws again.
 
 use std::time::{Duration, Instant};
 
@@ -8,10 +11,17 @@ use crate::{
     status_freshness::FeedFreshness,
     status_startup::{StartupMilestone, log_startup_milestone},
 };
-use gpui::{App, AppContext as _, Context, Entity, Subscription, Task};
+use gpui::{App, AppContext as _, Context, Entity, EventEmitter, Subscription, Task};
 
-/// Interval of the redraw tick that keeps clocks and age labels current.
-const STATUS_TICK_INTERVAL: Duration = Duration::from_secs(1);
+/// Interval of the poll tick that starts the polls that are due.
+const STATUS_POLL_TICK_INTERVAL: Duration = Duration::from_secs(1);
+
+/// Event: one feed has a new poll result, data or error.
+#[derive(Clone, Copy, Debug)]
+pub struct StatusFeedUpdated {
+    /// Index of the feed in [`StatusBoard::status_feeds`].
+    pub index: usize,
+}
 
 /// Poll state of one feed: when its last poll started, and the running poll.
 #[derive(Default)]
@@ -41,12 +51,13 @@ impl StatusBoard {
                                 board.start_feed_poll(index, cx);
                             }
                         }
-                        cx.notify();
                     });
                     if keep_running.is_err() {
                         return;
                     }
-                    cx.background_executor().timer(STATUS_TICK_INTERVAL).await;
+                    cx.background_executor()
+                        .timer(STATUS_POLL_TICK_INTERVAL)
+                        .await;
                 }
             });
             let wake_subscription = cx.on_system_wake({
@@ -96,7 +107,7 @@ impl StatusBoard {
                 if board.feeds.iter().all(StatusFeed::has_poll_result) {
                     log_startup_milestone(StartupMilestone::AllFeedsPolled);
                 }
-                cx.notify();
+                cx.emit(StatusFeedUpdated { index });
             })
             .ok();
         }));
@@ -111,4 +122,11 @@ impl StatusBoard {
     pub fn feed_freshness(&self, feed: &StatusFeed) -> FeedFreshness {
         feed.feed_freshness(self.started_at.elapsed())
     }
+
+    /// Time until the freshness of one feed changes without a new poll.
+    pub fn next_freshness_change(&self, feed: &StatusFeed) -> Option<Duration> {
+        feed.next_freshness_change(self.started_at.elapsed())
+    }
 }
+
+impl EventEmitter<StatusFeedUpdated> for StatusBoard {}

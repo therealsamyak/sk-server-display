@@ -3,7 +3,12 @@
 //! The collector only reads status. It runs the local Tailscale command
 //! line tool and changes nothing.
 
-use std::{collections::HashMap, process::Command};
+use std::{
+    collections::HashMap,
+    process::Command,
+    sync::{Arc, Mutex},
+    time::{Duration, Instant},
+};
 
 use anyhow::{Context as _, bail};
 use serde::Deserialize;
@@ -11,11 +16,58 @@ use time::OffsetDateTime;
 
 use crate::status_model::{TailnetConnection, TailnetDevice};
 
-/// Tailscale collector that runs the local `tailscale` command.
+/// Time that one `tailscale status --json` result stays valid for other
+/// feeds. The tailnet feed and the host cards poll at the same time, so they
+/// share one command run instead of one run each.
+const TAILSCALE_STATUS_REUSE: Duration = Duration::from_secs(2);
+
+/// Last `tailscale status --json` result: the time of the run and the devices
+/// or the error text.
+type TailscaleStatusResult = (Instant, Result<Arc<Vec<TailnetDevice>>, String>);
+
+/// Shared reader of `tailscale status --json` for all Tailscale feeds.
+#[derive(Clone, Debug)]
+pub struct TailscaleStatusReader {
+    /// Command name or path, such as `tailscale`.
+    command: String,
+    last: Arc<Mutex<Option<TailscaleStatusResult>>>,
+}
+
+impl TailscaleStatusReader {
+    /// Creates a reader that runs `command status --json`.
+    pub fn new_tailscale_reader(command: String) -> Self {
+        Self {
+            command,
+            last: Arc::default(),
+        }
+    }
+
+    /// Reads tailnet devices. A result from the last two seconds is used
+    /// again. This call blocks; run it on a background thread.
+    fn read_tailnet_devices(&self) -> anyhow::Result<Arc<Vec<TailnetDevice>>> {
+        // The lock stays held while the command runs, so feeds that poll at
+        // the same time wait for one run and then share its result.
+        let mut last = self
+            .last
+            .lock()
+            .map_err(|_| anyhow::anyhow!("Tailscale status lock is poisoned"))?;
+        if let Some((read_at, result)) = last.as_ref()
+            && read_at.elapsed() < TAILSCALE_STATUS_REUSE
+        {
+            return result.clone().map_err(anyhow::Error::msg);
+        }
+        let result = read_tailscale_status(&self.command)
+            .map(|status| Arc::new(tailnet_devices(status)))
+            .map_err(|error| format!("{error:#}"));
+        *last = Some((Instant::now(), result.clone()));
+        result.map_err(anyhow::Error::msg)
+    }
+}
+
+/// Tailscale collector: all tailnet devices.
 #[derive(Clone, Debug)]
 pub struct TailscaleCollector {
-    /// Command name or path, such as `tailscale`.
-    pub command: String,
+    pub reader: TailscaleStatusReader,
 }
 
 #[derive(Deserialize)]
@@ -49,7 +101,7 @@ pub(crate) struct TailscalePeer {
 impl TailscaleCollector {
     /// Reads tailnet devices. This call blocks; run it on a background thread.
     pub fn fetch_tailnet_devices(&self) -> anyhow::Result<Vec<TailnetDevice>> {
-        read_tailscale_status(&self.command).map(tailnet_devices)
+        Ok(self.reader.read_tailnet_devices()?.as_ref().clone())
     }
 }
 
@@ -57,8 +109,7 @@ impl TailscaleCollector {
 /// host card without a metrics server.
 #[derive(Clone, Debug)]
 pub struct TailnetHostCollector {
-    /// Command name or path, such as `tailscale`.
-    pub command: String,
+    pub reader: TailscaleStatusReader,
     /// Device name: the first label of its MagicDNS name, such as `server`.
     pub name: String,
 }
@@ -66,19 +117,20 @@ pub struct TailnetHostCollector {
 impl TailnetHostCollector {
     /// Reads the device. This call blocks; run it on a background thread.
     pub fn fetch_tailnet_host(&self) -> anyhow::Result<TailnetDevice> {
-        let devices = read_tailscale_status(&self.command).map(tailnet_devices)?;
-        find_tailnet_device(devices, &self.name)
+        let devices = self.reader.read_tailnet_devices()?;
+        find_tailnet_device(&devices, &self.name)
     }
 }
 
 /// Finds one device by name. Case does not matter.
 pub(crate) fn find_tailnet_device(
-    devices: Vec<TailnetDevice>,
+    devices: &[TailnetDevice],
     name: &str,
 ) -> anyhow::Result<TailnetDevice> {
     devices
-        .into_iter()
+        .iter()
         .find(|device| device.name.eq_ignore_ascii_case(name))
+        .cloned()
         .with_context(|| format!("{name} is not in the tailnet"))
 }
 
@@ -181,8 +233,25 @@ mod tests {
         assert_eq!(devices[3].last_seen, None);
         assert_eq!(devices[4].connection, TailnetConnection::Offline);
         assert!(devices[4].last_seen.is_some());
-        let found = find_tailnet_device(devices.clone(), "SERVER").unwrap();
+        let found = find_tailnet_device(&devices, "SERVER").unwrap();
         assert_eq!(found.name, "server");
-        assert!(find_tailnet_device(devices, "missing").is_err());
+        assert!(find_tailnet_device(&devices, "missing").is_err());
+    }
+
+    #[test]
+    fn tailscale_reader_shares_one_result() {
+        // A missing command fails. The second read gets the same error from
+        // the shared result instead of a second run.
+        let reader = TailscaleStatusReader::new_tailscale_reader(
+            "server-status-display-missing-tailscale".into(),
+        );
+        let first = reader.read_tailnet_devices().unwrap_err().to_string();
+        let read_at = reader.last.lock().unwrap().as_ref().map(|(at, _)| *at);
+        let second = reader.read_tailnet_devices().unwrap_err().to_string();
+        assert_eq!(first, second);
+        assert_eq!(
+            reader.last.lock().unwrap().as_ref().map(|(at, _)| *at),
+            read_at
+        );
     }
 }
