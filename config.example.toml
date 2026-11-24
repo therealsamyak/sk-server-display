@@ -18,8 +18,9 @@ wallpaper = "wallpaper.jpg"
 #   when the host sleeps, the card shows the Tailscale presence instead.
 # - this_machine = true: the same metrics from the machine that runs the
 #   display.
-# - neither: the Tailscale presence of the device with this name. Use the
-#   first label of its MagicDNS name.
+# - neither: a status card with the online state of the device with this
+#   name, from Tailscale. Use the first label of its MagicDNS name. Use this
+#   for laptops, phones, and tablets.
 # Without [[host]] blocks, the display shows one card for this machine.
 [[host]]
 name = "server"
@@ -30,11 +31,7 @@ name = "desk"
 glances_url = "http://desk.example.ts.net:61208"
 
 [[host]]
-name = "tablet"
-
-[[host]]
 name = "laptop"
-this_machine = true
 
 # A public Uptime Kuma status page. The app reads it without sign-in.
 [uptime_kuma]

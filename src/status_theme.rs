@@ -12,6 +12,10 @@ pub const PANEL_GAP: f32 = 16.0;
 /// rows, and the smallest CPU and network graphs.
 pub const HOST_PANEL_BASE_HEIGHT: f32 = 330.0;
 
+/// Height of a status card: a host card with the online state only, in
+/// design pixels. Padding, the title row, and one state row.
+pub const PRESENCE_PANEL_HEIGHT: f32 = 76.0;
+
 /// Height of one core grid row, in design pixels.
 pub const CORE_GRID_ROW_HEIGHT: f32 = 26.0;
 

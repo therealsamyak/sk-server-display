@@ -22,7 +22,7 @@ use crate::{
     status_panel::FeedPanelView,
     status_redraw::StatusRedrawTimer,
     status_startup::{StartupMilestone, log_startup_milestone},
-    status_theme::{PANEL_GAP, Scale, StatusLayout, StatusTheme},
+    status_theme::{PANEL_GAP, PRESENCE_PANEL_HEIGHT, Scale, StatusLayout, StatusTheme},
     status_wallpaper::load_status_wallpaper,
     status_window::StatusDisplayApp,
 };
@@ -345,11 +345,23 @@ impl Render for StatusView {
         // Each panel is a cached view laid out at this style. GPUI reuses
         // its last drawing until the panel is notified.
         let panel_style = || StyleRefinement::default().flex_1().min_w_0().min_h_0();
+        // A status card has a fixed height. Metric cards share the rest of
+        // the column.
+        let status_card_style = || {
+            StyleRefinement::default()
+                .flex_none()
+                .min_w_0()
+                .h(s(PRESENCE_PANEL_HEIGHT))
+        };
         let mut host_panels = Vec::new();
         let mut service_panels = Vec::new();
         let mut side_panels = Vec::new();
         for (feed, panel) in board.status_feeds().iter().zip(&self.panels) {
-            let panel = panel.clone().cached(panel_style()).into_any_element();
+            let style = match feed.spec.collector {
+                StatusCollector::TailnetHost(_) => status_card_style(),
+                _ => panel_style(),
+            };
+            let panel = panel.clone().cached(style).into_any_element();
             match &feed.spec.collector {
                 StatusCollector::Glances(_)
                 | StatusCollector::Local(_)

@@ -403,7 +403,14 @@ fn compact_host_body(s: Scale, host: &HostMetrics, history: &HostHistory, dim: b
                         .child(format!("↑ {}", rate_text(host.network_send_rate))),
                 ),
         );
-    div().flex().gap(s(20.)).child(meters).child(activity)
+    // The body fills the card, so the CPU graph grows into the free height.
+    div()
+        .flex_1()
+        .min_h_0()
+        .flex()
+        .gap(s(20.))
+        .child(meters)
+        .child(activity)
 }
 
 fn compact_metric_row(
@@ -759,43 +766,59 @@ fn presence_panel(s: Scale, view: &FeedView, compact: bool) -> Div {
     } else {
         StatusTheme::muted()
     };
+    let state_row = div()
+        .flex()
+        .items_center()
+        .gap(s(10.))
+        .text_size(s(14.))
+        .child(status_dot(s, dot))
+        .child(
+            div()
+                .flex_1()
+                .min_w_0()
+                .truncate()
+                .text_color(state_color)
+                .child(state),
+        );
+    // An offline device shows its last-seen age in the body only.
+    let path = device.online.then(|| tailnet_connection_text(view, device));
+    let Some(error) = metrics_error else {
+        // Status card: one row with the online state and the OS. It has the
+        // fixed height `PRESENCE_PANEL_HEIGHT`.
+        let row = state_row.child(
+            div()
+                .flex_none()
+                .text_color(StatusTheme::muted())
+                .child(device.os.clone()),
+        );
+        return feed_panel(s, view, path, row.into_any_element(), true);
+    };
     let body = div()
         .flex()
         .flex_col()
         .gap(s(6.))
         .text_size(s(14.))
-        .child(
-            div()
-                .flex()
-                .items_center()
-                .gap(s(10.))
-                .child(status_dot(s, dot))
-                .child(div().text_color(state_color).child(state)),
-        )
+        .child(state_row)
         .child(
             div()
                 .text_color(StatusTheme::muted())
                 .child(device.os.clone()),
         )
-        .child(presence_note(s, device, metrics_error.as_deref(), dim));
-    // An offline device shows its last-seen age in the body only.
-    let path = device.online.then(|| tailnet_connection_text(view, device));
+        .child(presence_note(s, device, error, dim));
     feed_panel(s, view, path, body.into_any_element(), compact)
 }
 
-/// Note under a presence card: why the card shows no metrics. A host that is
-/// offline is a normal state, so its note is gray. An online host whose
-/// metrics server does not answer gets an amber note with the error.
-fn presence_note(s: Scale, device: &TailnetDevice, metrics_error: Option<&str>, dim: bool) -> Div {
+/// Note under the presence card of a Glances host: why the card shows no
+/// metrics. A host that is offline is a normal state, so its note is gray.
+/// An online host whose Glances does not answer gets an amber note with the
+/// error.
+fn presence_note(s: Scale, device: &TailnetDevice, metrics_error: &str, dim: bool) -> Div {
     let note = div().flex().flex_col().gap(s(2.)).text_size(s(13.));
     match metrics_error {
-        None => note
-            .text_color(StatusTheme::faint())
-            .child("No metrics server. Tailscale presence only."),
-        Some(_) if !device.online => note
+        _ if !device.online => note
             .text_color(StatusTheme::faint())
             .child("Metrics show again when the host is online."),
-        Some(error) => note
+        error => note
             .child(
                 div()
                     .text_color(if dim {

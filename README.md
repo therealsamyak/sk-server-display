@@ -21,7 +21,7 @@ The display reads these sources. Each one is optional, except the tailnet:
 | Host card, this machine | `sysinfo` crate | Local CPU per core, memory, system disk, network rate, temperature, load, and uptime. | 2 s |
 | Tailnet | Tailscale | Runs `tailscale status --json` on the display machine. | 10 s |
 | Host card, Glances | [Glances](https://glances.readthedocs.io/) | `GET /api/4/{cpu,percpu,mem,load,sensors,fs,uptime,network}` on each host. When Glances does not answer, the card shows the Tailscale presence of the host. | 2 s |
-| Host card, presence only | Tailscale | The device entry in `tailscale status --json`: online state, last seen, OS, and path. For a host without a metrics server. | 10 s |
+| Status card | Tailscale | The device entry in `tailscale status --json`: online state, last seen, OS, and path. For laptops and other hosts that need no metrics. | 10 s |
 | Services | [Uptime Kuma](https://github.com/louislam/uptime-kuma) | `GET /api/status-page/<slug>` and `/api/status-page/heartbeat/<slug>`. These public status page endpoints need no sign-in. | 30 s |
 | Disks | [Scrutiny](https://github.com/AnalogJ/scrutiny) | `GET /api/summary`. SMART result, temperature, and power-on hours per drive. | 5 min |
 
@@ -37,8 +37,8 @@ To configure the display, do these steps:
    - macOS: `~/Library/Application Support/server-status-display/config.toml`
    - Linux: `~/.config/server-status-display/config.toml`
 2. Add one `[[host]]` block for each host card, in column order. Set `glances_url` for a host
-   that runs Glances. Set `this_machine = true` for the machine that runs the display. A block with
-   only `name` shows the Tailscale presence of that device.
+   that runs Glances. Set `this_machine = true` for metrics of the machine that runs the display. A
+   block with only `name` shows a status card: the online state of that device.
 3. Replace the example URLs with full Tailscale MagicDNS names of your hosts.
 4. Set `wallpaper` to an image file, or remove the line for a solid background.
 
@@ -46,6 +46,79 @@ Without `[[host]]` blocks, the display shows one card for this machine. Without 
 file, it shows this machine and the tailnet only, on a solid
 background. Git ignores `config.local.toml` in the repository root, so you can keep a private
 configuration there and pass it with `--config config.local.toml`.
+
+### Run Glances at sign-in on a Mac
+
+A Mac host card needs Glances on the Mac. A user LaunchAgent starts it at sign-in. macOS lists it
+in System Settings > General > Login Items & Extensions, under "Allow in the Background". To set
+it up, do these steps on the Mac:
+
+1. Install Glances with its web server:
+
+   ```sh
+   uv tool install "glances[web]"
+   ```
+
+2. Create `~/.config/glances/glances.conf`. The REST API then answers only requests for these host
+   names, which blocks DNS rebinding:
+
+   ```ini
+   [outputs]
+   webui_allowed_hosts=desk.example.ts.net,desk,100.64.0.2,localhost,127.0.0.1
+   ```
+
+3. Create `~/Library/LaunchAgents/local.glances.web.plist`. Replace `you` with your user name and
+   `100.64.0.2` with the Tailscale IPv4 address of the Mac (`tailscale ip -4`):
+
+   ```xml
+   <?xml version="1.0" encoding="UTF-8"?>
+   <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+   <plist version="1.0">
+   <dict>
+       <key>Label</key>
+       <string>local.glances.web</string>
+       <key>ProgramArguments</key>
+       <array>
+           <string>/Users/you/.local/bin/glances</string>
+           <string>-w</string>
+           <string>--disable-webui</string>
+           <string>--bind</string>
+           <string>100.64.0.2</string>
+           <string>--port</string>
+           <string>61208</string>
+           <string>-C</string>
+           <string>/Users/you/.config/glances/glances.conf</string>
+           <string>--disable-plugin</string>
+           <string>all</string>
+           <string>--enable-plugin</string>
+           <string>cpu,percpu,mem,load,sensors,fs,uptime,network</string>
+       </array>
+       <key>RunAtLoad</key>
+       <true/>
+       <key>KeepAlive</key>
+       <true/>
+       <key>ThrottleInterval</key>
+       <integer>30</integer>
+       <key>ProcessType</key>
+       <string>Background</string>
+       <key>StandardOutPath</key>
+       <string>/Users/you/Library/Logs/glances-web.log</string>
+       <key>StandardErrorPath</key>
+       <string>/Users/you/Library/Logs/glances-web.log</string>
+   </dict>
+   </plist>
+   ```
+
+4. Load the agent:
+
+   ```sh
+   launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/local.glances.web.plist
+   ```
+
+Glances listens on the Tailscale address only, so other devices on the local network cannot read
+it. It runs only the plugins that the display reads, and not the process list. If Tailscale is not
+up at sign-in, the bind fails, and launchd starts Glances again after 30 seconds. To remove the
+agent, run `launchctl bootout gui/$(id -u)/local.glances.web` and delete the plist file.
 
 ## Run the status display
 
@@ -132,11 +205,35 @@ one Glances host and one alert:
 └────────────────────────────────────────────────────────────────────────────────────────────────┘
 ```
 
+The host column of the current configuration has two Glances hosts and two laptops. The laptops
+show their online state only:
+
+```text
+┌ server ──────────────────── up 47m ┐
+│ CPU  ▬────────  10%  36°C  ▁▂▁▃▂▁▂ │
+│ Mem  ▬▬▬▬─────  16.4 / 31.1 GiB    │
+│ Disk ▬▬───────  138 / 473 GiB  ↓ ↑ │
+└────────────────────────────────────┘
+┌ desk ───────────────────── up 1d 2h ┐
+│ CPU  ▬────────   2%        ▁▁▁▁▁▁▁ │
+│ Mem  ▬▬▬▬▬────  15.2 / 32.0 GiB    │
+│ Disk ▬▬▬▬─────  197 / 460 GiB  ↓ ↑ │
+└────────────────────────────────────┘
+┌ laptop-1 ──────────────────────────┐
+│ ● offline, seen 3d 1h ago    macOS │
+└────────────────────────────────────┘
+┌ laptop-2 ──────────────────── idle ┐
+│ ● online                   windows │
+└────────────────────────────────────┘
+```
+
 The layout rules are:
 
 - The panels fill the lower 64 % of the window. The clock, the date, and the alerts use the rest.
-- A host without a metrics server gets a presence card: online state, OS, and Tailscale path. The
-  tailnet panel does not list devices that have a host card.
+- A host with only a name gets a status card. It is one row high: a dot, `online` or
+  `offline, seen 3d 1h ago`, and the OS. The header shows the Tailscale path when the device is
+  online. Status cards keep a fixed height, and metric cards share the rest of the host column.
+  The tailnet panel does not list devices that have a host card.
 - A Glances host that does not answer also gets a presence card, if Tailscale knows the device. A
   Mac or a laptop that sleeps is a normal state, so the card stays calm: a gray dot,
   `offline, seen 2h 5m ago`, and a gray note. If Tailscale shows the device online, an amber note
@@ -478,6 +575,10 @@ These checks ran on a Linux machine (KDE Plasma, Wayland) with GPUI at the pinne
   Tailscale tunnel. Glances reports no CPU temperature on that Mac, so the card shows none. When
   Glances stopped, the card changed to the presence card with the amber note and no alert. When
   Glances started again, the metrics came back. An offline Mac showed the gray presence card.
+- On the Mac Studio, the `local.glances.web` LaunchAgent above started Glances 4.5.9 under launchd.
+  A request with the MagicDNS host name got status 200. A request with another `Host` header got
+  status 400, and so did a request for the disabled process list. Glances used 0.1 % CPU at idle.
+  A restart of the Mac did not run, so the start at sign-in needs a hands-on check.
 - The benchmark in [bench/README.md](bench/README.md) compared the build before and after the
   changes in "Rendering and resource use". App CPU use fell from 1.38 % to 0.55 % of one core, GPU
   busy time from 0.90 % to 0.35 %, and resident memory from 155 MiB to 106 MiB. The first frame
@@ -511,10 +612,6 @@ These items need a test on real hardware. Windows items come first:
 ## Open questions
 
 - Which wallpaper do you want? The placeholder is the Windows XP "Bliss" photo.
-- Glances is not installed on the Macs. The design assumes that each Mac runs Glances on the
-  default port 61208, the same as the Linux server. Until Glances answers, each Mac card shows its
-  Tailscale presence. Glances must start at sign-in on each Mac to keep the card filled. This
-  version does not set that up.
 - Must the app start at sign-in on the Windows laptop? This version adds no startup entry or
   service.
 
