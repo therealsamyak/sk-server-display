@@ -36,13 +36,14 @@ The workspace root holds the shared files:
 
 ## Data sources
 
-The display reads these sources. Each one is optional, except the first two:
+The display reads these sources. Each one is optional, except the tailnet:
 
 | Panel | Source | How the app reads it | Poll interval |
 | --- | --- | --- | --- |
-| This machine | `sysinfo` crate | Local CPU per core, memory, system disk, network rate, temperature, load, and uptime. | 2 s |
+| Host card, this machine | `sysinfo` crate | Local CPU per core, memory, system disk, network rate, temperature, load, and uptime. | 2 s |
 | Tailnet | Tailscale | Runs `tailscale status --json` on the display machine. | 10 s |
-| Host panels | [Glances](https://glances.readthedocs.io/) | `GET /api/4/{cpu,percpu,mem,load,sensors,fs,uptime,network}` on each host. | 2 s |
+| Host card, Glances | [Glances](https://glances.readthedocs.io/) | `GET /api/4/{cpu,percpu,mem,load,sensors,fs,uptime,network}` on each host. | 2 s |
+| Host card, presence only | Tailscale | The device entry in `tailscale status --json`: online state, last seen, OS, and path. For a host without a metrics server. | 10 s |
 | Services | [Uptime Kuma](https://github.com/louislam/uptime-kuma) | `GET /api/status-page/<slug>` and `/api/status-page/heartbeat/<slug>`. These public status page endpoints need no sign-in. | 30 s |
 | Disks | [Scrutiny](https://github.com/AnalogJ/scrutiny) | `GET /api/summary`. SMART result, temperature, and power-on hours per drive. | 5 min |
 
@@ -57,10 +58,14 @@ Both versions read the same configuration file. To configure the display, do the
    - Windows: `%APPDATA%\server-status-display\config.toml`
    - macOS: `~/Library/Application Support/server-status-display/config.toml`
    - Linux: `~/.config/server-status-display/config.toml`
-2. Replace the example URLs with full Tailscale MagicDNS names of your hosts.
-3. Set `wallpaper` to an image file, or remove the line for a solid background.
+2. Add one `[[host]]` block for each host card, in column order. Set `glances_url` for a host
+   that runs Glances. Set `this_machine = true` for the machine that runs the display. A block with
+   only `name` shows the Tailscale presence of that device.
+3. Replace the example URLs with full Tailscale MagicDNS names of your hosts.
+4. Set `wallpaper` to an image file, or remove the line for a solid background.
 
-Without a configuration file, the display shows this machine and the tailnet only, on a solid
+Without `[[host]]` blocks, the display shows one card for this machine. Without a configuration
+file, it shows this machine and the tailnet only, on a solid
 background. Git ignores `config.local.toml` in the repository root, so you can keep a private
 configuration there and pass it with `--config config.local.toml`.
 

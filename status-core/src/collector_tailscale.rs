@@ -1,4 +1,4 @@
-//! Tailscale collector: tailnet devices from `tailscale status --json`.
+//! Tailscale collectors: tailnet devices from `tailscale status --json`.
 //!
 //! The collector only reads status. It runs the local Tailscale command
 //! line tool and changes nothing.
@@ -49,28 +49,59 @@ pub(crate) struct TailscalePeer {
 impl TailscaleCollector {
     /// Reads tailnet devices. This call blocks; run it on a background thread.
     pub fn fetch_tailnet_devices(&self) -> anyhow::Result<Vec<TailnetDevice>> {
-        let mut command = Command::new(&self.command);
-        command.args(["status", "--json"]);
-        #[cfg(target_os = "windows")]
-        {
-            use std::os::windows::process::CommandExt as _;
-            // CREATE_NO_WINDOW: do not flash a console window on each poll.
-            command.creation_flags(0x0800_0000);
-        }
-        let output = command
-            .output()
-            .with_context(|| format!("cannot run `{} status --json`", self.command))?;
-        if !output.status.success() {
-            bail!(
-                "`{} status --json` failed: {}",
-                self.command,
-                String::from_utf8_lossy(&output.stderr).trim()
-            );
-        }
-        let status: TailscaleStatus =
-            serde_json::from_slice(&output.stdout).context("Tailscale status is not valid JSON")?;
-        Ok(tailnet_devices(status))
+        read_tailscale_status(&self.command).map(tailnet_devices)
     }
+}
+
+/// Tailnet host collector: one device from `tailscale status --json`, for a
+/// host card without a metrics server.
+#[derive(Clone, Debug)]
+pub struct TailnetHostCollector {
+    /// Command name or path, such as `tailscale`.
+    pub command: String,
+    /// Device name: the first label of its MagicDNS name, such as `server`.
+    pub name: String,
+}
+
+impl TailnetHostCollector {
+    /// Reads the device. This call blocks; run it on a background thread.
+    pub fn fetch_tailnet_host(&self) -> anyhow::Result<TailnetDevice> {
+        let devices = read_tailscale_status(&self.command).map(tailnet_devices)?;
+        find_tailnet_device(devices, &self.name)
+    }
+}
+
+/// Finds one device by name. Case does not matter.
+pub(crate) fn find_tailnet_device(
+    devices: Vec<TailnetDevice>,
+    name: &str,
+) -> anyhow::Result<TailnetDevice> {
+    devices
+        .into_iter()
+        .find(|device| device.name.eq_ignore_ascii_case(name))
+        .with_context(|| format!("{name} is not in the tailnet"))
+}
+
+/// Runs `tailscale status --json` and parses its output.
+fn read_tailscale_status(command_name: &str) -> anyhow::Result<TailscaleStatus> {
+    let mut command = Command::new(command_name);
+    command.args(["status", "--json"]);
+    #[cfg(target_os = "windows")]
+    {
+        use std::os::windows::process::CommandExt as _;
+        // CREATE_NO_WINDOW: do not flash a console window on each poll.
+        command.creation_flags(0x0800_0000);
+    }
+    let output = command
+        .output()
+        .with_context(|| format!("cannot run `{command_name} status --json`"))?;
+    if !output.status.success() {
+        bail!(
+            "`{command_name} status --json` failed: {}",
+            String::from_utf8_lossy(&output.stderr).trim()
+        );
+    }
+    serde_json::from_slice(&output.stdout).context("Tailscale status is not valid JSON")
 }
 
 /// Converts Tailscale status to devices: this machine first, then online
@@ -150,5 +181,8 @@ mod tests {
         assert_eq!(devices[3].last_seen, None);
         assert_eq!(devices[4].connection, TailnetConnection::Offline);
         assert!(devices[4].last_seen.is_some());
+        let found = find_tailnet_device(devices.clone(), "SERVER").unwrap();
+        assert_eq!(found.name, "server");
+        assert!(find_tailnet_device(devices, "missing").is_err());
     }
 }

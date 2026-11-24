@@ -103,4 +103,6 @@ pub enum FeedData {
     Services(Vec<ServiceHealth>),
     Disks(Vec<DiskHealth>),
     Tailnet(Vec<TailnetDevice>),
+    /// One host without a metrics server: its Tailscale presence only.
+    TailnetHost(TailnetDevice),
 }

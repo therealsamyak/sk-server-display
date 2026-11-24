@@ -12,9 +12,12 @@ use anyhow::Context as _;
 use serde::Deserialize;
 
 use crate::{
-    collector_glances::GlancesCollector, collector_kuma::KumaCollector,
-    collector_local::LocalCollector, collector_scrutiny::ScrutinyCollector,
-    collector_tailscale::TailscaleCollector, status_collector::StatusCollector,
+    collector_glances::GlancesCollector,
+    collector_kuma::KumaCollector,
+    collector_local::LocalCollector,
+    collector_scrutiny::ScrutinyCollector,
+    collector_tailscale::{TailnetHostCollector, TailscaleCollector},
+    status_collector::StatusCollector,
 };
 
 /// Poll interval of host metrics from this machine and from Glances.
@@ -27,7 +30,7 @@ pub const SERVICE_POLL_INTERVAL: Duration = Duration::from_secs(30);
 pub const DISK_POLL_INTERVAL: Duration = Duration::from_secs(300);
 
 /// Status display configuration file contents.
-#[derive(Debug, Deserialize, PartialEq)]
+#[derive(Debug, Default, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct StatusConfig {
     /// Background image of the status display. A relative path starts from
@@ -35,12 +38,9 @@ pub struct StatusConfig {
     /// a solid color.
     #[serde(default)]
     pub wallpaper: Option<PathBuf>,
-    /// Shows metrics of the machine that runs the display.
-    #[serde(default = "default_true")]
-    pub show_this_machine: bool,
-    /// Hosts that run the Glances web server.
-    #[serde(default)]
-    pub glances: Vec<GlancesHostConfig>,
+    /// Host cards, in column order. Empty: one card for this machine.
+    #[serde(default, rename = "host")]
+    pub hosts: Vec<HostConfig>,
     #[serde(default)]
     pub uptime_kuma: Option<KumaConfig>,
     #[serde(default)]
@@ -49,14 +49,21 @@ pub struct StatusConfig {
     pub tailscale: TailscaleConfig,
 }
 
-/// One Glances host.
+/// One host card. The source of its data is the first that applies:
+/// `glances_url`, then `this_machine`, then the Tailscale presence of the
+/// device with this name.
 #[derive(Debug, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
-pub struct GlancesHostConfig {
-    /// Name on the host card.
+pub struct HostConfig {
+    /// Name on the host card. For a Tailscale-only host, the first label of
+    /// its MagicDNS name, such as `server`.
     pub name: String,
     /// Glances web server URL, such as `http://server.example.ts.net:61208`.
-    pub url: String,
+    #[serde(default)]
+    pub glances_url: Option<String>,
+    /// Reads the metrics of the machine that runs the display.
+    #[serde(default)]
+    pub this_machine: bool,
 }
 
 /// Uptime Kuma public status page.
@@ -93,19 +100,6 @@ impl Default for TailscaleConfig {
         Self {
             enabled: true,
             command: default_tailscale_command(),
-        }
-    }
-}
-
-impl Default for StatusConfig {
-    fn default() -> Self {
-        Self {
-            wallpaper: None,
-            show_this_machine: true,
-            glances: Vec::new(),
-            uptime_kuma: None,
-            scrutiny: None,
-            tailscale: TailscaleConfig::default(),
         }
     }
 }
@@ -168,25 +162,12 @@ pub fn build_status_feeds(config: &StatusConfig) -> anyhow::Result<Vec<StatusFee
             .into()
     };
     let mut feeds = Vec::new();
-    for host in &config.glances {
-        feeds.push(StatusFeedSpec {
-            title: host.name.clone(),
-            source: "Glances",
-            collector: StatusCollector::Glances(GlancesCollector {
-                name: host.name.clone(),
-                base_url: host.url.clone(),
-                agent: agent(HOST_POLL_INTERVAL),
-            }),
-            poll_interval: HOST_POLL_INTERVAL,
-        });
+    for host in &config.hosts {
+        feeds.push(host_feed_spec(host, config, agent(HOST_POLL_INTERVAL))?);
     }
-    if config.show_this_machine {
-        feeds.push(StatusFeedSpec {
-            title: sysinfo::System::host_name().unwrap_or_else(|_| "this machine".into()),
-            source: "local",
-            collector: StatusCollector::Local(LocalCollector::new_local_collector()?),
-            poll_interval: HOST_POLL_INTERVAL,
-        });
+    if config.hosts.is_empty() {
+        let name = sysinfo::System::host_name().unwrap_or_else(|_| "this machine".into());
+        feeds.push(local_feed_spec(name)?);
     }
     if let Some(kuma) = &config.uptime_kuma {
         feeds.push(StatusFeedSpec {
@@ -224,6 +205,54 @@ pub fn build_status_feeds(config: &StatusConfig) -> anyhow::Result<Vec<StatusFee
     Ok(feeds)
 }
 
+/// Builds the feed of one host card.
+fn host_feed_spec(
+    host: &HostConfig,
+    config: &StatusConfig,
+    agent: ureq::Agent,
+) -> anyhow::Result<StatusFeedSpec> {
+    if host.glances_url.is_some() && host.this_machine {
+        anyhow::bail!(
+            "host {} sets both glances_url and this_machine; keep one",
+            host.name
+        );
+    }
+    if let Some(url) = &host.glances_url {
+        return Ok(StatusFeedSpec {
+            title: host.name.clone(),
+            source: "Glances",
+            collector: StatusCollector::Glances(GlancesCollector {
+                name: host.name.clone(),
+                base_url: url.clone(),
+                agent,
+            }),
+            poll_interval: HOST_POLL_INTERVAL,
+        });
+    }
+    if host.this_machine {
+        return local_feed_spec(host.name.clone());
+    }
+    Ok(StatusFeedSpec {
+        title: host.name.clone(),
+        source: "Tailscale",
+        collector: StatusCollector::TailnetHost(TailnetHostCollector {
+            command: config.tailscale.command.clone(),
+            name: host.name.clone(),
+        }),
+        poll_interval: TAILNET_POLL_INTERVAL,
+    })
+}
+
+/// Builds the feed of the machine that runs the display.
+fn local_feed_spec(title: String) -> anyhow::Result<StatusFeedSpec> {
+    Ok(StatusFeedSpec {
+        title,
+        source: "local",
+        collector: StatusCollector::Local(LocalCollector::new_local_collector()?),
+        poll_interval: HOST_POLL_INTERVAL,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -232,8 +261,12 @@ mod tests {
     fn parses_example_config() {
         let text = include_str!("../../config.example.toml");
         let config: StatusConfig = toml::from_str(text).expect("example config parses");
-        assert!(config.show_this_machine);
-        assert_eq!(config.glances.len(), 1);
+        let sources: Vec<_> = config
+            .hosts
+            .iter()
+            .map(|host| (host.glances_url.is_some(), host.this_machine))
+            .collect();
+        assert_eq!(sources, [(true, false), (false, false), (false, true)]);
         assert_eq!(config.uptime_kuma.as_ref().unwrap().status_page, "home");
         assert!(config.scrutiny.is_some());
         assert_eq!(config.tailscale.command, "tailscale");
@@ -251,5 +284,47 @@ mod tests {
     #[test]
     fn rejects_unknown_keys() {
         assert!(toml::from_str::<StatusConfig>("glances_url = \"x\"").is_err());
+    }
+
+    #[test]
+    fn host_cards_keep_config_order_and_sources() {
+        let config: StatusConfig = toml::from_str(
+            r#"
+            [[host]]
+            name = "server"
+            glances_url = "http://server.example.ts.net:61208"
+
+            [[host]]
+            name = "desk"
+
+            [[host]]
+            name = "laptop"
+            this_machine = true
+            "#,
+        )
+        .unwrap();
+        let feeds = build_status_feeds(&config).unwrap();
+        let cards: Vec<_> = feeds
+            .iter()
+            .map(|feed| (feed.title.as_str(), feed.source))
+            .collect();
+        assert_eq!(
+            cards,
+            [
+                ("server", "Glances"),
+                ("desk", "Tailscale"),
+                ("laptop", "local"),
+                ("Tailnet", "Tailscale"),
+            ]
+        );
+    }
+
+    #[test]
+    fn rejects_two_sources_for_one_host() {
+        let config: StatusConfig = toml::from_str(
+            "[[host]]\nname = \"x\"\nglances_url = \"http://x\"\nthis_machine = true\n",
+        )
+        .unwrap();
+        assert!(build_status_feeds(&config).is_err());
     }
 }

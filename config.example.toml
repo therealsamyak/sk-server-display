@@ -12,13 +12,24 @@
 # the folder of this file. Remove the line for a solid background.
 wallpaper = "wallpaper.jpg"
 
-# Show CPU, memory, disk, and uptime of the machine that runs the display.
-show_this_machine = true
-
-# One block for each host that runs the Glances web server (glances -w).
-[[glances]]
+# Host cards for the left column, in order. Each card reads one source:
+# - glances_url: CPU, memory, disk, network, and uptime from Glances
+#   (glances -w) on that host.
+# - this_machine = true: the same metrics from the machine that runs the
+#   display.
+# - neither: the Tailscale presence of the device with this name. Use the
+#   first label of its MagicDNS name.
+# Without [[host]] blocks, the display shows one card for this machine.
+[[host]]
 name = "server"
-url = "http://server.example.ts.net:61208"
+glances_url = "http://server.example.ts.net:61208"
+
+[[host]]
+name = "desk"
+
+[[host]]
+name = "laptop"
+this_machine = true
 
 # A public Uptime Kuma status page. The app reads it without sign-in.
 [uptime_kuma]

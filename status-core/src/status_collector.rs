@@ -1,12 +1,16 @@
 //! Status collector: one source of readings for one status feed.
 
 use crate::{
-    collector_glances::GlancesCollector, collector_kuma::KumaCollector,
-    collector_local::LocalCollector, collector_scrutiny::ScrutinyCollector,
-    collector_tailscale::TailscaleCollector, status_model::FeedData,
+    collector_glances::GlancesCollector,
+    collector_kuma::KumaCollector,
+    collector_local::LocalCollector,
+    collector_scrutiny::ScrutinyCollector,
+    collector_tailscale::{TailnetHostCollector, TailscaleCollector},
+    status_model::FeedData,
 };
 
-/// Status collector: Glances, this machine, Uptime Kuma, Scrutiny, or Tailscale.
+/// Status collector: Glances, this machine, Uptime Kuma, Scrutiny, the
+/// tailnet, or one tailnet host.
 #[derive(Clone, Debug)]
 pub enum StatusCollector {
     Glances(GlancesCollector),
@@ -14,9 +18,18 @@ pub enum StatusCollector {
     Kuma(KumaCollector),
     Scrutiny(ScrutinyCollector),
     Tailscale(TailscaleCollector),
+    TailnetHost(TailnetHostCollector),
 }
 
 impl StatusCollector {
+    /// `true` for collectors that fill a host card in the host column.
+    pub fn is_host_collector(&self) -> bool {
+        matches!(
+            self,
+            Self::Glances(_) | Self::Local(_) | Self::TailnetHost(_)
+        )
+    }
+
     /// Reads one reading. This call blocks; run it on a background thread.
     pub fn collect_status_reading(&self) -> anyhow::Result<FeedData> {
         Ok(match self {
@@ -25,6 +38,7 @@ impl StatusCollector {
             Self::Kuma(collector) => FeedData::Services(collector.fetch_kuma_services()?),
             Self::Scrutiny(collector) => FeedData::Disks(collector.fetch_scrutiny_disks()?),
             Self::Tailscale(collector) => FeedData::Tailnet(collector.fetch_tailnet_devices()?),
+            Self::TailnetHost(collector) => FeedData::TailnetHost(collector.fetch_tailnet_host()?),
         })
     }
 }

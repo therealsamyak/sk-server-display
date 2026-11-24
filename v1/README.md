@@ -57,6 +57,8 @@ one Glances host and one alert:
 The layout rules are:
 
 - The panels fill the lower 64 % of the window. The clock, the date, and the alerts use the rest.
+- A host without a metrics server gets a presence card: online state, OS, and Tailscale path. The
+  tailnet panel does not list devices that have a host card.
 - One host gets a wide first column. Two hosts get one column each. Three or more hosts share one
   column.
 - A host panel shows the core grid only when the panel is tall enough. The CPU and network graphs
@@ -326,7 +328,7 @@ Each module has one concern. The `status-core` modules are shared with v2:
 
 These checks ran on a Linux machine (KDE Plasma, Wayland) with GPUI at the pinned commit:
 
-- `cargo test --workspace` passes 21 unit tests in `status-core`. The tests cover the
+- `cargo test --workspace` passes 23 unit tests in `status-core`. The tests cover the
   configuration, the Glances uptime and temperature parsing, the network interface choice, the
   Kuma, Scrutiny, and Tailscale response conversion, the feed history, the freshness rules, the
   formatting, the display selectors, and the physical display ranking. Test inputs use

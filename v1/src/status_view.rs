@@ -347,12 +347,7 @@ impl Render for StatusView {
                     .children(alerts),
             );
 
-        let is_host = |view: &&FeedView| {
-            matches!(
-                view.feed.spec.collector,
-                StatusCollector::Glances(_) | StatusCollector::Local(_)
-            )
-        };
+        let is_host = |view: &&FeedView| view.feed.spec.collector.is_host_collector();
         // Up to two hosts get one column each. More hosts share one column.
         let host_count = feeds.iter().filter(is_host).count();
         let host_rows = if host_count <= 2 { 1 } else { host_count };
@@ -367,6 +362,9 @@ impl Render for StatusView {
             match &view.feed.spec.collector {
                 StatusCollector::Glances(_) | StatusCollector::Local(_) => {
                     host_panels.push(host_panel(s, view, host_panel_height).into_any_element())
+                }
+                StatusCollector::TailnetHost(_) => {
+                    host_panels.push(presence_panel(s, view, now).into_any_element())
                 }
                 StatusCollector::Kuma(_) => {
                     service_panels.push(services_panel(s, view, now).into_any_element())
@@ -1127,5 +1125,49 @@ fn tailnet_panel(s: Scale, view: &FeedView, now: OffsetDateTime) -> Div {
         view,
         Some(format!("{online}/{} online", devices.len())),
         list_body(s, rows),
+    )
+}
+
+/// Host card for a host without a metrics server: its Tailscale presence.
+fn presence_panel(s: Scale, view: &FeedView, now: OffsetDateTime) -> Div {
+    let Some(FeedData::TailnetHost(device)) = view.reading() else {
+        return feed_panel(s, view, None, empty_body(s, view));
+    };
+    let dim = view.dim();
+    let (color, state) = if device.online {
+        (StatusTheme::ok(), "online".to_string())
+    } else {
+        (
+            StatusTheme::faint(),
+            format!("offline, seen {}", age_since(now, device.last_seen)),
+        )
+    };
+    let color = if dim { StatusTheme::faint() } else { color };
+    let path = match &device.connection {
+        TailnetConnection::Direct => Some("direct".to_string()),
+        TailnetConnection::Relay(relay) => Some(format!("relay {relay}")),
+        TailnetConnection::Idle => Some("idle".to_string()),
+        TailnetConnection::ThisMachine => Some("this machine".to_string()),
+        TailnetConnection::Offline => None,
+    };
+    feed_panel(
+        s,
+        view,
+        path,
+        list_body(
+            s,
+            [
+                list_row(
+                    s,
+                    color,
+                    state,
+                    vec![(device.os.clone(), 64., StatusTheme::muted())],
+                ),
+                div()
+                    .text_size(s(13.))
+                    .text_color(StatusTheme::faint())
+                    .child("No metrics server. Tailscale presence only."),
+            ],
+        ),
     )
 }

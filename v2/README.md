@@ -53,6 +53,10 @@ The implementation differs from v1 in these ways:
 - **Fonts.** `AppSpec::fonts` bundles IBM Plex Sans and IBM Plex Mono, and `AppSpec::families`
   makes them the sans and mono families
   ([tooling.rs#L26-L31](https://github.com/anomalyco/rune/blob/791ee9669248bcf16fe2672d9c5e6f5d69e714ce/crates/rune/src/tooling.rs#L26-L31)).
+- **Host column.** When three or more hosts share the left column, each card is compact: CPU,
+  memory, and disk meters on the left, and the CPU graph and network rates on the right. A host
+  without a metrics server gets a presence card with its online state, OS, and Tailscale path.
+  The tailnet panel does not list devices that have a host card.
 - **Buttons.** The window buttons use `on_press` handlers. The pointer reveal uses
   `on_pointer_move_local` on the root element.
 
@@ -242,7 +246,7 @@ Each module has one concern. The `status-core` modules are shared with v1 and li
 
 These checks ran on a Linux machine (KDE Plasma, Wayland) with Rune at the pinned commit:
 
-- `cargo test --workspace` passes 24 unit tests: 21 in `status-core` and 3 in v2. The v2 tests
+- `cargo test --workspace` passes 26 unit tests: 23 in `status-core` and 3 in v2. The v2 tests
   cover the display selectors and the windowed position.
 - `cargo clippy --workspace --all-targets` reports no warnings for Linux.
 - `cargo clippy --workspace --all-targets --target x86_64-pc-windows-gnu` reports no warnings. This
@@ -255,6 +259,9 @@ These checks ran on a Linux machine (KDE Plasma, Wayland) with Rune at the pinne
 - Headless `--realtime` runs read the real Glances, Uptime Kuma, Scrutiny, and Tailscale sources over
   Tailscale. The wallpaper, clock, CPU and network graphs, core grid, and all panels rendered at
   1920 × 1080 and 1366 × 768.
+- A four-host column rendered at 1920 × 1080 and 1366 × 768: one Glances card and three presence
+  cards. The run was on the Linux server, so the laptop showed as a presence card. On the laptop,
+  `this_machine = true` gives it a metrics card.
 - A Glances entry for a closed port showed the red `offline` header, the red border, the error text,
   and the offline alert after 30 seconds.
 - A script that gave the window focus and moved the pointer showed the keyboard focus alert, the
