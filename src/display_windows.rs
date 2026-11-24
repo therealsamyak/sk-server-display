@@ -37,8 +37,7 @@ use crate::status_display::{
 pub struct WindowsDisplay {
     /// `HMONITOR` value. GPUI on Windows uses it as the display ID.
     pub monitor_handle: isize,
-    /// GDI device name, such as `\\.\DISPLAY1`. winit reports it as the
-    /// monitor name.
+    /// GDI device name, such as `\\.\DISPLAY1`.
     pub gdi_device_name: String,
     /// Monitor name from the display configuration, such as `Built-in Display`.
     pub friendly_name: String,
@@ -116,14 +115,21 @@ pub fn find_physical_windows_display(displays: &[WindowsDisplay]) -> Option<&Win
     displays.get(rank_physical_display_candidates(&candidates)?)
 }
 
-/// Stops a window from becoming the foreground window on click.
+/// Stops the GPUI status window from becoming the foreground window on click.
 ///
 /// Sunshine sends remote keyboard input to the foreground window. Without
 /// this style, one local click on the status display moves the game's input
-/// to the status window. `hwnd` is the window's `HWND` value.
-pub fn apply_no_activate_style(hwnd: isize) {
-    let hwnd = HWND(hwnd as *mut c_void);
-    // SAFETY: the caller passes the live top-level window of its UI framework.
+/// to the status window.
+pub fn apply_no_activate_style(window: &gpui::Window) {
+    use raw_window_handle::{HasWindowHandle, RawWindowHandle};
+    let Ok(handle) = HasWindowHandle::window_handle(window) else {
+        return;
+    };
+    let RawWindowHandle::Win32(handle) = handle.as_raw() else {
+        return;
+    };
+    let hwnd = HWND(handle.hwnd.get() as *mut c_void);
+    // SAFETY: `hwnd` is the live top-level window that GPUI created.
     unsafe {
         let style = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
         SetWindowLongPtrW(hwnd, GWL_EXSTYLE, style | WS_EX_NOACTIVATE.0 as isize);

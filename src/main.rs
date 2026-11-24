@@ -2,22 +2,37 @@
 
 #![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
 
+mod collector_glances;
+mod collector_kuma;
+mod collector_local;
+mod collector_scrutiny;
+mod collector_tailscale;
 mod display_select;
 #[cfg(target_os = "windows")]
 mod display_windows;
 mod status_board;
+mod status_collector;
+mod status_config;
+// The physical display ranking runs on Windows only. Its tests run everywhere.
+#[cfg_attr(not(target_os = "windows"), allow(dead_code))]
+mod status_display;
+mod status_feed;
 mod status_fonts;
+mod status_format;
+mod status_freshness;
+mod status_model;
+mod status_startup;
 mod status_view;
 mod status_window;
 
 use std::path::PathBuf;
 
-use clap::Parser;
-use gpui::{App, Entity, Global, KeyBinding};
-use server_status_core::{
+use crate::{
     status_config::{build_status_feeds, load_status_config},
     status_display::DisplaySelector,
 };
+use clap::Parser;
+use gpui::{App, Entity, Global, KeyBinding};
 use time::UtcOffset;
 
 use crate::{
@@ -57,7 +72,7 @@ struct StatusDisplayRoot(#[allow(dead_code)] Entity<StatusDisplayApp>);
 impl Global for StatusDisplayRoot {}
 
 fn main() {
-    server_status_core::status_startup::record_process_start();
+    status_startup::record_process_start();
     // Read the local offset before GPUI starts threads. The `time` crate
     // refuses this lookup in a multithreaded process on Unix.
     let local_offset = UtcOffset::current_local_offset().unwrap_or(UtcOffset::UTC);

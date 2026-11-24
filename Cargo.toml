@@ -1,46 +1,46 @@
-# Server status display monorepo: one shared core crate and one app crate for
-# each UI framework.
-[workspace]
-resolver = "3"
-members = ["status-core", "v1", "v2"]
-
-[workspace.package]
+[package]
+name = "server-status-display"
 version = "0.1.0"
 edition = "2024"
 publish = false
 license = "Apache-2.0"
+description = "Full-screen, continuously updating server status display built with GPUI."
 
-[workspace.dependencies]
-server-status-core = { path = "status-core" }
+[[bin]]
+name = "server-status-display"
+path = "src/main.rs"
+
+[dependencies]
 anyhow = "1.0.86"
 clap = { version = "4.5", features = ["derive"] }
-dirs = "7.0.0"
 env_logger = "0.11"
 log = "0.4"
+gpui = { git = "https://github.com/zed-industries/zed", rev = "6501df15765d66d6c2a2b66b1eb22434ccef3f86" }
+gpui_platform = { git = "https://github.com/zed-industries/zed", rev = "6501df15765d66d6c2a2b66b1eb22434ccef3f86", features = ["font-kit", "wayland", "x11"] }
 raw-window-handle = "0.6"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0.144"
-sysinfo = "0.40.4"
 time = { version = "0.3", features = ["formatting", "local-offset", "macros", "parsing", "serde"] }
-toml = "1.2.2"
 ureq = { version = "3", features = ["json"] }
-windows = "0.62"
+toml = "1.2.2"
+dirs = "7.0.0"
+sysinfo = "0.40.4"
 
-# Cargo applies only the patches of the workspace root, never the patches of
-# a dependency. These repeat the patches that GPUI (v1) and Rune (v2) need.
+[target.'cfg(target_os = "windows")'.dependencies]
+windows = { version = "0.62", features = [
+    "Win32_Devices_Display",
+    "Win32_Foundation",
+    "Win32_Graphics_Gdi",
+    "Win32_UI_WindowsAndMessaging",
+] }
+
+# GPUI resolves these crates through Zed's workspace patches. Cargo does not
+# apply a dependency's patches, so this crate repeats the ones GPUI needs.
 [patch.crates-io]
-# GPUI at Zed commit 6501df15765d66d6c2a2b66b1eb22434ccef3f86.
 async-process = { git = "https://github.com/zed-industries/async-process.git", rev = "0b6d6713570af61806e1e5cb40e0f757cb93fd9d" }
 async-task = { git = "https://github.com/smol-rs/async-task", rev = "41fd3359c75e221bd8b187a8ee361aa309c1714c" }
 calloop = { git = "https://github.com/zed-industries/calloop", rev = "3759371fee14c40066d64777e2a36b6ffcc22590" }
 khronos-egl = { git = "https://github.com/zed-industries/khronos-egl", rev = "42214b36347b108fd9630ca6254b96dde59e04fe" }
-# Rune at commit 791ee9669248bcf16fe2672d9c5e6f5d69e714ce.
-winit = { git = "https://github.com/anomalyco/rune", rev = "791ee9669248bcf16fe2672d9c5e6f5d69e714ce" }
-sctk-adwaita = { git = "https://github.com/anomalyco/rune", rev = "791ee9669248bcf16fe2672d9c5e6f5d69e714ce" }
-parley_engine = { git = "https://github.com/anomalyco/rune", rev = "791ee9669248bcf16fe2672d9c5e6f5d69e714ce" }
-wgpu-hal = { git = "https://github.com/anomalyco/rune", rev = "791ee9669248bcf16fe2672d9c5e6f5d69e714ce" }
-accesskit_windows = { git = "https://github.com/anomalyco/rune", rev = "791ee9669248bcf16fe2672d9c5e6f5d69e714ce" }
-accesskit_macos = { git = "https://github.com/anomalyco/rune", rev = "791ee9669248bcf16fe2672d9c5e6f5d69e714ce" }
 
 [profile.dev]
 debug = "limited"

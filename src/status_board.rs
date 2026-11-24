@@ -2,13 +2,13 @@
 
 use std::time::{Duration, Instant};
 
-use gpui::{App, AppContext as _, Context, Entity, Subscription, Task};
-use server_status_core::{
+use crate::{
     status_config::StatusFeedSpec,
     status_feed::StatusFeed,
     status_freshness::FeedFreshness,
     status_startup::{StartupMilestone, log_startup_milestone},
 };
+use gpui::{App, AppContext as _, Context, Entity, Subscription, Task};
 
 /// Interval of the redraw tick that keeps clocks and age labels current.
 const STATUS_TICK_INTERVAL: Duration = Duration::from_secs(1);

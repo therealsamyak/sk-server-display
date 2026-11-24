@@ -6,12 +6,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use gpui::{
-    AnyElement, App, ClickEvent, Context, Div, Entity, FocusHandle, FontWeight, Hsla, IntoElement,
-    ObjectFit, Pixels, Render, Stateful, StyledImage as _, Subscription, WeakEntity, Window,
-    actions, div, img, prelude::*, px, relative, rgb,
-};
-use server_status_core::{
+use crate::{
     status_collector::StatusCollector,
     status_feed::{HOST_HISTORY_SAMPLES, HostHistory, StatusFeed},
     status_format::{
@@ -24,6 +19,11 @@ use server_status_core::{
         TailnetConnection, TailnetDevice,
     },
     status_startup::{StartupMilestone, log_startup_milestone},
+};
+use gpui::{
+    AnyElement, App, ClickEvent, Context, Div, Entity, FocusHandle, FontWeight, Hsla, IntoElement,
+    ObjectFit, Pixels, Render, Stateful, StyledImage as _, Subscription, WeakEntity, Window,
+    actions, div, img, prelude::*, px, relative, rgb,
 };
 use time::{OffsetDateTime, UtcOffset};
 

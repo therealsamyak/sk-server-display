@@ -15,16 +15,16 @@ pub const STATUS_PANEL_FONT_FAMILY: &str = "IBM Plex Mono";
 pub fn load_status_fonts(cx: &App) {
     let fonts = vec![
         Cow::Borrowed(
-            include_bytes!("../../assets/fonts/ibm-plex-sans/IBMPlexSans-Light.ttf").as_slice(),
+            include_bytes!("../assets/fonts/ibm-plex-sans/IBMPlexSans-Light.ttf").as_slice(),
         ),
         Cow::Borrowed(
-            include_bytes!("../../assets/fonts/ibm-plex-sans/IBMPlexSans-Regular.ttf").as_slice(),
+            include_bytes!("../assets/fonts/ibm-plex-sans/IBMPlexSans-Regular.ttf").as_slice(),
         ),
         Cow::Borrowed(
-            include_bytes!("../../assets/fonts/ibm-plex-mono/IBMPlexMono-Regular.ttf").as_slice(),
+            include_bytes!("../assets/fonts/ibm-plex-mono/IBMPlexMono-Regular.ttf").as_slice(),
         ),
         Cow::Borrowed(
-            include_bytes!("../../assets/fonts/ibm-plex-mono/IBMPlexMono-SemiBold.ttf").as_slice(),
+            include_bytes!("../assets/fonts/ibm-plex-mono/IBMPlexMono-SemiBold.ttf").as_slice(),
         ),
     ];
     if let Err(error) = cx.text_system().add_fonts(fonts) {

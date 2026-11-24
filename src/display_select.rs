@@ -2,8 +2,8 @@
 
 use std::rc::Rc;
 
+use crate::status_display::DisplaySelector;
 use gpui::{App, Bounds, DisplayId, Pixels, PlatformDisplay};
-use server_status_core::status_display::DisplaySelector;
 
 /// The display chosen for the status window, with a label for the controls.
 #[derive(Clone, Debug, PartialEq)]
@@ -49,7 +49,7 @@ pub fn choose_status_display(selector: DisplaySelector, cx: &App) -> Option<Disp
         DisplaySelector::Auto => {
             #[cfg(target_os = "windows")]
             {
-                use server_status_core::display_windows::{
+                use crate::display_windows::{
                     find_physical_windows_display, list_windows_displays,
                 };
                 let windows_displays = list_windows_displays();

@@ -1,19 +1,21 @@
 # /// script
 # requires-python = ">=3.12"
 # ///
-"""Status display benchmark: compares the GPUI app (v1) and the Rune app (v2).
+"""Status display benchmark: build cost, startup time, and steady-state use.
 
 Subcommands:
 
-- `build`: times a clean release build and an incremental rebuild of each
-  app, and reports binary sizes and dependency counts.
-- `run`: starts each app in a nested KWin Wayland session, times startup,
-  and measures steady-state CPU, GPU, and memory use.
+- `build`: times a clean release build and an incremental rebuild of the
+  app, and reports the binary size and the dependency count.
+- `run`: starts one or more app binaries in a nested KWin Wayland session,
+  times startup, and measures steady-state CPU, GPU, and memory use. Pass
+  two binaries to compare two builds, such as before and after a change.
 
 Run from the repository root:
 
     uv run bench/status_display_bench.py build --out /tmp/status-bench
-    uv run bench/status_display_bench.py run --config config.local.toml --out /tmp/status-bench
+    uv run bench/status_display_bench.py run --config config.local.toml --out /tmp/status-bench \
+        --app current=/tmp/status-bench/target/release/server-status-display
 
 The `run` subcommand reads Linux `/proc` data and needs `kwin_wayland`.
 """
@@ -38,20 +40,16 @@ CLOCK_TICKS = os.sysconf("SC_CLK_TCK")
 MILESTONE_RE = re.compile(r"startup: (.+) after ([0-9.]+) ms")
 
 
+PACKAGE = "server-status-display"
+VIEW_FILE = "src/status_view.rs"
+
+
 @dataclass(frozen=True)
 class BenchApp:
-    """One app under test."""
+    """One app binary under test, with a label for the results."""
 
     key: str
-    package: str
-    binary: str
-    view_file: str
-
-
-BENCH_APPS = [
-    BenchApp("v1-gpui", "server-status-display-v1", "server-status-display-v1", "v1/src/status_view.rs"),
-    BenchApp("v2-rune", "server-status-display-v2", "server-status-display-v2", "v2/src/status_view.rs"),
-]
+    binary: Path
 
 
 def cargo_env(target_dir: Path) -> dict[str, str]:
@@ -61,10 +59,10 @@ def cargo_env(target_dir: Path) -> dict[str, str]:
     return env
 
 
-def timed_cargo_build(app: BenchApp, target_dir: Path) -> float:
+def timed_cargo_build(target_dir: Path) -> float:
     started = time.monotonic()
     subprocess.run(
-        ["cargo", "build", "--release", "--offline", "-p", app.package],
+        ["cargo", "build", "--release", "--offline"],
         cwd=REPO_ROOT,
         env=cargo_env(target_dir),
         check=True,
@@ -74,9 +72,9 @@ def timed_cargo_build(app: BenchApp, target_dir: Path) -> float:
     return time.monotonic() - started
 
 
-def count_dependencies(app: BenchApp) -> int:
+def count_dependencies() -> int:
     output = subprocess.run(
-        ["cargo", "tree", "--offline", "-p", app.package, "-e", "normal", "--prefix", "none"],
+        ["cargo", "tree", "--offline", "-e", "normal", "--prefix", "none"],
         cwd=REPO_ROOT,
         env=cargo_env(REPO_ROOT / "target"),
         check=True,
@@ -88,29 +86,26 @@ def count_dependencies(app: BenchApp) -> int:
 
 
 def run_build_bench(out: Path) -> dict:
-    """Clean and incremental release builds, binary sizes, and dependency counts."""
-    results = {}
-    for app in BENCH_APPS:
-        target_dir = out / f"target-{app.key}"
-        shutil.rmtree(target_dir, ignore_errors=True)
-        print(f"{app.key}: clean release build", flush=True)
-        clean_seconds = timed_cargo_build(app, target_dir)
-        os.utime(REPO_ROOT / app.view_file)
-        print(f"{app.key}: incremental release build", flush=True)
-        incremental_seconds = timed_cargo_build(app, target_dir)
-        binary = target_dir / "release" / app.binary
-        stripped = out / f"{app.binary}.stripped"
-        shutil.copyfile(binary, stripped)
-        subprocess.run(["strip", str(stripped)], check=True)
-        results[app.key] = {
-            "clean_build_seconds": round(clean_seconds, 1),
-            "incremental_build_seconds": round(incremental_seconds, 1),
-            "binary_bytes": binary.stat().st_size,
-            "stripped_binary_bytes": stripped.stat().st_size,
-            "dependency_crates": count_dependencies(app),
-            "binary_path": str(binary),
-        }
-        print(json.dumps(results[app.key]), flush=True)
+    """Clean and incremental release builds, binary size, and dependency count."""
+    target_dir = out / "target"
+    shutil.rmtree(target_dir, ignore_errors=True)
+    print("clean release build", flush=True)
+    clean_seconds = timed_cargo_build(target_dir)
+    os.utime(REPO_ROOT / VIEW_FILE)
+    print("incremental release build", flush=True)
+    incremental_seconds = timed_cargo_build(target_dir)
+    binary = target_dir / "release" / PACKAGE
+    stripped = out / f"{PACKAGE}.stripped"
+    shutil.copyfile(binary, stripped)
+    subprocess.run(["strip", str(stripped)], check=True)
+    results = {
+        "clean_build_seconds": round(clean_seconds, 1),
+        "incremental_build_seconds": round(incremental_seconds, 1),
+        "binary_bytes": binary.stat().st_size,
+        "stripped_binary_bytes": stripped.stat().st_size,
+        "dependency_crates": count_dependencies(),
+    }
+    print(json.dumps(results), flush=True)
     return results
 
 
@@ -230,10 +225,13 @@ def start_nested_session(socket: str, width: int, height: int) -> NestedSession:
     raise RuntimeError("nested KWin did not start")
 
 
-def cpu_seconds(pid: int) -> float:
+def cpu_seconds(pid: int) -> tuple[float, float]:
+    """CPU time of the process, and of its finished child processes."""
     stat = Path(f"/proc/{pid}/stat").read_text()
     fields = stat[stat.rindex(")") + 2 :].split()
-    return (int(fields[11]) + int(fields[12])) / CLOCK_TICKS
+    own = (int(fields[11]) + int(fields[12])) / CLOCK_TICKS
+    children = (int(fields[13]) + int(fields[14])) / CLOCK_TICKS
+    return own, children
 
 
 def gpu_busy_ns(pid: int) -> int:
@@ -285,7 +283,9 @@ def measure_steady(binary: Path, config: Path, session: NestedSession, warmup: f
         time.sleep(5.0)
         samples.append(memory_kib(pid))
     wall = time.monotonic() - wall_start
-    cpu_percent = (cpu_seconds(pid) - cpu_start) / wall * 100.0
+    cpu_end = cpu_seconds(pid)
+    cpu_percent = (cpu_end[0] - cpu_start[0]) / wall * 100.0
+    child_cpu_percent = (cpu_end[1] - cpu_start[1]) / wall * 100.0
     gpu_percent = (gpu_busy_ns(pid) - gpu_start) / 1e9 / wall * 100.0
     if screenshot is not None:
         subprocess.run(["spectacle", "-b", "-n", "-f", "-o", str(screenshot)], env=session.session_env(),
@@ -293,6 +293,7 @@ def measure_steady(binary: Path, config: Path, session: NestedSession, warmup: f
     running.stop()
     return {
         "cpu_percent": round(cpu_percent, 2),
+        "child_cpu_percent": round(child_cpu_percent, 2),
         "gpu_percent": round(gpu_percent, 3),
         "rss_mib_mean": round(statistics.mean(s["rss_kib"] for s in samples) / 1024, 1),
         "rss_mib_max": round(max(s["rss_kib"] for s in samples) / 1024, 1),
@@ -314,29 +315,28 @@ def summarize(values: list[float]) -> dict[str, float]:
 def run_runtime_bench(args: argparse.Namespace) -> dict:
     """Startup times and steady-state resource use in a nested KWin session."""
     session = start_nested_session("status-bench", args.width, args.height)
-    results: dict = {app.key: {"startup_runs": [], "steady_runs": []} for app in BENCH_APPS}
+    apps = args.apps
+    results: dict = {app.key: {"startup_runs": [], "steady_runs": []} for app in apps}
     try:
-        binaries = {app.key: Path(args.binary_dir) / f"target-{app.key}" / "release" / app.binary
-                    for app in BENCH_APPS}
         for run in range(args.startup_runs):
-            # Alternate the order, so neither app always starts second.
-            order = BENCH_APPS if run % 2 == 0 else list(reversed(BENCH_APPS))
+            # Alternate the order, so no app always starts second.
+            order = apps if run % 2 == 0 else list(reversed(apps))
             for app in order:
-                milestones = measure_startup(binaries[app.key], args.config, session, 30.0)
+                milestones = measure_startup(app.binary, args.config, session, 30.0)
                 results[app.key]["startup_runs"].append(milestones)
                 print(f"startup {app.key} run {run + 1}: {json.dumps(milestones)}", flush=True)
                 time.sleep(1.0)
         for run in range(args.steady_runs):
-            for app in BENCH_APPS:
+            for app in apps:
                 shot = args.out / f"{app.key}-steady.png" if run == 0 else None
-                steady = measure_steady(binaries[app.key], args.config, session,
+                steady = measure_steady(app.binary, args.config, session,
                                         args.warmup, args.window, shot)
                 results[app.key]["steady_runs"].append(steady)
                 print(f"steady {app.key} run {run + 1}: {json.dumps(steady)}", flush=True)
                 time.sleep(2.0)
     finally:
         session.stop()
-    for app in BENCH_APPS:
+    for app in apps:
         runs = results[app.key]["startup_runs"]
         summary = {}
         for milestone in ["first view built", "first frame presented", "all feeds polled"]:
@@ -351,6 +351,13 @@ def run_runtime_bench(args: argparse.Namespace) -> dict:
     return results
 
 
+def parse_bench_app(value: str) -> BenchApp:
+    key, _, binary = value.partition("=")
+    if not key or not binary:
+        raise argparse.ArgumentTypeError("use LABEL=BINARY")
+    return BenchApp(key, Path(binary))
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = parser.add_subparsers(dest="command", required=True)
@@ -359,7 +366,8 @@ def main() -> None:
     run = sub.add_parser("run", help="Time startup and measure steady-state use.")
     run.add_argument("--config", type=Path, required=True)
     run.add_argument("--out", type=Path, required=True)
-    run.add_argument("--binary-dir", type=Path, help="Folder with the build targets. Default: --out.")
+    run.add_argument("--app", dest="apps", action="append", required=True, type=parse_bench_app,
+                     help="LABEL=BINARY. Repeat to compare builds.")
     run.add_argument("--width", type=int, default=1920)
     run.add_argument("--height", type=int, default=1080)
     run.add_argument("--startup-runs", type=int, default=10)
@@ -372,10 +380,10 @@ def main() -> None:
         results = run_build_bench(args.out)
         (args.out / "build-results.json").write_text(json.dumps(results, indent=2))
     else:
-        args.binary_dir = args.binary_dir or args.out
         results = run_runtime_bench(args)
         (args.out / "run-results.json").write_text(json.dumps(results, indent=2))
-    print(json.dumps({key: value.get("summary", value) for key, value in results.items()}, indent=2))
+    summary = results if args.command == "build" else {key: value["summary"] for key, value in results.items()}
+    print(json.dumps(summary, indent=2))
 
 
 if __name__ == "__main__":
