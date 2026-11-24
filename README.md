@@ -108,7 +108,7 @@ one Glances host and one alert:
 │                                           │ Data is 12s old. <last error>                    │ │
 │                                           └──────────────────────────────────────────────────┘ │
 │ ┌ server ─────────── up 6h 41m ┐ ┌ Services ─────── 14/14 up ┐ ┌ Disks ─────────── 2/3 passed ┐ │
-│ │ CPU 10%       38°C load 0.44 │ │ ● Service A          100% │ │ ● nvme0  41°C 477 GiB  passed│ │
+│ │ CPU 10%       38°C load 0.44 │ │ ● Service A          100% │ │ ● nvme0  41°C 477 GiB        │ │
 │ │ ▁▂▁▃▂▁▂▅▃▂▁▂▁▂▃▂▁  CPU graph │ │ ● Service B          100% │ │ ● sdb  39°C 932 GiB threshold│ │
 │ │ 0 ▬────── 9%  1 ▬────── 9%   │ │ ● Service C         99.8% │ └──────────────────────────────┘ │
 │ │ 2 ▬────── 6%  3 ▬────── 5%   │ │ ● Service D         99.9% │ ┌ Tailnet ───────── 5/6 online ┐ │
@@ -139,7 +139,8 @@ The layout rules are:
   amber from 75 °C and red from 85 °C.
 - Services sort problems first: down, pending, unknown, maintenance, then up. A service that is not
   up also shows its state and the time of its last heartbeat.
-- Disks show Scrutiny's result: `passed`, `SMART failed`, `threshold`, or `failed`.
+- Disks show a green dot when Scrutiny reports `passed`. A failed disk also shows `SMART failed`,
+  `threshold`, or `failed`.
 - Tailnet devices show this machine first, then online devices, then offline devices with the time
   since Tailscale last saw them.
 
@@ -177,6 +178,8 @@ were removed from the first version:
   The buttons show when the pointer moves (U4, U5).
 - Uppercase labels such as `CPU ×6`, `MEM`, `TEMP`, and `LOAD` (U1).
 - Spaced units in compact values. The panels show `41°C`, `6h 41m`, and `2d 7h ago`.
+- The `passed` label on each healthy disk. The green dot already shows it (U14).
+- The size and the middle dots in the display label (U6).
 
 The remaining dots and state labels render from feed or row state. Spacing uses steps of 4 design
 pixels, with 2 and 6 pixels inside graphs and meters. The heaviest font weight is SemiBold. Nothing animates.
@@ -289,7 +292,8 @@ The app maps the chosen Windows display to a GPUI display with the GDI device na
 This mapping is a GPUI implementation detail, not a public contract. If a GPUI update changes it,
 `auto` uses the primary display, and the display label shows "primary".
 
-The display label shows the chosen display, its number, its kind, and its size. It shows next to the
+The display label shows the number and the kind of the chosen display, such as
+`Display 1 of 2 (built-in panel)`. It shows next to the
 window buttons after the pointer moves. Use this label to confirm the choice.
 
 ### Fullscreen and exit

@@ -58,17 +58,11 @@ pub fn choose_status_display(selector: DisplaySelector, cx: &App) -> Option<Disp
     let displays = ordered_status_displays(cx);
     let number_of = |id: DisplayId| displays.iter().position(|d| d.id() == id).map(|i| i + 1);
     let choice = |display: &Rc<dyn PlatformDisplay>, detail: &str| {
-        let bounds = display.bounds();
         let number = number_of(display.id()).unwrap_or(0);
         DisplayChoice {
             id: display.id(),
-            bounds,
-            label: format!(
-                "Display {number} of {} · {detail} · {:.0}×{:.0}",
-                displays.len(),
-                f32::from(bounds.size.width),
-                f32::from(bounds.size.height)
-            ),
+            bounds: display.bounds(),
+            label: format!("Display {number} of {} ({detail})", displays.len()),
         }
     };
 

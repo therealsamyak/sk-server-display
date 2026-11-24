@@ -122,7 +122,7 @@ type Scale<'a> = &'a dyn Fn(f32) -> Pixels;
 
 /// Per-window settings of the status view.
 pub struct StatusViewSettings {
-    /// Display description, such as `Display 1 of 2 · primary · 1920×1080`.
+    /// Display description, such as `Display 1 of 2 (primary)`.
     pub display_label: String,
     pub local_offset: UtcOffset,
     /// Background image file. `None` gives a solid background.
@@ -1053,17 +1053,12 @@ fn disks_panel(s: Scale, view: &FeedView) -> Div {
         .count();
     let rows = disks.iter().map(|disk: &DiskHealth| {
         let (color, state) = match disk.state {
-            DiskState::Passed => (StatusTheme::ok(), "passed"),
+            DiskState::Passed => (StatusTheme::ok(), ""),
             DiskState::FailedSmart => (StatusTheme::bad(), "SMART failed"),
             DiskState::FailedScrutiny => (StatusTheme::warn(), "threshold"),
             DiskState::FailedBoth => (StatusTheme::bad(), "failed"),
         };
         let color = if dim { StatusTheme::faint() } else { color };
-        let state_color = if dim || disk.state == DiskState::Passed {
-            StatusTheme::muted()
-        } else {
-            color
-        };
         list_row(
             s,
             color,
@@ -1080,7 +1075,7 @@ fn disks_panel(s: Scale, view: &FeedView) -> Div {
                     72.,
                     StatusTheme::muted(),
                 ),
-                (state.to_string(), 88., state_color),
+                (state.to_string(), 88., color),
             ],
         )
     });
