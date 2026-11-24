@@ -225,6 +225,7 @@ fn host_feed_spec(
                 name: host.name.clone(),
                 base_url: url.clone(),
                 agent,
+                tailscale: tailscale.clone(),
             }),
             poll_interval: HOST_POLL_INTERVAL,
         });
@@ -266,7 +267,10 @@ mod tests {
             .iter()
             .map(|host| (host.glances_url.is_some(), host.this_machine))
             .collect();
-        assert_eq!(sources, [(true, false), (false, false), (false, true)]);
+        assert_eq!(
+            sources,
+            [(true, false), (true, false), (false, false), (false, true)]
+        );
         assert_eq!(config.uptime_kuma.as_ref().unwrap().status_page, "home");
         assert!(config.scrutiny.is_some());
         assert_eq!(config.tailscale.command, "tailscale");

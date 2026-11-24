@@ -21,6 +21,11 @@ use crate::status_model::{TailnetConnection, TailnetDevice};
 /// share one command run instead of one run each.
 const TAILSCALE_STATUS_REUSE: Duration = Duration::from_secs(2);
 
+/// Age limit of a Tailscale result for the presence of a Glances host that
+/// does not answer. It is the tailnet poll interval, so a Glances host that
+/// is asleep adds no command runs.
+const TAILSCALE_PRESENCE_MAX_AGE: Duration = Duration::from_secs(10);
+
 /// Last `tailscale status --json` result: the time of the run and the devices
 /// or the error text.
 type TailscaleStatusResult = (Instant, Result<Arc<Vec<TailnetDevice>>, String>);
@@ -42,9 +47,25 @@ impl TailscaleStatusReader {
         }
     }
 
-    /// Reads tailnet devices. A result from the last two seconds is used
-    /// again. This call blocks; run it on a background thread.
-    fn read_tailnet_devices(&self) -> anyhow::Result<Arc<Vec<TailnetDevice>>> {
+    /// Test reader with a fresh result that holds these devices.
+    #[cfg(test)]
+    pub fn tailscale_reader_with_devices(devices: Vec<TailnetDevice>) -> Self {
+        let reader = Self::new_tailscale_reader("tailscale".into());
+        *reader.last.lock().unwrap() = Some((Instant::now(), Ok(Arc::new(devices))));
+        reader
+    }
+
+    /// Reads the device with this name for a host card. A result from the
+    /// last 10 seconds is used again. This call blocks; run it on a
+    /// background thread.
+    pub fn read_host_presence(&self, name: &str) -> anyhow::Result<TailnetDevice> {
+        let devices = self.read_tailnet_devices(TAILSCALE_PRESENCE_MAX_AGE)?;
+        find_tailnet_device(&devices, name)
+    }
+
+    /// Reads tailnet devices. A result newer than `max_age` is used again.
+    /// This call blocks; run it on a background thread.
+    fn read_tailnet_devices(&self, max_age: Duration) -> anyhow::Result<Arc<Vec<TailnetDevice>>> {
         // The lock stays held while the command runs, so feeds that poll at
         // the same time wait for one run and then share its result.
         let mut last = self
@@ -52,7 +73,7 @@ impl TailscaleStatusReader {
             .lock()
             .map_err(|_| anyhow::anyhow!("Tailscale status lock is poisoned"))?;
         if let Some((read_at, result)) = last.as_ref()
-            && read_at.elapsed() < TAILSCALE_STATUS_REUSE
+            && read_at.elapsed() < max_age
         {
             return result.clone().map_err(anyhow::Error::msg);
         }
@@ -101,7 +122,11 @@ pub(crate) struct TailscalePeer {
 impl TailscaleCollector {
     /// Reads tailnet devices. This call blocks; run it on a background thread.
     pub fn fetch_tailnet_devices(&self) -> anyhow::Result<Vec<TailnetDevice>> {
-        Ok(self.reader.read_tailnet_devices()?.as_ref().clone())
+        Ok(self
+            .reader
+            .read_tailnet_devices(TAILSCALE_STATUS_REUSE)?
+            .as_ref()
+            .clone())
     }
 }
 
@@ -117,7 +142,7 @@ pub struct TailnetHostCollector {
 impl TailnetHostCollector {
     /// Reads the device. This call blocks; run it on a background thread.
     pub fn fetch_tailnet_host(&self) -> anyhow::Result<TailnetDevice> {
-        let devices = self.reader.read_tailnet_devices()?;
+        let devices = self.reader.read_tailnet_devices(TAILSCALE_STATUS_REUSE)?;
         find_tailnet_device(&devices, &self.name)
     }
 }
@@ -245,9 +270,15 @@ mod tests {
         let reader = TailscaleStatusReader::new_tailscale_reader(
             "server-status-display-missing-tailscale".into(),
         );
-        let first = reader.read_tailnet_devices().unwrap_err().to_string();
+        let first = reader
+            .read_tailnet_devices(TAILSCALE_STATUS_REUSE)
+            .unwrap_err()
+            .to_string();
         let read_at = reader.last.lock().unwrap().as_ref().map(|(at, _)| *at);
-        let second = reader.read_tailnet_devices().unwrap_err().to_string();
+        let second = reader
+            .read_tailnet_devices(TAILSCALE_STATUS_REUSE)
+            .unwrap_err()
+            .to_string();
         assert_eq!(first, second);
         assert_eq!(
             reader.last.lock().unwrap().as_ref().map(|(at, _)| *at),

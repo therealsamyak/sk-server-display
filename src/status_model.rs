@@ -103,6 +103,16 @@ pub enum FeedData {
     Services(Vec<ServiceHealth>),
     Disks(Vec<DiskHealth>),
     Tailnet(Vec<TailnetDevice>),
-    /// One host without a metrics server: its Tailscale presence only.
-    TailnetHost(TailnetDevice),
+    /// One host card without metrics: its Tailscale presence.
+    HostPresence(HostPresence),
+}
+
+/// Host presence: a host card from Tailscale, for a host that gives no
+/// metrics now.
+#[derive(Clone, Debug, PartialEq)]
+pub struct HostPresence {
+    pub device: TailnetDevice,
+    /// Why the metrics are missing, such as a failed Glances request. `None`
+    /// for a host without a metrics server.
+    pub metrics_error: Option<String>,
 }

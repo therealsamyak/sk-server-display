@@ -17,7 +17,7 @@ use crate::{
     status_freshness::FeedFreshness,
     status_graph::{NETWORK_GRAPH_FLOOR, cpu_graph, network_graph},
     status_model::{
-        DiskHealth, DiskState, FeedData, HostMetrics, ServiceHealth, ServiceState,
+        DiskHealth, DiskState, FeedData, HostMetrics, HostPresence, ServiceHealth, ServiceState,
         TailnetConnection, TailnetDevice,
     },
     status_redraw::StatusRedrawTimer,
@@ -313,8 +313,11 @@ fn core_grid(s: Scale, cores: &[f32], dim: bool) -> Div {
 }
 
 fn host_panel(s: Scale, view: &FeedView, panel_height: f32, compact: bool) -> Div {
-    let Some(FeedData::Host(host)) = view.reading() else {
-        return feed_panel(s, view, None, empty_body(s, view), compact);
+    let host = match view.reading() {
+        Some(FeedData::Host(host)) => host,
+        // Glances does not answer, and Tailscale knows the host.
+        Some(FeedData::HostPresence(_)) => return presence_panel(s, view, compact),
+        _ => return feed_panel(s, view, None, empty_body(s, view), compact),
     };
     let history = view.feed.host_history();
     let body = if compact {
@@ -731,9 +734,13 @@ fn tailnet_panel(s: Scale, view: &FeedView, carded: &[String]) -> Div {
     )
 }
 
-/// Host card for a host without a metrics server: its Tailscale presence.
+/// Host card for a host without metrics now: its Tailscale presence.
 fn presence_panel(s: Scale, view: &FeedView, compact: bool) -> Div {
-    let Some(FeedData::TailnetHost(device)) = view.reading() else {
+    let Some(FeedData::HostPresence(HostPresence {
+        device,
+        metrics_error,
+    })) = view.reading()
+    else {
         return feed_panel(s, view, None, empty_body(s, view), compact);
     };
     let dim = view.dim();
@@ -770,15 +777,41 @@ fn presence_panel(s: Scale, view: &FeedView, compact: bool) -> Div {
                 .text_color(StatusTheme::muted())
                 .child(device.os.clone()),
         )
-        .child(
-            div()
-                .text_size(s(13.))
-                .text_color(StatusTheme::faint())
-                .child("No metrics server. Tailscale presence only."),
-        );
+        .child(presence_note(s, device, metrics_error.as_deref(), dim));
     // An offline device shows its last-seen age in the body only.
     let path = device.online.then(|| tailnet_connection_text(view, device));
     feed_panel(s, view, path, body.into_any_element(), compact)
+}
+
+/// Note under a presence card: why the card shows no metrics. A host that is
+/// offline is a normal state, so its note is gray. An online host whose
+/// metrics server does not answer gets an amber note with the error.
+fn presence_note(s: Scale, device: &TailnetDevice, metrics_error: Option<&str>, dim: bool) -> Div {
+    let note = div().flex().flex_col().gap(s(2.)).text_size(s(13.));
+    match metrics_error {
+        None => note
+            .text_color(StatusTheme::faint())
+            .child("No metrics server. Tailscale presence only."),
+        Some(_) if !device.online => note
+            .text_color(StatusTheme::faint())
+            .child("Metrics show again when the host is online."),
+        Some(error) => note
+            .child(
+                div()
+                    .text_color(if dim {
+                        StatusTheme::muted()
+                    } else {
+                        StatusTheme::warn()
+                    })
+                    .child("Glances does not answer."),
+            )
+            .child(
+                div()
+                    .text_color(StatusTheme::faint())
+                    .truncate()
+                    .child(error.to_string()),
+            ),
+    }
 }
 
 /// Tailscale path to a device, such as `direct` or `relay lax`.

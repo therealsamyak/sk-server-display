@@ -20,7 +20,7 @@ The display reads these sources. Each one is optional, except the tailnet:
 | --- | --- | --- | --- |
 | Host card, this machine | `sysinfo` crate | Local CPU per core, memory, system disk, network rate, temperature, load, and uptime. | 2 s |
 | Tailnet | Tailscale | Runs `tailscale status --json` on the display machine. | 10 s |
-| Host card, Glances | [Glances](https://glances.readthedocs.io/) | `GET /api/4/{cpu,percpu,mem,load,sensors,fs,uptime,network}` on each host. | 2 s |
+| Host card, Glances | [Glances](https://glances.readthedocs.io/) | `GET /api/4/{cpu,percpu,mem,load,sensors,fs,uptime,network}` on each host. When Glances does not answer, the card shows the Tailscale presence of the host. | 2 s |
 | Host card, presence only | Tailscale | The device entry in `tailscale status --json`: online state, last seen, OS, and path. For a host without a metrics server. | 10 s |
 | Services | [Uptime Kuma](https://github.com/louislam/uptime-kuma) | `GET /api/status-page/<slug>` and `/api/status-page/heartbeat/<slug>`. These public status page endpoints need no sign-in. | 30 s |
 | Disks | [Scrutiny](https://github.com/AnalogJ/scrutiny) | `GET /api/summary`. SMART result, temperature, and power-on hours per drive. | 5 min |
@@ -137,6 +137,11 @@ The layout rules are:
 - The panels fill the lower 64 % of the window. The clock, the date, and the alerts use the rest.
 - A host without a metrics server gets a presence card: online state, OS, and Tailscale path. The
   tailnet panel does not list devices that have a host card.
+- A Glances host that does not answer also gets a presence card, if Tailscale knows the device. A
+  Mac or a laptop that sleeps is a normal state, so the card stays calm: a gray dot,
+  `offline, seen 2h 5m ago`, and a gray note. If Tailscale shows the device online, an amber note
+  says that Glances does not answer and shows the error. In both cases the feed stays live, so no
+  alert shows. The Uptime Kuma panel shows a Glances outage on a server that Kuma monitors.
 - One host gets a wide first column. Two hosts get one column each. Three or more hosts share one
   column.
 - A host panel shows the core grid only when the panel is tall enough. The CPU and network graphs
@@ -223,7 +228,8 @@ Each feed state uses the age of its last successful poll:
 | Stale | Last success is between the stale and offline limits. | Amber `stale 12s` and amber border. An amber alert with the data age and the last error. Values and graphs are gray. |
 | Offline | Last success is older than the offline limit, or no success before it. | Red `offline`, red border, and a red alert with the retry interval. The panel shows "No data" and the last error. |
 
-Uptime Kuma, Scrutiny, and Tailscale report their own state inside a live feed. A down service, a
+Uptime Kuma, Scrutiny, Tailscale, and the presence fallback of a Glances host report their own
+state inside a live feed. A down service, a
 failed disk check, or an offline device shows in its row. It does not make the feed stale.
 
 The display polls again immediately after the system wakes from sleep. GPUI reports wake events
@@ -498,8 +504,9 @@ These items need a test on real hardware. Windows items come first:
 ## Open questions
 
 - Which wallpaper do you want? The placeholder is the Windows XP "Bliss" photo.
-- A host without a metrics server shows only as a tailnet row. Install Glances on that host to add
-  a host card.
+- The Macs were offline while this version was built. The design assumes that each Mac runs
+  Glances on the default port 61208, the same as the Linux server. Until Glances answers, each Mac
+  card shows its Tailscale presence. Confirm the port when you install Glances on the Macs.
 - Must the app start at sign-in on the Windows laptop? This version adds no startup entry or
   service.
 

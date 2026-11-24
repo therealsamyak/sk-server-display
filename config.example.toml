@@ -14,7 +14,8 @@ wallpaper = "wallpaper.jpg"
 
 # Host cards for the left column, in order. Each card reads one source:
 # - glances_url: CPU, memory, disk, network, and uptime from Glances
-#   (glances -w) on that host.
+#   (glances -w) on that host. While Glances does not answer, for example
+#   when the host sleeps, the card shows the Tailscale presence instead.
 # - this_machine = true: the same metrics from the machine that runs the
 #   display.
 # - neither: the Tailscale presence of the device with this name. Use the
@@ -26,6 +27,10 @@ glances_url = "http://server.example.ts.net:61208"
 
 [[host]]
 name = "desk"
+glances_url = "http://desk.example.ts.net:61208"
+
+[[host]]
+name = "tablet"
 
 [[host]]
 name = "laptop"

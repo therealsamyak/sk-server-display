@@ -3,7 +3,11 @@
 use anyhow::Context as _;
 use serde::Deserialize;
 
-use crate::{status_collector::is_virtual_network_interface, status_model::HostMetrics};
+use crate::{
+    collector_tailscale::TailscaleStatusReader,
+    status_collector::is_virtual_network_interface,
+    status_model::{FeedData, HostMetrics, HostPresence},
+};
 
 /// Glances collector for one host.
 #[derive(Clone, Debug)]
@@ -11,6 +15,8 @@ pub struct GlancesCollector {
     pub name: String,
     pub base_url: String,
     pub agent: ureq::Agent,
+    /// Tailscale presence for the card when Glances does not answer.
+    pub tailscale: TailscaleStatusReader,
 }
 
 #[derive(Deserialize)]
@@ -69,8 +75,25 @@ impl GlancesCollector {
             .with_context(|| format!("Glances response is not valid: {plugin}"))
     }
 
-    /// Reads host metrics. This call blocks; run it on a background thread.
-    pub fn fetch_glances_metrics(&self) -> anyhow::Result<HostMetrics> {
+    /// Reads host metrics. When Glances does not answer and Tailscale knows
+    /// the host, reads its presence instead: a laptop that sleeps, or a host
+    /// without Glances yet, is a normal state and not a failed feed. This
+    /// call blocks; run it on a background thread.
+    pub fn fetch_glances_reading(&self) -> anyhow::Result<FeedData> {
+        let error = match self.fetch_glances_metrics() {
+            Ok(metrics) => return Ok(FeedData::Host(metrics)),
+            Err(error) => error,
+        };
+        match self.tailscale.read_host_presence(&self.name) {
+            Ok(device) => Ok(FeedData::HostPresence(HostPresence {
+                device,
+                metrics_error: Some(format!("{error:#}")),
+            })),
+            Err(_) => Err(error),
+        }
+    }
+
+    fn fetch_glances_metrics(&self) -> anyhow::Result<HostMetrics> {
         let cpu: GlancesCpu = self.get("cpu")?;
         let memory: GlancesMemory = self.get("mem")?;
         let load: GlancesLoad = self.get("load")?;
@@ -148,6 +171,34 @@ pub(crate) fn parse_glances_uptime(text: &str) -> Option<u64> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::status_model::{TailnetConnection, TailnetDevice};
+
+    #[test]
+    fn glances_falls_back_to_tailscale_presence() {
+        let asleep = TailnetDevice {
+            name: "laptop".into(),
+            os: "macOS".into(),
+            online: false,
+            is_self: false,
+            last_seen: None,
+            connection: TailnetConnection::Offline,
+        };
+        let collector = |name: &str| GlancesCollector {
+            name: name.into(),
+            // Port 9 on the loopback address refuses the connection.
+            base_url: "http://127.0.0.1:9".into(),
+            agent: ureq::Agent::new_with_defaults(),
+            tailscale: TailscaleStatusReader::tailscale_reader_with_devices(vec![asleep.clone()]),
+        };
+        let Ok(FeedData::HostPresence(presence)) = collector("laptop").fetch_glances_reading()
+        else {
+            panic!("expected the Tailscale presence of the host");
+        };
+        assert_eq!(presence.device, asleep);
+        assert!(presence.metrics_error.is_some());
+        // A host that Tailscale does not know keeps the Glances error.
+        assert!(collector("missing").fetch_glances_reading().is_err());
+    }
 
     fn sensor(label: &str, value: f32) -> GlancesSensor {
         GlancesSensor {

@@ -6,7 +6,7 @@ use crate::{
     collector_local::LocalCollector,
     collector_scrutiny::ScrutinyCollector,
     collector_tailscale::{TailnetHostCollector, TailscaleCollector},
-    status_model::FeedData,
+    status_model::{FeedData, HostPresence},
 };
 
 /// Status collector: Glances, this machine, Uptime Kuma, Scrutiny, the
@@ -33,12 +33,15 @@ impl StatusCollector {
     /// Reads one reading. This call blocks; run it on a background thread.
     pub fn collect_status_reading(&self) -> anyhow::Result<FeedData> {
         Ok(match self {
-            Self::Glances(collector) => FeedData::Host(collector.fetch_glances_metrics()?),
+            Self::Glances(collector) => collector.fetch_glances_reading()?,
             Self::Local(collector) => FeedData::Host(collector.fetch_local_metrics()?),
             Self::Kuma(collector) => FeedData::Services(collector.fetch_kuma_services()?),
             Self::Scrutiny(collector) => FeedData::Disks(collector.fetch_scrutiny_disks()?),
             Self::Tailscale(collector) => FeedData::Tailnet(collector.fetch_tailnet_devices()?),
-            Self::TailnetHost(collector) => FeedData::TailnetHost(collector.fetch_tailnet_host()?),
+            Self::TailnetHost(collector) => FeedData::HostPresence(HostPresence {
+                device: collector.fetch_tailnet_host()?,
+                metrics_error: None,
+            }),
         })
     }
 }
