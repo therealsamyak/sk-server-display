@@ -244,9 +244,8 @@ impl Render for StatusView {
                 alert_row(
                     s,
                     StatusTheme::warn(),
-                    "This window has keyboard focus.".into(),
-                    "Moonlight input goes here, not to the game. Click the game to return it."
-                        .into(),
+                    "Keyboard focus is here".into(),
+                    "Click another window to move it.".into(),
                 )
                 .into_any_element(),
             );

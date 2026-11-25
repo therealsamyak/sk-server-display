@@ -29,9 +29,6 @@ pub enum StatusStyleName {
     Aglaea,
     Evernight,
     Yaoguang,
-    Yae,
-    Ayaka,
-    Yoimiya,
 }
 
 /// One color with its opacity.
@@ -171,9 +168,6 @@ pub fn status_style_by_name(name: StatusStyleName) -> &'static StatusStyle {
         StatusStyleName::Aglaea => &AGLAEA,
         StatusStyleName::Evernight => &EVERNIGHT,
         StatusStyleName::Yaoguang => &YAOGUANG,
-        StatusStyleName::Yae => &YAE,
-        StatusStyleName::Ayaka => &AYAKA,
-        StatusStyleName::Yoimiya => &YOIMIYA,
     }
 }
 
@@ -595,135 +589,11 @@ const YAOGUANG: StatusStyle = StatusStyle {
     },
 };
 
-/// Yae Miko at the shrine: a light style. Sakura cards and the clock over
-/// the sky at the right, serif plum type.
-const YAE: StatusStyle = StatusStyle {
-    palette: StylePalette {
-        background: solid(0xdfc0c2),
-        scrim: StyleTone(0xffffff, 0.0),
-        shade: StyleTone(0xfff7fa, 0.34),
-        panel: StyleTone(0xfff7fa, 0.84),
-        panel_border: StyleTone(0x9d5850, 0.20),
-        track: StyleTone(0x603f3c, 0.12),
-        text: solid(0x3a1f24),
-        muted: solid(0x7a5258),
-        faint: solid(0xb39a9e),
-        ok: solid(0x2f8f5b),
-        warn: solid(0xb8720a),
-        bad: solid(0xc62a3a),
-        info: solid(0x4a78b8),
-        receive: solid(0x4a78b8),
-        send: solid(0xc0507a),
-        clock: solid(0x4a2230),
-        date: solid(0x6a3444),
-    },
-    kind: StyleType {
-        clock_family: STATUS_SERIF_FONT_FAMILY,
-        clock_light: true,
-        clock_size: 112.0,
-        title_family: STATUS_SERIF_FONT_FAMILY,
-        title_semibold: false,
-        radius: 12.0,
-    },
-    arrangement: StyleArrangement::Sides {
-        left: NO_AREA,
-        right: StyleArea {
-            width: 0.43,
-            clock: Some(StyleAnchor::Top),
-            groups: &[PanelGroup::Hosts, PanelGroup::Others],
-            panels: StyleAnchor::Bottom,
-        },
-    },
-};
-
-/// Ayaka at a lotus pond: a light style. Cream cards over the bright water
-/// at the left, indigo type from her dress.
-const AYAKA: StatusStyle = StatusStyle {
-    palette: StylePalette {
-        background: solid(0xe3e5cc),
-        scrim: StyleTone(0xffffff, 0.0),
-        shade: StyleTone(0xfbfaef, 0.30),
-        panel: StyleTone(0xfbfaef, 0.82),
-        panel_border: StyleTone(0x29264d, 0.14),
-        track: StyleTone(0x1f2a1c, 0.12),
-        text: solid(0x1f2a1c),
-        muted: solid(0x55624a),
-        faint: solid(0x9aa58a),
-        ok: solid(0x2f8a3c),
-        warn: solid(0xb06d00),
-        bad: solid(0xc62828),
-        info: solid(0x3a4fb0),
-        receive: solid(0x3a4fb0),
-        send: solid(0xd07a20),
-        clock: solid(0x29264d),
-        date: solid(0x3a3770),
-    },
-    kind: StyleType {
-        title_family: STATUS_SANS_FONT_FAMILY,
-        clock_size: 112.0,
-        radius: 14.0,
-        ..SANS_TYPE
-    },
-    arrangement: StyleArrangement::Sides {
-        left: StyleArea {
-            width: 0.46,
-            clock: Some(StyleAnchor::Top),
-            groups: &[PanelGroup::Hosts, PanelGroup::Others],
-            panels: StyleAnchor::Bottom,
-        },
-        right: NO_AREA,
-    },
-};
-
-/// Yoimiya over a festival town: warm night cards, lantern and firework
-/// colors.
-const YOIMIYA: StatusStyle = StatusStyle {
-    palette: StylePalette {
-        background: solid(0x352628),
-        scrim: StyleTone(0x000000, 0.06),
-        shade: StyleTone(0x1c1014, 0.58),
-        panel: StyleTone(0x1d1216, 0.72),
-        panel_border: StyleTone(0xe0c0ac, 0.18),
-        track: StyleTone(0xe0c0ac, 0.12),
-        text: solid(0xfff1e6),
-        muted: solid(0xe0bfa8),
-        faint: solid(0x8f6b5e),
-        ok: solid(0x9ed67f),
-        warn: solid(0xffc24a),
-        bad: solid(0xff5a4a),
-        info: solid(0xffd27a),
-        receive: solid(0xffd27a),
-        send: solid(0xff8c42),
-        clock: solid(0xfff1e6),
-        date: solid(0xffd27a),
-    },
-    kind: StyleType {
-        title_family: STATUS_SANS_FONT_FAMILY,
-        clock_size: 120.0,
-        radius: 10.0,
-        ..SANS_TYPE
-    },
-    arrangement: StyleArrangement::Sides {
-        left: StyleArea {
-            width: 0.22,
-            clock: Some(StyleAnchor::Top),
-            groups: &[PanelGroup::Hosts],
-            panels: StyleAnchor::Bottom,
-        },
-        right: StyleArea {
-            width: 0.26,
-            clock: None,
-            groups: &[PanelGroup::Others],
-            panels: StyleAnchor::Bottom,
-        },
-    },
-};
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    const ALL_STYLE_NAMES: [StatusStyleName; 13] = [
+    const ALL_STYLE_NAMES: [StatusStyleName; 10] = [
         StatusStyleName::Hills,
         StatusStyleName::Kokomi,
         StatusStyleName::Nilou,
@@ -734,9 +604,6 @@ mod tests {
         StatusStyleName::Aglaea,
         StatusStyleName::Evernight,
         StatusStyleName::Yaoguang,
-        StatusStyleName::Yae,
-        StatusStyleName::Ayaka,
-        StatusStyleName::Yoimiya,
     ];
 
     #[test]

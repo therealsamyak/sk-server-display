@@ -338,9 +338,6 @@ pixiv page into the Git-ignored `local/` folder, then point `wallpaper` at it.
 | `aglaea` | [Aglaea in a cathedral](https://www.pixiv.net/en/artworks/126929805) | Clock and hosts at the left, other panels at the right | Candle brown and gold, Plex Serif |
 | `evernight` | [Evernight among letters](https://www.pixiv.net/en/artworks/136562527) | Clock and hosts at the left, other panels at the right | Light paper cards, dark red type, Plex Serif |
 | `yaoguang` | [Yaoguang with peacock feathers](https://www.pixiv.net/en/artworks/141114001) | All panels and the clock at the left | Teal glass and pale gold |
-| `yae` | [Yae Miko at the shrine](https://www.pixiv.net/en/artworks/96514892) | All panels and the clock at the right, over the sky | Light: sakura cards, plum type, Plex Serif |
-| `ayaka` | [Ayaka at a lotus pond](https://www.pixiv.net/en/artworks/91396400) | All panels and the clock at the left, over the bright water | Light: cream cards, indigo type |
-| `yoimiya` | [Yoimiya over a festival town](https://www.pixiv.net/en/artworks/92270720) | Clock and hosts at the left, other panels at the right | Warm night, lantern and firework colors |
 
 The `evernight` file has black bars at the top and the bottom. Crop them before you use it. The
 display fills the window with `ObjectFit::Cover`, so it keeps the bars otherwise.
@@ -433,8 +430,8 @@ receiving input. The design prevents this in four ways:
    ([window.rs#L8112](https://github.com/zed-industries/zed/blob/6501df15765d66d6c2a2b66b1eb22434ccef3f86/crates/gpui/src/window.rs#L8112)).
    With this style, a click on the window does not make it the foreground window. Use
    `--allow-focus` to turn this off.
-4. When the window has keyboard focus, an amber alert says that remote input now goes to the status
-   window. The view observes activation changes with `observe_window_activation`.
+4. When the window has keyboard focus, a short amber alert shows: "Keyboard focus is here" and
+   "Click another window to move it." The text names no stream client, so it applies to any setup. The view observes activation changes with `observe_window_activation`.
 
 The trade-off of `WS_EX_NOACTIVATE` is that the keyboard shortcuts do not work in the default Windows
 mode. The window buttons work with the mouse. Use them to leave fullscreen, change display, refresh,
@@ -663,7 +660,7 @@ These checks ran on a Linux machine (KDE Plasma, Wayland) with GPUI at the pinne
   A request with the MagicDNS host name got status 200. A request with another `Host` header got
   status 400, and so did a request for the disabled process list. Glances used 0.1 % CPU at idle.
   A restart of the Mac did not run, so the start at sign-in needs a hands-on check.
-- Each of the twelve side styles rendered at 1920 × 1080 in the nested KWin session with its
+- Each of the nine side styles rendered at 1920 × 1080 in the nested KWin session with its
   wallpaper and live data. The clock stayed on one line, and no list row lost its name. The
   screenshots stay out of Git, because the art belongs to the artist. The `hills` style rendered
   the band arrangement as before.
@@ -699,7 +696,7 @@ These items need a test on real hardware. Windows items come first:
 
 ## Open questions
 
-- Which styles do you keep? The repository has twelve drafts for wallpapers by Yolanda, and the
+- Which styles do you keep? The repository has nine drafts for wallpapers by Yolanda, and the
   `hills` style for the Windows XP "Bliss" placeholder.
 - Must the app start at sign-in on the Windows laptop? This version adds no startup entry or
   service.
