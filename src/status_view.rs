@@ -18,7 +18,7 @@ use crate::{
         format_status_age, format_status_clock, format_status_date, status_clock_text_valid_for,
     },
     status_freshness::FeedFreshness,
-    status_panel::{FeedPanelView, HostDetailsClosed, side_panel_height},
+    status_panel::{FeedDetailsClosed, FeedPanelView, expanded_panel_height, side_panel_height},
     status_picker::{StatusPicker, StatusPickerEvent},
     status_playlist::{PlaylistChoice, StatusCarousel, StatusPlaybackMode},
     status_power::StatusPower,
@@ -86,7 +86,7 @@ pub struct StatusView {
     picker: Option<PickerSession>,
     preview: Option<StatusStyleName>,
     preview_error: Option<String>,
-    details: Option<HostDetailsSession>,
+    details: Option<FeedDetailsSession>,
     pointer_pressed: bool,
     controls_latched: bool,
     power: StatusPower,
@@ -111,7 +111,8 @@ struct PickerSession {
     _events: Subscription,
 }
 
-struct HostDetailsSession {
+struct FeedDetailsSession {
+    index: usize,
     panel: Entity<FeedPanelView>,
     _close: Subscription,
 }
@@ -303,6 +304,7 @@ impl StatusView {
     }
 
     fn open_picker(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.details = None;
         let carousel = self.carousel.read(cx);
         let active = active_status_style_name();
         let wallpapers = carousel.wallpapers.clone();
@@ -423,20 +425,21 @@ impl StatusView {
         }
     }
 
-    fn open_host_details(&mut self, index: usize, cx: &mut Context<Self>) {
+    fn open_feed_details(&mut self, index: usize, cx: &mut Context<Self>) {
         let board = self.board.clone();
-        let panel = cx.new(|cx| FeedPanelView::new_host_detail_panel(board, index, cx));
-        let close = cx.subscribe(&panel, |view, _, _: &HostDetailsClosed, cx| {
-            view.close_host_details(cx);
+        let panel = cx.new(|cx| FeedPanelView::new_expanded_panel(board, index, cx));
+        let close = cx.subscribe(&panel, |view, _, _: &FeedDetailsClosed, cx| {
+            view.close_feed_details(cx);
         });
-        self.details = Some(HostDetailsSession {
+        self.details = Some(FeedDetailsSession {
+            index,
             panel,
             _close: close,
         });
         cx.notify();
     }
 
-    fn close_host_details(&mut self, cx: &mut Context<Self>) {
+    fn close_feed_details(&mut self, cx: &mut Context<Self>) {
         self.details = None;
         cx.notify();
     }
@@ -461,7 +464,7 @@ impl StatusView {
         } else if self.picker.is_some() {
             self.close_picker(window, cx);
         } else if self.details.is_some() {
-            self.close_host_details(cx);
+            self.close_feed_details(cx);
         } else if window.is_fullscreen() {
             self.toggle_fullscreen(&ToggleFullscreen, window, cx);
         }
@@ -525,8 +528,9 @@ impl Render for StatusView {
         let controls_left = self
             .pointer_moved_at
             .and_then(|at| CONTROLS_VISIBLE_DURATION.checked_sub(at.elapsed()));
-        let modal = self.picker.is_some() || self.details.is_some();
-        if let Some(left) = controls_left {
+        let modal = self.picker.is_some();
+        let show_window_controls = !modal && self.details.is_none();
+        if show_window_controls && let Some(left) = controls_left {
             self.redraw.redraw_after(left);
         }
         let controls = div()
@@ -682,11 +686,12 @@ impl Render for StatusView {
                         .items_center()
                         .gap(s(8.))
                         .when(
-                            if self.pointer_pressed {
-                                self.controls_latched
-                            } else {
-                                controls_left.is_some()
-                            },
+                            show_window_controls
+                                && if self.pointer_pressed {
+                                    self.controls_latched
+                                } else {
+                                    controls_left.is_some()
+                                },
                             |bar| bar.child(controls),
                         )
                         .child(
@@ -703,11 +708,6 @@ impl Render for StatusView {
                         ),
                 )
             })
-            .children(
-                self.details
-                    .as_ref()
-                    .map(|details| self.host_detail_overlay(s, layout, window, &details.panel)),
-            )
             .children(
                 self.picker
                     .as_ref()
@@ -808,47 +808,35 @@ fn control_button(
 }
 
 impl StatusView {
-    fn host_detail_target(
+    fn feed_card(
         &self,
-        panel: AnyElement,
         index: usize,
+        panel: &Entity<FeedPanelView>,
+        layout: StatusLayout,
         cx: &Context<Self>,
     ) -> AnyElement {
+        let feed = &self.board.read(cx).status_feeds()[index];
+        let expanded = self
+            .details
+            .as_ref()
+            .filter(|details| details.index == index);
+        let height = expanded.map_or_else(
+            || side_panel_height(feed, &self.carded),
+            |_| expanded_panel_height(feed, layout),
+        );
+        let panel = expanded.map_or(panel, |details| &details.panel);
         div()
-            .id(("host-details", index))
-            .relative()
-            .min_h_0()
-            .min_w_0()
-            .size_full()
-            .cursor_pointer()
-            .on_click(cx.listener(move |view, _, _, cx| view.open_host_details(index, cx)))
-            .child(panel)
-            .into_any_element()
-    }
-
-    fn host_detail_overlay(
-        &self,
-        s: Scale,
-        layout: StatusLayout,
-        window: &Window,
-        details: &Entity<FeedPanelView>,
-    ) -> AnyElement {
-        div()
-            .absolute()
-            .inset_0()
-            .occlude()
-            .px(s(24.))
-            .flex()
-            .items_center()
-            .justify_center()
-            .bg(gpui::black().opacity(0.60))
-            .child(
-                div()
-                    .w_full()
-                    .max_w(s(840.))
-                    .h(layout.host_detail_height(window))
-                    .child(details.clone()),
-            )
+            .id(("feed-card", index))
+            .w_full()
+            .h(layout.scale(height))
+            .flex_none()
+            .when(expanded.is_none(), |card| {
+                card.cursor_pointer()
+                    .on_click(cx.listener(move |view, _, _, cx| {
+                        view.open_feed_details(index, cx);
+                    }))
+            })
+            .child(panel.clone().cached(StyleRefinement::default().size_full()))
             .into_any_element()
     }
 
@@ -951,21 +939,8 @@ impl StatusView {
                 StatusCollector::TailnetHost(_) => status_card_style(),
                 _ => panel_style(),
             };
-            let metrics = matches!(
-                feed.spec.collector,
-                StatusCollector::Glances(_) | StatusCollector::Local(_)
-            );
-            let panel = if metrics {
-                let panel = panel
-                    .clone()
-                    .cached(StyleRefinement::default().size_full())
-                    .into_any_element();
-                div()
-                    .h(s(HOST_CARD_HEIGHT))
-                    .flex_none()
-                    .w_full()
-                    .child(self.host_detail_target(panel, index, cx))
-                    .into_any_element()
+            let panel = if feed.spec.collector.has_expandable_panel() {
+                self.feed_card(index, panel, layout, cx)
             } else {
                 panel.clone().cached(style).into_any_element()
             };
@@ -1037,21 +1012,8 @@ impl StatusView {
         for (index, (feed, panel)) in board.status_feeds().iter().zip(&self.panels).enumerate() {
             let height = s(side_panel_height(feed, &self.carded));
             let style = StyleRefinement::default().flex_none().w_full().h(height);
-            let metrics = matches!(
-                feed.spec.collector,
-                StatusCollector::Glances(_) | StatusCollector::Local(_)
-            );
-            let panel = if metrics {
-                let panel = panel
-                    .clone()
-                    .cached(StyleRefinement::default().size_full())
-                    .into_any_element();
-                div()
-                    .w_full()
-                    .h(height)
-                    .flex_none()
-                    .child(self.host_detail_target(panel, index, cx))
-                    .into_any_element()
+            let panel = if feed.spec.collector.has_expandable_panel() {
+                self.feed_card(index, panel, layout, cx)
             } else {
                 panel.clone().cached(style).into_any_element()
             };

@@ -22,6 +22,11 @@ pub enum StatusCollector {
 }
 
 impl StatusCollector {
+    /// Reports whether the feed has a compact summary and expanded panel.
+    pub fn has_expandable_panel(&self) -> bool {
+        matches!(self, Self::Local(_) | Self::Glances(_) | Self::Kuma(_))
+    }
+
     /// `true` for collectors that fill a host card in the host column.
     pub fn is_host_collector(&self) -> bool {
         matches!(

@@ -18,6 +18,7 @@ use crate::{
     collector_scrutiny::ScrutinyCollector,
     collector_tailscale::{TailnetHostCollector, TailscaleCollector, TailscaleStatusReader},
     status_collector::StatusCollector,
+    status_terminal::StatusTerminal,
 };
 
 /// Poll interval of host metrics from this machine and from Glances.
@@ -65,6 +66,9 @@ pub struct HostConfig {
     /// Reads the metrics of the machine that runs the display.
     #[serde(default)]
     pub this_machine: bool,
+    /// SSH alias or user@host for the optional btop terminal button.
+    #[serde(default)]
+    pub btop_ssh: Option<String>,
 }
 
 /// Uptime Kuma public status page.
@@ -159,6 +163,8 @@ pub struct StatusFeedSpec {
     pub source: &'static str,
     pub collector: StatusCollector,
     pub poll_interval: Duration,
+    /// Terminal target for the host's btop action.
+    pub btop: Option<StatusTerminal>,
 }
 
 /// Builds the status feeds in display order.
@@ -193,6 +199,7 @@ pub fn build_status_feeds(config: &StatusConfig) -> anyhow::Result<Vec<StatusFee
                 agent: agent(SERVICE_POLL_INTERVAL),
             }),
             poll_interval: SERVICE_POLL_INTERVAL,
+            btop: None,
         });
     }
     if let Some(scrutiny) = &config.scrutiny {
@@ -204,6 +211,7 @@ pub fn build_status_feeds(config: &StatusConfig) -> anyhow::Result<Vec<StatusFee
                 agent: agent(DISK_POLL_INTERVAL),
             }),
             poll_interval: DISK_POLL_INTERVAL,
+            btop: None,
         });
     }
     if config.tailscale.enabled {
@@ -212,6 +220,7 @@ pub fn build_status_feeds(config: &StatusConfig) -> anyhow::Result<Vec<StatusFee
             source: "Tailscale",
             collector: StatusCollector::Tailscale(TailscaleCollector { reader: tailscale }),
             poll_interval: TAILNET_POLL_INTERVAL,
+            btop: None,
         });
     }
     Ok(feeds)
@@ -229,6 +238,17 @@ fn host_feed_spec(
             host.name
         );
     }
+    let btop = host
+        .btop_ssh
+        .as_deref()
+        .map(StatusTerminal::ssh_btop)
+        .transpose()
+        .with_context(|| format!("invalid btop target for {}", host.name))?;
+    anyhow::ensure!(
+        btop.is_none() || host.glances_url.is_some(),
+        "btop_ssh requires glances_url for {}",
+        host.name
+    );
     if let Some(url) = &host.glances_url {
         return Ok(StatusFeedSpec {
             title: host.name.clone(),
@@ -240,6 +260,7 @@ fn host_feed_spec(
                 tailscale: tailscale.clone(),
             }),
             poll_interval: HOST_POLL_INTERVAL,
+            btop,
         });
     }
     if host.this_machine {
@@ -253,6 +274,7 @@ fn host_feed_spec(
             name: host.name.clone(),
         }),
         poll_interval: TAILNET_POLL_INTERVAL,
+        btop: None,
     })
 }
 
@@ -263,6 +285,7 @@ fn local_feed_spec(title: String) -> anyhow::Result<StatusFeedSpec> {
         source: "local",
         collector: StatusCollector::Local(LocalCollector::new_local_collector()?),
         poll_interval: HOST_POLL_INTERVAL,
+        btop: cfg!(not(target_os = "windows")).then_some(StatusTerminal::Local),
     })
 }
 

@@ -29,6 +29,8 @@ wallpapers = "wallpapers"
 [[host]]
 name = "server"
 glances_url = "http://server.example.ts.net:61208"
+# Optional. Opens btop over SSH from the expanded host card.
+# btop_ssh = "operator@server.example.ts.net"
 
 [[host]]
 name = "desk"

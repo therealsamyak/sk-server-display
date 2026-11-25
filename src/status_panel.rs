@@ -37,6 +37,7 @@ pub struct FeedPanelView {
     board: Entity<StatusBoard>,
     index: usize,
     detail: bool,
+    terminal_error: Option<String>,
     /// Devices with their own host card. The tailnet panel leaves them out.
     carded: Vec<String>,
     redraw: StatusRedrawTimer,
@@ -60,14 +61,15 @@ impl FeedPanelView {
             board,
             index,
             detail: false,
+            terminal_error: None,
             carded,
             redraw: StatusRedrawTimer::default(),
             _subscription: subscription,
         }
     }
 
-    /// Create a full metrics panel for the selected host.
-    pub fn new_host_detail_panel(
+    /// Create an expanded view of a host or service feed.
+    pub fn new_expanded_panel(
         board: Entity<StatusBoard>,
         index: usize,
         cx: &mut Context<Self>,
@@ -78,10 +80,10 @@ impl FeedPanelView {
     }
 }
 
-/// The user closed the expanded host card.
-pub struct HostDetailsClosed;
+/// The user closed the expanded feed card.
+pub struct FeedDetailsClosed;
 
-impl EventEmitter<HostDetailsClosed> for FeedPanelView {}
+impl EventEmitter<FeedDetailsClosed> for FeedPanelView {}
 
 impl Render for FeedPanelView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
@@ -101,6 +103,7 @@ impl Render for FeedPanelView {
                 redraw: &self.redraw,
                 now: OffsetDateTime::now_utc(),
                 close_details,
+                terminal_error: self.terminal_error.as_deref(),
             };
             let compact = self.detail
                 || matches!(
@@ -108,14 +111,11 @@ impl Render for FeedPanelView {
                     StyleArrangement::Sides { .. }
                 );
             match &feed.spec.collector {
-                StatusCollector::Glances(_) | StatusCollector::Local(_) => host_panel(
-                    s,
-                    &view,
-                    f32::from(layout.host_detail_height(window)) / layout.ui,
-                    self.detail,
-                ),
+                StatusCollector::Glances(_) | StatusCollector::Local(_) => {
+                    host_panel(s, &view, expanded_panel_height(feed, layout), self.detail)
+                }
                 StatusCollector::TailnetHost(_) => presence_panel(s, &view, compact),
-                StatusCollector::Kuma(_) => services_panel(s, &view),
+                StatusCollector::Kuma(_) => services_panel(s, &view, self.detail),
                 StatusCollector::Scrutiny(_) => disks_panel(s, &view),
                 StatusCollector::Tailscale(_) => tailnet_panel(s, &view, &self.carded),
             }
@@ -127,6 +127,21 @@ impl Render for FeedPanelView {
 
 /// Line height of panel text, as a part of the text size.
 pub const PANEL_LINE_HEIGHT: f32 = 1.25;
+
+/// Height of the collapsed Services count.
+const SERVICE_SUMMARY_HEIGHT: f32 = 56.;
+
+/// Height of an expanded feed card within its column.
+pub fn expanded_panel_height(feed: &StatusFeed, layout: StatusLayout) -> f32 {
+    let height = match (&feed.spec.collector, feed.latest_reading()) {
+        (StatusCollector::Kuma(_), Some(FeedData::Services(services))) => {
+            list_panel_height(services.len()) + 32.
+        }
+        (StatusCollector::Kuma(_), _) => 144.,
+        _ => 368.,
+    };
+    height.min(layout.panel_area)
+}
 
 /// Height of a list panel with `rows` rows, in design pixels: border,
 /// padding, title row, gap, rows, and the gaps between rows.
@@ -148,7 +163,7 @@ pub fn side_panel_height(feed: &StatusFeed, carded: &[String]) -> f32 {
             return HOST_CARD_HEIGHT;
         }
         (StatusCollector::TailnetHost(_), _) => return HOST_CARD_HEIGHT,
-        (_, Some(FeedData::Services(services))) => services.len(),
+        (StatusCollector::Kuma(_), _) => return SERVICE_SUMMARY_HEIGHT,
         (_, Some(FeedData::Disks(disks))) => disks.len(),
         (_, Some(FeedData::Tailnet(devices))) => devices
             .iter()
@@ -171,6 +186,7 @@ struct FeedView<'a> {
     redraw: &'a StatusRedrawTimer,
     now: OffsetDateTime,
     close_details: Option<WeakEntity<FeedPanelView>>,
+    terminal_error: Option<&'a str>,
 }
 
 impl FeedView<'_> {
@@ -259,36 +275,68 @@ fn feed_panel(
                 )
                 .children(state_text.map(|text| {
                     div()
-                        .flex_none()
+                        .min_w_0()
+                        .truncate()
                         .text_size(s(14.))
                         .text_color(state_color)
                         .child(text)
                 }))
+                .children(
+                    view.close_details
+                        .clone()
+                        .zip(view.feed.spec.btop.clone())
+                        .map(|(panel, target)| {
+                            detail_button(s, "open-btop", "btop", move |_, _, cx| {
+                                let result = target.launch_btop();
+                                if let Err(error) = panel.update(cx, |this, cx| {
+                                    this.terminal_error =
+                                        result.err().map(|error| error.to_string());
+                                    cx.notify();
+                                }) {
+                                    log::debug!("feed details already closed: {error:#}");
+                                }
+                            })
+                        }),
+                )
                 .children(view.close_details.clone().map(|panel| {
-                    div()
-                        .id("close-host-details")
-                        .role(Role::Button)
-                        .flex_none()
-                        .h(px(44.))
-                        .px(s(12.))
-                        .flex()
-                        .items_center()
-                        .rounded(s(kind.radius))
-                        .border_1()
-                        .border_color(StatusTheme::panel_border())
-                        .text_size(s(14.))
-                        .cursor_pointer()
-                        .hover(|button| button.bg(StatusTheme::track()))
-                        .on_click(move |_: &ClickEvent, _, cx| {
-                            if let Err(error) = panel.update(cx, |_, cx| cx.emit(HostDetailsClosed))
-                            {
-                                log::debug!("host details already closed: {error:#}");
-                            }
-                        })
-                        .child("Done")
+                    detail_button(s, "collapse-feed-card", "Done", move |_, _, cx| {
+                        if let Err(error) = panel.update(cx, |_, cx| cx.emit(FeedDetailsClosed)) {
+                            log::debug!("feed details already closed: {error:#}");
+                        }
+                    })
                 })),
         )
+        .children(view.terminal_error.map(|error| {
+            div()
+                .text_size(s(13.))
+                .text_color(StatusTheme::warn())
+                .child(error.to_owned())
+        }))
         .child(body)
+}
+
+fn detail_button(
+    s: Scale,
+    id: &'static str,
+    label: &'static str,
+    on_click: impl Fn(&ClickEvent, &mut Window, &mut gpui::App) + 'static,
+) -> impl IntoElement {
+    div()
+        .id(id)
+        .role(Role::Button)
+        .flex_none()
+        .h(px(40.).max(s(32.)))
+        .px(s(8.))
+        .flex()
+        .items_center()
+        .rounded(s(active_status_style().kind.radius))
+        .border_1()
+        .border_color(StatusTheme::panel_border())
+        .text_size(s(14.))
+        .cursor_pointer()
+        .hover(|button| button.bg(StatusTheme::track()))
+        .on_click(on_click)
+        .child(label)
 }
 
 /// Body for a feed without data: waiting, or offline with the error.
@@ -431,6 +479,7 @@ fn host_panel(s: Scale, view: &FeedView, panel_height: f32, detail: bool) -> Div
         s,
         view,
         host.uptime_seconds
+            .filter(|_| !detail)
             .map(|up| format!("up {}", format_status_uptime(up))),
         body.into_any_element(),
         !detail,
@@ -509,9 +558,10 @@ fn host_body(
     let rate_text = |rate: Option<f64>| rate.map_or("—".into(), format_status_rate);
     let network_header = div()
         .flex()
-        .items_baseline()
-        .gap(s(16.))
-        .text_size(s(15.))
+        .flex_wrap()
+        .items_center()
+        .gap_x(s(8.))
+        .text_size(s(13.))
         .child(div().text_color(StatusTheme::muted()).child("Net"))
         .child(
             div()
@@ -534,13 +584,13 @@ fn host_body(
     let cpu_header = div()
         .flex()
         .items_center()
-        .gap(s(16.))
-        .text_size(s(15.))
+        .gap(s(8.))
+        .text_size(s(13.))
         .child(div().text_color(StatusTheme::muted()).child("CPU"))
         .child(
             div()
-                .text_size(s(28.))
-                .line_height(s(32.))
+                .text_size(s(22.))
+                .line_height(s(28.))
                 .text_color(value_color(dim))
                 .child(host.cpu_percent.map_or("—".into(), |p| format!("{p:.0}%"))),
         )
@@ -560,7 +610,7 @@ fn host_body(
         .min_h_0()
         .flex()
         .flex_col()
-        .gap(s(12.))
+        .gap(s(8.))
         .child(cpu_header)
         .child(cpu_graph(s, &history.cpu_percent, dim))
         .when(show_cores, |body| {
@@ -623,9 +673,25 @@ fn list_body(s: Scale, rows: impl IntoIterator<Item = Div>) -> AnyElement {
         .into_any_element()
 }
 
-fn services_panel(s: Scale, view: &FeedView) -> Div {
-    let Some(FeedData::Services(services)) = view.reading() else {
-        return feed_panel(s, view, None, empty_body(s, view), false);
+fn services_panel(s: Scale, view: &FeedView, expanded: bool) -> Div {
+    let reading = match view.reading() {
+        Some(FeedData::Services(services)) => Some(services),
+        _ => None,
+    };
+    let summary = reading.map(|services| {
+        let up = services
+            .iter()
+            .filter(|service| service.state == ServiceState::Up)
+            .count();
+        format!("{up}/{} up", services.len())
+    });
+    if !expanded {
+        return feed_panel(s, view, summary, div().into_any_element(), true)
+            .justify_center()
+            .gap_0();
+    }
+    let Some(services) = reading else {
+        return feed_panel(s, view, summary, empty_body(s, view), false);
     };
     let mut services: Vec<&ServiceHealth> = services.iter().collect();
     let rank = |state: ServiceState| match state {
@@ -636,53 +702,42 @@ fn services_panel(s: Scale, view: &FeedView) -> Div {
         ServiceState::Up => 4,
     };
     services.sort_by(|a, b| rank(a.state).cmp(&rank(b.state)).then(a.name.cmp(&b.name)));
-    let up = services
-        .iter()
-        .filter(|s| s.state == ServiceState::Up)
-        .count();
-    let total = services.len();
-    let dim = view.dim();
     let rows = services.into_iter().map(|service| {
-        let color = match (dim, service.state) {
-            (true, _) => StatusTheme::faint(),
-            (_, ServiceState::Up) => StatusTheme::ok(),
-            (_, ServiceState::Down) => StatusTheme::bad(),
-            (_, ServiceState::Pending) => StatusTheme::warn(),
-            (_, ServiceState::Maintenance) => StatusTheme::info(),
-            (_, ServiceState::Unknown) => StatusTheme::faint(),
-        };
-        let uptime = service.uptime_24h.map_or("—".into(), |ratio| {
-            if ratio >= 0.9995 {
-                "100%".into()
-            } else {
-                format!("{:.1}%", ratio * 100.0)
+        let (text, status_color) = match service.state {
+            ServiceState::Up => {
+                let uptime = service.uptime_24h.map_or("—".into(), |ratio| {
+                    if ratio >= 0.9995 {
+                        "100%".into()
+                    } else {
+                        format!("{:.1}%", ratio * 100.0)
+                    }
+                });
+                (uptime, StatusTheme::ok())
             }
-        });
-        let state = match service.state {
-            ServiceState::Up => None,
-            ServiceState::Down => Some("down"),
-            ServiceState::Pending => Some("pending"),
-            ServiceState::Maintenance => Some("maintenance"),
-            ServiceState::Unknown => Some("no data"),
+            ServiceState::Down => ("down".into(), StatusTheme::bad()),
+            ServiceState::Pending => ("pending".into(), StatusTheme::warn()),
+            ServiceState::Maintenance => ("maintenance".into(), StatusTheme::info()),
+            ServiceState::Unknown => ("no data".into(), StatusTheme::faint()),
         };
-        let mut columns = Vec::new();
-        if let Some(state) = state {
-            columns.push((
-                format!("{state} {}", view.ago(service.last_heartbeat)),
-                176.,
-                color,
-            ));
-        }
-        columns.push((uptime, 64., StatusTheme::muted()));
-        list_row(s, color, service.name.clone(), columns)
+        let color = if view.dim() {
+            StatusTheme::faint()
+        } else {
+            status_color
+        };
+        list_row(
+            s,
+            color,
+            service.name.clone(),
+            vec![(text, 96., StatusTheme::muted())],
+        )
     });
-    feed_panel(
-        s,
-        view,
-        Some(format!("{up}/{total} up")),
-        list_body(s, rows),
-        false,
-    )
+    let body = div()
+        .id("expanded-service-list")
+        .flex_1()
+        .min_h_0()
+        .overflow_y_scroll()
+        .child(list_body(s, rows));
+    feed_panel(s, view, summary, body.into_any_element(), false)
 }
 
 fn disks_panel(s: Scale, view: &FeedView) -> Div {

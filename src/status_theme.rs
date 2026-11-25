@@ -12,7 +12,7 @@ pub const PANEL_GAP: f32 = 16.0;
 
 /// Host panel height, in design pixels, without the core grid: frame, text
 /// rows, and the smallest CPU and network graphs.
-pub const HOST_PANEL_BASE_HEIGHT: f32 = 330.0;
+pub const HOST_PANEL_BASE_HEIGHT: f32 = 272.0;
 
 /// Height of a two-row host card, including padding and border.
 pub const HOST_CARD_HEIGHT: f32 = 76.0;
@@ -115,11 +115,6 @@ impl StatusLayout {
     /// Converts design pixels to window pixels.
     pub fn scale(self, value: f32) -> Pixels {
         px(value * self.ui)
-    }
-
-    /// Height of the expanded host card, capped on tall displays.
-    pub fn host_detail_height(self, window: &Window) -> Pixels {
-        (window.viewport_size().height * 0.86).min(self.scale(560.))
     }
 }
 

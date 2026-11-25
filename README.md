@@ -171,8 +171,14 @@ it cannot make a native request.
 ### Use the display on a dedicated laptop
 
 Add a host card with `this_machine = true` to show CPU, memory, and disk usage for the display
-laptop. The app reads these values locally. Tap the card to open per-core and network graphs.
-Tap **Done** to close the graphs.
+laptop. The app reads these values locally. Tap a host card to open graphs in its column.
+Tap **Services** to see the individual checks. **Done** or Escape collapses the open card.
+
+Set `btop_ssh` on a Glances host to show a **btop** button in its expanded card. Use a host
+alias from your OpenSSH configuration or a `user@host` destination. The host needs btop and
+a known SSH host key. The app opens a separate terminal with the usual SSH authentication.
+It uses Windows Terminal on Windows, Terminal on macOS, and Konsole on Linux. Local hosts
+on Linux and macOS can open a local btop session.
 
 To launch at Windows sign-in, put a shortcut to the executable in `shell:startup` for the display
 user. Add `--config` and the absolute configuration path to the shortcut if you use a custom path.
@@ -278,8 +284,8 @@ The layout rules are:
   stays flat. The scale value shows in the upper-left corner of the graph.
 - Meters and graph bars are green below 75 %, amber from 75 %, and red from 90 %. Temperature is
   amber from 75 °C and red from 85 °C.
-- Services sort problems first: down, pending, unknown, maintenance, then up. A service that is not
-  up also shows its state and the time of its last heartbeat.
+- Services shows its health count. The expanded list puts problems first and shows the state of
+  each service or its 24-hour uptime.
 - Disks show a green dot when Scrutiny reports `passed`. A failed disk also shows `SMART failed`,
   `threshold`, or `failed`.
 - Tailnet devices show this machine first, then online devices, then offline devices with the time

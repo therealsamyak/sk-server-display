@@ -31,6 +31,7 @@ mod status_startup;
 mod status_style;
 mod status_style_contest;
 mod status_style_winners;
+mod status_terminal;
 mod status_theme;
 mod status_view;
 mod status_wallpaper;

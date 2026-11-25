@@ -138,6 +138,7 @@ mod tests {
             source: "local",
             collector: StatusCollector::Local(LocalCollector::new_local_collector().unwrap()),
             poll_interval: Duration::from_secs(2),
+            btop: None,
         })
     }
 
