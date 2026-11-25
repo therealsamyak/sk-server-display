@@ -10,6 +10,14 @@ These screenshots show example hosts, services, and disk readings. See [WALLPAPE
 
 ![Dashboard with the Fu Xuan wallpaper](docs/images/fu-xuan-stars.png)
 
+The wallpaper menu has tabs for presets, slideshows, and imported images.
+
+![Wallpaper presets gallery](docs/images/wallpaper-presets.png)
+
+![Favorites slideshow editor](docs/images/wallpaper-slideshows.png)
+
+![Wallpaper imports tab](docs/images/wallpaper-imports.png)
+
 ## Quick start
 
 1. Download the executable for your device from the [GitHub releases](https://github.com/therealsamyak/server-status-display/releases).
