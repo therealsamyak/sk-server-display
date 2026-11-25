@@ -66,10 +66,6 @@ The first build compiles GPUI from source and takes several minutes. Linux also 
 
 Move the pointer to show the toolbar. Select **Wallpaper** to open the picker. The app keeps the display and system awake while a fullscreen window is visible on AC power.
 
-## Release process
-
-Merge the release branch to build executables for Windows, Linux, and Apple Silicon macOS. The workflow runs the builds in parallel and creates a GitHub release with those assets and the merged changelog.
-
 ## License
 
 This project is licensed under the [GNU Affero General Public License v3.0](LICENSE.md). The bundled IBM Plex fonts are licensed under the SIL Open Font License.
