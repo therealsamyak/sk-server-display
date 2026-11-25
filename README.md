@@ -37,8 +37,8 @@ display. The display number starts at 1 in left-to-right order.
 
 Open **Wallpaper** in the top-right corner. Move the pointer or lift your finger to show the other
 window controls. Tap a host metrics card to see CPU and network graphs in its column. Tap
-**Services** to expand the health count into a list of checks. Select **Done** in the expanded
-card header to collapse it. Other cards remain interactive.
+**Services** to expand the health count and combined heartbeat strip into a list of monitors.
+Select **Done** in the expanded card header to collapse it. Other cards remain interactive.
 
 ## Configure sources
 
@@ -101,10 +101,16 @@ source on its own.
 | Source | Configure | Shows |
 | --- | --- | --- |
 | Tailscale | Install and sign in to Tailscale on the display computer. Confirm `tailscale status --json` works. For a host card, use `source = "tailscale"` and set `device` to the first label of its MagicDNS name. Set `show_devices = true` under `[tailscale]` for the full device panel. | Presence, last seen, OS, and connection type. |
-| Uptime Kuma | Set `[uptime_kuma]` with the base `url` and `status_page` slug. The display reads the page and heartbeat endpoints without sign-in. | Monitor status and reported 24-hour uptime. |
+| Uptime Kuma | Set `[uptime_kuma]` with the base `url` and `status_page` slug. The display reads the page and heartbeat endpoints without sign-in. | Monitor status and recent heartbeat results. |
 | Scrutiny | Set `[scrutiny]` with the web server base `url`. Check that the display can read `/api/summary`. | SMART health, temperature, and power-on hours when reported. |
 
 ### Interpret readings
+
+The Services strip combines the last 24 one-minute intervals from the latest heartbeat. Each
+interval shows the worst reported state. If some monitors have no check in an interval, green
+requires a successful check from each monitor. Expanded strips show each monitor's last 24 checks,
+with the newest on the right. Green means up, red means down, amber means pending, and blue means
+maintenance. Muted segments indicate missing or stale data.
 
 | Reading | What it means |
 | --- | --- |

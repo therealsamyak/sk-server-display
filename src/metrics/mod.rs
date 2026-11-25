@@ -14,6 +14,8 @@ pub(crate) use status_config::{
 };
 pub(crate) use status_feed::{HOST_HISTORY_SAMPLES, HostHistory, StatusFeed};
 pub(crate) use status_freshness::FeedFreshness;
+#[cfg(test)]
+pub(crate) use status_model::ServiceHeartbeat;
 pub(crate) use status_model::{
     DiskHealth, DiskState, FeedData, HostMetrics, HostPresence, ServiceHealth, ServiceState,
     TailnetConnection, TailnetDevice,

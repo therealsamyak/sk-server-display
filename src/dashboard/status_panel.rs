@@ -13,6 +13,9 @@ use crate::{
     },
     dashboard::status_graph::{NETWORK_GRAPH_FLOOR, cpu_graph, network_graph},
     dashboard::status_redraw::StatusRedrawTimer,
+    dashboard::status_service_history::{
+        service_history_strip, service_state_color, service_summary_strip,
+    },
     dashboard::status_theme::{
         CORE_GRID_ROW_HEIGHT, HOST_CARD_HEIGHT, HOST_PANEL_BASE_HEIGHT, Scale, StatusLayout,
         StatusTheme, threshold_color,
@@ -136,7 +139,7 @@ impl Render for FeedPanelView {
 /// Line height of panel text, as a part of the text size.
 pub const PANEL_LINE_HEIGHT: f32 = 1.25;
 
-/// Height of the collapsed Services count.
+/// Height of the collapsed Services header, including the inline history strip.
 const SERVICE_SUMMARY_HEIGHT: f32 = 56.;
 
 /// Height of an expanded feed card within its column.
@@ -283,14 +286,24 @@ fn feed_panel(
                         .truncate()
                         .child(view.feed.spec.title.clone()),
                 )
-                .when(view.close_details.is_some(), |row| {
-                    row.child(
-                        div()
-                            .flex_none()
-                            .text_size(s(13.))
-                            .text_color(theme.muted())
-                            .child(view.feed.spec.source),
-                    )
+                .when(
+                    view.close_details.is_some()
+                        && !matches!(&view.feed.spec.collector, StatusCollector::Kuma(_)),
+                    |row| {
+                        row.child(
+                            div()
+                                .flex_none()
+                                .text_size(s(13.))
+                                .text_color(theme.muted())
+                                .child(view.feed.spec.source),
+                        )
+                    },
+                )
+                .children(match view.reading() {
+                    Some(FeedData::Services(services)) if compact && !services.is_empty() => {
+                        Some(service_summary_strip(s, theme, services, view.dim()))
+                    }
+                    _ => None,
                 })
                 .children(state_text.map(|text| {
                     div()
@@ -325,19 +338,24 @@ fn feed_panel(
                         }),
                 )
                 .children(view.close_details.clone().map(|panel| {
-                    detail_button(
-                        s,
-                        theme,
-                        kind.radius,
-                        "collapse-feed-card",
-                        "Done",
-                        move |_, _, cx| {
+                    div()
+                        .id("collapse-feed-card")
+                        .role(Role::Button)
+                        .flex_none()
+                        .size(px(44.).max(s(32.)))
+                        .flex()
+                        .items_center()
+                        .justify_center()
+                        .text_size(s(13.))
+                        .cursor_pointer()
+                        .hover(|button| button.underline())
+                        .on_click(move |_, _, cx| {
                             if let Err(error) = panel.update(cx, |_, cx| cx.emit(FeedDetailsClosed))
                             {
                                 log::debug!("feed details already closed: {error:#}");
                             }
-                        },
-                    )
+                        })
+                        .child("Done")
                 })),
         )
         .children(view.terminal_error.map(|error| {
@@ -747,33 +765,17 @@ fn services_panel(s: Scale, view: &FeedView, expanded: bool) -> Div {
     };
     services.sort_by(|a, b| rank(a.state).cmp(&rank(b.state)).then(a.name.cmp(&b.name)));
     let rows = services.into_iter().map(|service| {
-        let (text, status_color) = match service.state {
-            ServiceState::Up => {
-                let uptime = service.uptime_24h.map_or("—".into(), |ratio| {
-                    if ratio >= 0.9995 {
-                        "100%".into()
-                    } else {
-                        format!("{:.1}%", ratio * 100.0)
-                    }
-                });
-                (uptime, theme.ok())
-            }
-            ServiceState::Down => ("down".into(), theme.bad()),
-            ServiceState::Pending => ("pending".into(), theme.warn()),
-            ServiceState::Maintenance => ("maintenance".into(), theme.info()),
-            ServiceState::Unknown => ("no data".into(), theme.faint()),
-        };
         let color = if view.dim() {
             theme.faint()
         } else {
-            status_color
+            service_state_color(theme, service.state)
         };
-        list_row(
+        list_row(s, color, service.name.clone(), Vec::new()).child(service_history_strip(
             s,
-            color,
-            service.name.clone(),
-            vec![(text, 96., theme.muted())],
-        )
+            theme,
+            service,
+            view.dim(),
+        ))
     });
     let body = div()
         .id("expanded-service-list")

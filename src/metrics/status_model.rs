@@ -32,16 +32,20 @@ pub enum ServiceState {
     Unknown,
 }
 
+/// One service check, with its timestamp when the source provides a valid time.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ServiceHeartbeat {
+    pub state: ServiceState,
+    pub time: Option<OffsetDateTime>,
+}
+
 /// Service health: one Uptime Kuma monitor on a status page.
 #[derive(Clone, Debug, PartialEq)]
 pub struct ServiceHealth {
     pub name: String,
     pub state: ServiceState,
-    /// Uptime ratio over 24 hours, from 0.0 to 1.0.
-    pub uptime_24h: Option<f32>,
-    pub last_heartbeat: Option<OffsetDateTime>,
-    /// Message of the last heartbeat, such as an error text.
-    pub message: Option<String>,
+    /// Recent service checks in the status page's oldest-to-newest order.
+    pub heartbeats: Vec<ServiceHeartbeat>,
 }
 
 /// Disk health state, as Scrutiny reports it.

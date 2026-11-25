@@ -2,6 +2,7 @@ mod status_format;
 mod status_graph;
 mod status_panel;
 mod status_redraw;
+mod status_service_history;
 mod status_theme;
 mod status_view;
 mod status_window;

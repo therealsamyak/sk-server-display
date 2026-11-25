@@ -9,7 +9,7 @@ use anyhow::Context as _;
 use serde::Deserialize;
 use time::{OffsetDateTime, PrimitiveDateTime, macros::format_description};
 
-use crate::metrics::status_model::{ServiceHealth, ServiceState};
+use crate::metrics::status_model::{ServiceHealth, ServiceHeartbeat, ServiceState};
 
 /// Uptime Kuma collector for one status page.
 #[derive(Clone, Debug)]
@@ -41,16 +41,27 @@ pub(crate) struct KumaMonitor {
 pub(crate) struct KumaHeartbeats {
     #[serde(rename = "heartbeatList")]
     pub heartbeats: HashMap<String, Vec<KumaHeartbeat>>,
-    #[serde(rename = "uptimeList")]
-    pub uptimes: HashMap<String, f32>,
 }
 
 #[derive(Deserialize)]
 pub(crate) struct KumaHeartbeat {
     pub status: u8,
     pub time: String,
-    #[serde(default)]
-    pub msg: Option<String>,
+}
+
+impl KumaHeartbeat {
+    fn to_service_heartbeat(&self) -> ServiceHeartbeat {
+        ServiceHeartbeat {
+            state: match self.status {
+                0 => ServiceState::Down,
+                1 => ServiceState::Up,
+                2 => ServiceState::Pending,
+                3 => ServiceState::Maintenance,
+                _ => ServiceState::Unknown,
+            },
+            time: parse_kuma_time(&self.time),
+        }
+    }
 }
 
 impl KumaCollector {
@@ -77,7 +88,7 @@ impl KumaCollector {
     }
 }
 
-/// Joins status page monitors with their latest heartbeat and 24-hour uptime.
+/// Joins status page monitors with their heartbeat history.
 pub(crate) fn merge_kuma_services(
     page: &KumaStatusPage,
     heartbeats: &KumaHeartbeats,
@@ -86,27 +97,19 @@ pub(crate) fn merge_kuma_services(
         .iter()
         .flat_map(|group| &group.monitors)
         .map(|monitor| {
-            let latest = heartbeats
+            let history: Vec<_> = heartbeats
                 .heartbeats
                 .get(&monitor.id.to_string())
-                .and_then(|beats| beats.last());
+                .into_iter()
+                .flatten()
+                .map(KumaHeartbeat::to_service_heartbeat)
+                .collect();
             ServiceHealth {
                 name: monitor.name.clone(),
-                state: match latest.map(|beat| beat.status) {
-                    Some(0) => ServiceState::Down,
-                    Some(1) => ServiceState::Up,
-                    Some(2) => ServiceState::Pending,
-                    Some(3) => ServiceState::Maintenance,
-                    _ => ServiceState::Unknown,
-                },
-                uptime_24h: heartbeats
-                    .uptimes
-                    .get(&format!("{}_24", monitor.id))
-                    .copied(),
-                last_heartbeat: latest.and_then(|beat| parse_kuma_time(&beat.time)),
-                message: latest
-                    .and_then(|beat| beat.msg.clone())
-                    .filter(|msg| !msg.is_empty()),
+                state: history
+                    .last()
+                    .map_or(ServiceState::Unknown, |beat| beat.state),
+                heartbeats: history,
             }
         })
         .collect()
@@ -146,14 +149,14 @@ mod tests {
         let services = merge_kuma_services(&page, &heartbeats);
         assert_eq!(services.len(), 3);
         assert_eq!(services[0].state, ServiceState::Up);
-        assert_eq!(services[0].message, None);
+        assert_eq!(services[0].heartbeats.len(), 2);
+        assert_eq!(services[0].heartbeats[0].state, ServiceState::Down);
         assert_eq!(
-            services[0].last_heartbeat,
+            services[0].heartbeats[1].time,
             Some(datetime!(2026-11-23 19:36:12.66 UTC))
         );
         assert_eq!(services[1].state, ServiceState::Down);
-        assert_eq!(services[1].uptime_24h, Some(0.875));
-        assert_eq!(services[1].message.as_deref(), Some("timeout"));
         assert_eq!(services[2].state, ServiceState::Unknown);
+        assert!(services[2].heartbeats.is_empty());
     }
 }
