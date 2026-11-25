@@ -6,9 +6,14 @@ use std::{
     time::Instant,
 };
 
-use sysinfo::{Components, DiskRefreshKind, Disks, Networks, System};
+use sysinfo::{
+    Components, DiskRefreshKind, Disks, Networks, ProcessRefreshKind, ProcessesToUpdate, System,
+};
 
-use crate::metrics::{status_collector::is_virtual_network_interface, status_model::HostMetrics};
+use crate::metrics::{
+    status_collector::is_virtual_network_interface,
+    status_model::{HostMetrics, HostProcess, busiest_host_processes},
+};
 
 /// Local collector state. CPU usage and network rates need the previous
 /// reading for a time delta. The disk and sensor lists stay loaded, so each
@@ -67,6 +72,11 @@ impl LocalCollector {
             .ok_or_else(|| anyhow::anyhow!("local sampler unavailable"))?;
         sampler.system.refresh_cpu_usage();
         sampler.system.refresh_memory();
+        sampler.system.refresh_processes_specifics(
+            ProcessesToUpdate::All,
+            true,
+            ProcessRefreshKind::nothing().with_cpu().with_memory(),
+        );
         sampler.networks.refresh(true);
         let seconds = sampler.networks_read_at.elapsed().as_secs_f64().max(0.001);
         sampler.networks_read_at = Instant::now();
@@ -120,6 +130,14 @@ impl LocalCollector {
             uptime_seconds: System::uptime().ok(),
             network_receive_rate: interface.map(|data| data.received() as f64 / seconds),
             network_send_rate: interface.map(|data| data.transmitted() as f64 / seconds),
+            processes: busiest_host_processes(system.processes().values().map(|process| {
+                HostProcess {
+                    pid: process.pid().as_u32(),
+                    name: process.name().to_string_lossy().into_owned(),
+                    cpu_percent: process.cpu_usage(),
+                    memory_bytes: process.memory(),
+                }
+            })),
         })
     }
 }

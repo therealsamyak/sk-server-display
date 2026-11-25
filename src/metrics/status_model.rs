@@ -19,6 +19,36 @@ pub struct HostMetrics {
     pub network_receive_rate: Option<f64>,
     /// Network send rate of the main interface, in bytes per second.
     pub network_send_rate: Option<f64>,
+    /// Busiest processes for the btop window, highest CPU use first.
+    pub processes: Vec<HostProcess>,
+}
+
+/// Number of processes that a host reading keeps for the btop window.
+pub const HOST_PROCESS_LIMIT: usize = 16;
+
+/// Sort processes by CPU use, then memory, and keep the busiest ones.
+pub fn busiest_host_processes(
+    processes: impl IntoIterator<Item = HostProcess>,
+) -> Vec<HostProcess> {
+    let mut processes: Vec<HostProcess> = processes.into_iter().collect();
+    processes.sort_by(|a, b| {
+        b.cpu_percent
+            .total_cmp(&a.cpu_percent)
+            .then(b.memory_bytes.cmp(&a.memory_bytes))
+    });
+    processes.truncate(HOST_PROCESS_LIMIT);
+    processes
+}
+
+/// One running process on a host, for the btop window process list.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct HostProcess {
+    pub pid: u32,
+    pub name: String,
+    /// CPU use, where 100 is one full core.
+    pub cpu_percent: f32,
+    /// Resident memory, in bytes.
+    pub memory_bytes: u64,
 }
 
 /// Service health state, as Uptime Kuma reports it.

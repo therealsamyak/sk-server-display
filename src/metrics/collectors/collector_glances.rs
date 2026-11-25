@@ -6,7 +6,10 @@ use serde::Deserialize;
 use crate::{
     metrics::collectors::collector_tailscale::TailnetHostCollector,
     metrics::status_collector::is_virtual_network_interface,
-    metrics::status_model::{FeedData, HostMetrics, HostPresence},
+    metrics::status_model::{
+        FeedData, HOST_PROCESS_LIMIT, HostMetrics, HostPresence, HostProcess,
+        busiest_host_processes,
+    },
 };
 
 /// Glances collector for one host.
@@ -37,6 +40,19 @@ pub(crate) struct GlancesInterface {
     pub bytes_all_gauge: u64,
     pub bytes_recv_rate_per_sec: Option<f64>,
     pub bytes_sent_rate_per_sec: Option<f64>,
+}
+
+#[derive(Deserialize)]
+struct GlancesProcess {
+    pid: u32,
+    name: String,
+    cpu_percent: Option<f32>,
+    memory_info: Option<GlancesProcessMemory>,
+}
+
+#[derive(Deserialize)]
+struct GlancesProcessMemory {
+    rss: u64,
 }
 
 #[derive(Deserialize)]
@@ -109,6 +125,11 @@ impl GlancesCollector {
         cores.sort_by_key(|core| core.cpu_number);
         let interfaces: Vec<GlancesInterface> = self.get("network").unwrap_or_default();
         let interface = main_network_interface(&interfaces);
+        // The top endpoint returns only the busiest processes, not the
+        // full process list.
+        let processes: Vec<GlancesProcess> = self
+            .get(&format!("processlist/top/{HOST_PROCESS_LIMIT}"))
+            .unwrap_or_default();
 
         let disk = main_filesystem(&filesystems);
         Ok(HostMetrics {
@@ -123,6 +144,12 @@ impl GlancesCollector {
             uptime_seconds: parse_glances_uptime(&uptime),
             network_receive_rate: interface.and_then(|i| i.bytes_recv_rate_per_sec),
             network_send_rate: interface.and_then(|i| i.bytes_sent_rate_per_sec),
+            processes: busiest_host_processes(processes.into_iter().map(|process| HostProcess {
+                pid: process.pid,
+                name: process.name,
+                cpu_percent: process.cpu_percent.unwrap_or_default(),
+                memory_bytes: process.memory_info.map_or(0, |memory| memory.rss),
+            })),
         })
     }
 }
