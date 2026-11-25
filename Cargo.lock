@@ -4615,6 +4615,7 @@ dependencies = [
  "anyhow",
  "clap",
  "dirs 7.0.0",
+ "embed-resource",
  "env_logger",
  "futures-lite",
  "gpui",
