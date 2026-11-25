@@ -382,17 +382,43 @@ later. Use them in the same way as the Yolanda wallpapers.
 | `castorice-butterflies` | elidrich_lee_ | [Castorice among white butterflies](https://www.pixiv.net/en/artworks/131995733) | Clock and hosts at the left, other panels at the right | Slate glass, wing white, Plex Serif |
 | `castorice-ruins` | ようかんもち | [Castorice in moonlit ruins](https://www.pixiv.net/en/artworks/132468617) | All panels and the clock at the left, over the sky | Flat violet glass, square corners, Plex Mono |
 
-The `evernight` and `ayaka-moonlit` files have black bars at the top and the bottom. Crop them
-before you use them. The display fills the window with `ObjectFit::Cover`, so it keeps the bars
-otherwise.
+The styles below are drafts for wallpapers that won an official HoYoverse art contest. The
+Honkai: Star Rail "Multiverse Vistas" creator competition lists its winners on the HoYoverse
+results pages for [2024](https://act.hoyoverse.com/puzzle/hkrpg/pz_3z780LOFem/index.html),
+[2025](https://act.hoyoverse.com/puzzle/hkrpg/pz_XSyfZGxY8k/index.html), and
+[2026](https://act.hoyoverse.com/puzzle/hkrpg/pz_SWdABZWWc2/index.html). Each results page links
+the full-size file of each winning work. The pixiv contests list their winners on the
+[Genshin Impact](https://www.pixiv.net/contest/genshin2) and
+[Honkai: Star Rail](https://www.pixiv.net/contest/houkaistarrail) results pages. For a pixiv
+winner, the wallpaper is a later work by the same artist.
+
+| Style | Artist | Award | Wallpaper | Arrangement | Palette and type |
+| --- | --- | --- | --- | --- | --- |
+| `trailblazers-orbit` | Minamo | Multiverse Vistas 2026, top illustration award | [The Trailblazers on a star chart](https://www.pixiv.net/en/artworks/146476781) | Clock and hosts at the left, other panels at the right | Navy glass, chart white, Plex Sans |
+| `cyrene-bow` | _Chowol | Multiverse Vistas 2026, illustration award | [Cyrene with a bow of light](https://www.pixiv.net/en/artworks/146437680) | Clock and hosts at the left, other panels at the right | Plum glass, bow magenta, Plex Serif |
+| `pearl-water` | うい みちこ | Multiverse Vistas 2026, illustration award | [Pearl paints with water](https://www.pixiv.net/en/artworks/146822020) | All panels and the clock at the left | Teal glass, water white, Plex Serif |
+| `stelle-shards` | えるも | Multiverse Vistas 2026, illustration award | [Stelle among glass shards](https://www.pixiv.net/en/artworks/146397839) | Clock and hosts at the left, other panels at the right | Navy glass, light gold |
+| `sparxie-stage` | rdrd_1224 | Multiverse Vistas 2026, illustration award | [Sparxie and Sparkle on stage](https://x.com/rdrd_1224/status/2069740572148162847) | Clock and hosts at the left, other panels at the right | Rose glass, round corners |
+| `kafka-city` | PB___q | Multiverse Vistas 2025, illustration award | [Kafka over a city of fireworks](https://x.com/pb___q/status/1938578669301318121) | All panels and the clock at the right | Dark violet glass, neon pink |
+| `aglaea-meadow` | e武器 | Multiverse Vistas 2025, illustration award | [Aglaea, Cipher, and Tribbie in a meadow](https://x.com/e_buki818/status/1938472574524309556) | Clock and hosts at the left, other panels at the right | Light: sky cards, navy type, Plex Serif |
+| `castorice-violet` | YonesDraws | Multiverse Vistas 2025, illustration award | [Castorice among violet ribbons](https://x.com/YonesDraws/status/1938192528768905460) | Clock and hosts at the left, other panels at the right | Violet glass, lilac type, Plex Serif |
+| `cyrene-flowers` | ArtElphe | Multiverse Vistas 2025, illustration award | [Cyrene among flowers in glass jars](https://x.com/ArtElphe/status/1938177165494780390) | Clock and hosts at the left, other panels at the right | Light: blush cards, plum type, Plex Serif |
+| `robin-concert` | 에레 | Multiverse Vistas 2024, illustration winner | [Robin sings above a night city](https://x.com/ere_chip/status/1796706911448150321) | All panels and the clock at the right | Indigo glass, note gold, Plex Serif |
+| `sparkle-maple` | 0zerofive012 | Multiverse Vistas 2024, illustration winner | [Sparkle among red maple leaves](https://x.com/0zerofive012/status/1792112529495515425) | All panels and the clock at the left | Warm dark glass, maple orange, Plex Serif |
+| `acheron-eclipse` | Darius Sim | Multiverse Vistas 2024, illustration winner | Acheron before a black eclipse, on the 2024 results page | Clock and hosts at the left, other panels at the right | Black and white with one red, square corners, Plex Mono |
+| `hunters-daylight` | なかゥま/ NAKAuMA | Top prize, pixiv Honkai: Star Rail contest 2023 | [Silver Wolf and Kafka in a pale morning (2024)](https://www.pixiv.net/en/artworks/121547648) | All panels and the clock at the right | Light: lilac cards, navy type |
+| `lumine-linen` | きの | Excellence prize, pixiv Genshin Impact contest 2022 | [Lumine and Paimon on white linen (2023)](https://www.pixiv.net/en/artworks/112092132) | All panels and the clock at the right, over the sheet | Light: paper cards, warm ink, Plex Serif |
+
+The `evernight`, `ayaka-moonlit`, and `lumine-linen` files have black bars at the top and the
+bottom. Crop them before you use them. The display fills the window with `ObjectFit::Cover`, so it
+keeps the bars otherwise.
 
 The display draws the wallpaper file as it is. No AI image tool makes or changes an image. A style
 is only Rust code: fixed colors, fonts, and panel areas. To make a style for another wallpaper,
 copy one constant, pick colors from the art, and set the area widths where the art is quiet.
 
-The styles are in `src/status_style.rs` and `src/status_style_contest.rs`. Each style is one
-constant. Remove the styles that you do
-not keep.
+The styles are in `src/status_style.rs`, `src/status_style_contest.rs`, and
+`src/status_style_winners.rs`. Each style is one constant. Remove the styles that you do not keep.
 
 ### Visual cleanup
 
@@ -709,7 +735,7 @@ These checks ran on a Linux machine (KDE Plasma, Wayland) with GPUI at the pinne
   A request with the MagicDNS host name got status 200. A request with another `Host` header got
   status 400, and so did a request for the disabled process list. Glances used 0.1 % CPU at idle.
   A restart of the Mac did not run, so the start at sign-in needs a hands-on check.
-- Each of the 44 side styles rendered at 1920 × 1080 in the nested KWin session with its
+- Each of the 58 side styles rendered at 1920 × 1080 in the nested KWin session with its
   wallpaper and live data. The clock stayed on one line, and no list row lost its name. The
   screenshots stay out of Git, because the art belongs to the artist. The `hills` style rendered
   the band arrangement as before.
@@ -746,8 +772,10 @@ These items need a test on real hardware. Windows items come first:
 ## Open questions
 
 - Which styles do you keep? The repository has nine drafts for wallpapers by Yolanda, 35
-  drafts for wallpapers by HoYoverse event artists, and the `hills` style for the Windows XP
-  "Bliss" placeholder.
+  drafts for wallpapers by HoYoverse event artists, 14 drafts for official contest winners, and
+  the `hills` style for the Windows XP "Bliss" placeholder. The 15 drafts from `odette-stars` to
+  `castorice-ruins` use contest entries and HoYoFair works without a known award. Do you remove
+  them?
 - Must the app start at sign-in on the Windows laptop? This version adds no startup entry or
   service.
 

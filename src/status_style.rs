@@ -13,6 +13,7 @@ use crate::status_fonts::{
     STATUS_MONO_FONT_FAMILY, STATUS_SANS_FONT_FAMILY, STATUS_SERIF_FONT_FAMILY,
 };
 use crate::status_style_contest;
+use crate::status_style_winners;
 
 /// Name of a built-in status style, as the configuration key `style` gives it.
 #[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Eq)]
@@ -65,6 +66,20 @@ pub enum StatusStyleName {
     FireflyDusk,
     CastoriceButterflies,
     CastoriceRuins,
+    TrailblazersOrbit,
+    CyreneBow,
+    PearlWater,
+    StelleShards,
+    SparxieStage,
+    KafkaCity,
+    AglaeaMeadow,
+    CastoriceViolet,
+    CyreneFlowers,
+    RobinConcert,
+    SparkleMaple,
+    AcheronEclipse,
+    HuntersDaylight,
+    LumineLinen,
 }
 
 /// One color with its opacity.
@@ -239,6 +254,20 @@ pub fn status_style_by_name(name: StatusStyleName) -> &'static StatusStyle {
         StatusStyleName::FireflyDusk => &status_style_contest::FIREFLY_DUSK,
         StatusStyleName::CastoriceButterflies => &status_style_contest::CASTORICE_BUTTERFLIES,
         StatusStyleName::CastoriceRuins => &status_style_contest::CASTORICE_RUINS,
+        StatusStyleName::TrailblazersOrbit => &status_style_winners::TRAILBLAZERS_ORBIT,
+        StatusStyleName::CyreneBow => &status_style_winners::CYRENE_BOW,
+        StatusStyleName::PearlWater => &status_style_winners::PEARL_WATER,
+        StatusStyleName::StelleShards => &status_style_winners::STELLE_SHARDS,
+        StatusStyleName::SparxieStage => &status_style_winners::SPARXIE_STAGE,
+        StatusStyleName::KafkaCity => &status_style_winners::KAFKA_CITY,
+        StatusStyleName::AglaeaMeadow => &status_style_winners::AGLAEA_MEADOW,
+        StatusStyleName::CastoriceViolet => &status_style_winners::CASTORICE_VIOLET,
+        StatusStyleName::CyreneFlowers => &status_style_winners::CYRENE_FLOWERS,
+        StatusStyleName::RobinConcert => &status_style_winners::ROBIN_CONCERT,
+        StatusStyleName::SparkleMaple => &status_style_winners::SPARKLE_MAPLE,
+        StatusStyleName::AcheronEclipse => &status_style_winners::ACHERON_ECLIPSE,
+        StatusStyleName::HuntersDaylight => &status_style_winners::HUNTERS_DAYLIGHT,
+        StatusStyleName::LumineLinen => &status_style_winners::LUMINE_LINEN,
     }
 }
 
@@ -664,7 +693,7 @@ const YAOGUANG: StatusStyle = StatusStyle {
 mod tests {
     use super::*;
 
-    const ALL_STYLE_NAMES: [StatusStyleName; 45] = [
+    const ALL_STYLE_NAMES: [StatusStyleName; 59] = [
         StatusStyleName::Hills,
         StatusStyleName::Kokomi,
         StatusStyleName::Nilou,
@@ -710,6 +739,20 @@ mod tests {
         StatusStyleName::FireflyDusk,
         StatusStyleName::CastoriceButterflies,
         StatusStyleName::CastoriceRuins,
+        StatusStyleName::TrailblazersOrbit,
+        StatusStyleName::CyreneBow,
+        StatusStyleName::PearlWater,
+        StatusStyleName::StelleShards,
+        StatusStyleName::SparxieStage,
+        StatusStyleName::KafkaCity,
+        StatusStyleName::AglaeaMeadow,
+        StatusStyleName::CastoriceViolet,
+        StatusStyleName::CyreneFlowers,
+        StatusStyleName::RobinConcert,
+        StatusStyleName::SparkleMaple,
+        StatusStyleName::AcheronEclipse,
+        StatusStyleName::HuntersDaylight,
+        StatusStyleName::LumineLinen,
     ];
 
     #[test]
