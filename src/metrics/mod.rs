@@ -4,6 +4,8 @@ mod status_collector;
 mod status_config;
 mod status_feed;
 mod status_freshness;
+#[cfg(test)]
+mod status_lan_tests;
 mod status_model;
 
 pub(crate) use status_board::{StatusBoard, StatusFeedUpdated};

@@ -10,7 +10,11 @@ use std::{
 
 use anyhow::{Context as _, ensure};
 use serde::{Deserialize, Serialize};
-use ureq::http::Uri;
+use ureq::{
+    SendBody,
+    http::{Request, Uri},
+    middleware::MiddlewareNext,
+};
 
 use crate::{
     metrics::collectors::collector_glances::GlancesCollector,
@@ -42,6 +46,9 @@ pub struct StatusConfig {
     /// If omitted, the preset gallery stays hidden.
     #[serde(default)]
     pub preset_wallpapers: Option<PathBuf>,
+    /// Connect directly to metrics URLs with no proxy or redirects.
+    #[serde(default)]
+    pub direct_metrics_http: bool,
     /// Host cards, in column order. Empty: one card for this machine.
     #[serde(default, rename = "host")]
     pub hosts: Vec<HostConfig>,
@@ -169,14 +176,25 @@ pub struct StatusFeedSpec {
 /// Builds the status feeds in display order.
 pub fn build_status_feeds(config: &StatusConfig) -> anyhow::Result<Vec<StatusFeedSpec>> {
     let agent = |interval: Duration| -> ureq::Agent {
-        ureq::Agent::config_builder()
-            .timeout_global(Some(
-                interval
-                    .mul_f32(0.75)
-                    .clamp(Duration::from_millis(1500), Duration::from_secs(10)),
-            ))
-            .build()
-            .into()
+        let builder = ureq::Agent::config_builder().timeout_global(Some(
+            interval
+                .mul_f32(0.75)
+                .clamp(Duration::from_millis(1500), Duration::from_secs(10)),
+        ));
+        let builder = if config.direct_metrics_http {
+            builder.proxy(None).max_redirects(0).middleware(
+                |request: Request<SendBody>, next: MiddlewareNext| {
+                    let response = next.handle(request)?;
+                    if response.status().is_redirection() {
+                        return Err(ureq::Error::StatusCode(response.status().as_u16()));
+                    }
+                    Ok(response)
+                },
+            )
+        } else {
+            builder
+        };
+        builder.build().into()
     };
     // One reader for all Tailscale feeds, so they share each command run.
     let tailscale = TailscaleStatusReader::new_tailscale_reader(config.tailscale.command.clone());

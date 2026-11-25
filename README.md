@@ -24,6 +24,49 @@ The wallpaper menu has tabs for presets, slideshows, and imported images.
 2. Run the executable.
 3. If you want more than local metrics, copy [config.example.toml](config.example.toml) to the configuration path for your OS and edit it.
 
+## Configure a LAN-only display
+
+Copy [config.lan.example.toml](config.lan.example.toml) to a separate profile directory. Replace
+the example URLs and status page slug with your approved LAN routes. Remove the blocks for
+unavailable services. Start the app with `--config` and the path to the new file.
+
+Set `direct_metrics_http = true` before the first table. Glances, Kuma, and Scrutiny then ignore
+proxy environment variables and reject HTTP redirects. Use each service's final base URL.
+Use an approved, stable LAN IPv4 address when the display has no DNS access. For HTTPS, the
+certificate must be trusted by the app and match the configured address or name. A name must
+resolve locally when public DNS is unavailable. The operating system controls which routes are
+allowed.
+
+From the display, check that each configured route returns a successful JSON response without
+following redirects. For example, use `curl.exe --noproxy "*" --max-time 5` on Windows.
+
+| Source | Direct routes the app reads |
+| --- | --- |
+| Glances | `GET /api/4/cpu` and `GET /api/4/mem` are required. `load`, `sensors`, `fs`, `uptime`, `percpu`, and `network` under `/api/4/` supply optional readings. |
+| Uptime Kuma | `GET /api/status-page/<slug>` and `GET /api/status-page/heartbeat/<slug>`. Use a status page that the display can read without signing in. |
+| Scrutiny | `GET /api/summary`. The display connects to the web API. |
+| Remote btop | Optional OpenSSH connection to the approved host and SSH port. Use a literal IPv4 address or check that the alias resolves and connects directly under the LAN policy. Verify the host key in OpenSSH. |
+
+If you enable remote btop, use `ssh -G <destination>` to check the effective hostname, port,
+`ProxyJump`, and `ProxyCommand`. The app runs `btop` with strict host-key checking.
+
+Local metrics, the clock, and wallpaper playback from local files work without a network route.
+Tailscale presence reads from the local Tailscale client. Leave out Tailscale cards, the device
+list, and Glances `fallback_device` when the network policy blocks Tailscale.
+
+Use an existing approved LAN route when it serves the required JSON. If the policy permits only
+one server and a required API is reachable only from that server, first verify both paths. Check
+that the display can reach the approved server and that the server can read the upstream API.
+If the display still needs the feed, a separately approved reverse proxy can expose only the
+required GET paths to the display on that server's LAN interface. If live upstream requests
+cannot work, a periodically refreshed snapshot is an option when the server can collect the
+data and delayed readings are acceptable. Keep the snapshot timestamp visible to its consumers.
+
+Run `cargo test --locked status_lan_tests` to exercise the profile with loopback HTTP fixtures.
+The fixtures cover all three APIs, redirects, dropped connections, and recovery. After the
+Windows policy is active, verify the required private routes and optional btop from a temporary
+profile. Check that local metrics and wallpaper playback continue when a configured feed drops.
+
 The executable starts fullscreen by default. Pass `--windowed` to start in a window. Pass `--display auto`, `--display primary`, or `--display 2` to select a monitor. The default is `auto`.
 
 ## Configure hosts and services
