@@ -393,6 +393,9 @@ const SANS_TYPE: StyleType = StyleType {
     radius: 8.0,
 };
 
+/// Matching left and right column widths for the personal favorite presets.
+const FAVORITE_CORNER_WIDTHS: [f32; 2] = [0.27; 2];
+
 /// Neutral palette for a fresh profile and imported images.
 const PLAIN: StatusStyle = StatusStyle {
     palette: StylePalette {
@@ -451,12 +454,8 @@ const YOLANDA_KOKOMI: StatusStyle = StatusStyle {
         clock: solid(0xeef1ff),
         date: solid(0xc2c8ea),
     },
-    kind: StyleType {
-        title_family: STATUS_SANS_FONT_FAMILY,
-        radius: 12.0,
-        ..SANS_TYPE
-    },
-    arrangement: corner_arrangement(StyleAnchor::Top, PanelGroup::Hosts, [0.25, 0.25]),
+    kind: SANS_TYPE,
+    arrangement: corner_arrangement(StyleAnchor::Top, PanelGroup::Hosts, FAVORITE_CORNER_WIDTHS),
 };
 
 /// Nilou in a gold mandala: serif gold type and thin gold frames.
@@ -577,13 +576,12 @@ const YOLANDA_NAHIDA: StatusStyle = StatusStyle {
         clock: solid(0x17402f),
         date: solid(0x17402f),
     },
-    kind: StyleType {
-        title_family: STATUS_SANS_FONT_FAMILY,
-        clock_size: 112.0,
-        radius: 16.0,
-        ..SANS_TYPE
-    },
-    arrangement: corner_arrangement(StyleAnchor::Bottom, PanelGroup::Others, [0.27, 0.25]),
+    kind: SANS_TYPE,
+    arrangement: corner_arrangement(
+        StyleAnchor::Bottom,
+        PanelGroup::Others,
+        FAVORITE_CORNER_WIDTHS,
+    ),
 };
 
 /// Fugue as a fox spirit at night: warm cards over the dark tails at the

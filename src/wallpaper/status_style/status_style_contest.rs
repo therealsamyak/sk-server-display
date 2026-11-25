@@ -9,7 +9,8 @@ use crate::status_fonts::{
     STATUS_MONO_FONT_FAMILY, STATUS_SANS_FONT_FAMILY, STATUS_SERIF_FONT_FAMILY,
 };
 use crate::wallpaper::status_style::{
-    PanelGroup, StatusStyle, StyleAnchor, StylePalette, StyleTone, StyleType, corner_arrangement,
+    FAVORITE_CORNER_WIDTHS, PanelGroup, SANS_TYPE, StatusStyle, StyleAnchor, StylePalette,
+    StyleTone, StyleType, corner_arrangement,
 };
 
 /// Opaque tone from a hex color.
@@ -237,15 +238,8 @@ pub const FU_XUAN_STARS: StatusStyle = StatusStyle {
         clock: hex(0xefeaff),
         date: hex(0xbcb6dd),
     },
-    kind: StyleType {
-        clock_family: STATUS_SERIF_FONT_FAMILY,
-        clock_light: true,
-        clock_size: 112.0,
-        title_family: STATUS_SERIF_FONT_FAMILY,
-        title_semibold: false,
-        radius: 10.0,
-    },
-    arrangement: corner_arrangement(StyleAnchor::Top, PanelGroup::Hosts, [0.25, 0.25]),
+    kind: SANS_TYPE,
+    arrangement: corner_arrangement(StyleAnchor::Top, PanelGroup::Hosts, FAVORITE_CORNER_WIDTHS),
 };
 
 /// Nahida in the Sumeru forest: moss glass over the trees at the left, dendro
@@ -281,7 +275,7 @@ pub const NAHIDA_FOREST: StatusStyle = StatusStyle {
     arrangement: corner_arrangement(StyleAnchor::Top, PanelGroup::Hosts, [0.25, 0.27]),
 };
 
-/// Focalors in blue blossoms: pale water cards at the right, deep blue serif
+/// Focalors in blue blossoms: pale water cards and deep blue
 /// type.
 pub const FOCALORS_BLOSSOM: StatusStyle = StatusStyle {
     palette: StylePalette {
@@ -303,15 +297,8 @@ pub const FOCALORS_BLOSSOM: StatusStyle = StatusStyle {
         clock: hex(0x1c3a78),
         date: hex(0x4a628c),
     },
-    kind: StyleType {
-        clock_family: STATUS_SERIF_FONT_FAMILY,
-        clock_light: true,
-        clock_size: 112.0,
-        title_family: STATUS_SERIF_FONT_FAMILY,
-        title_semibold: false,
-        radius: 12.0,
-    },
-    arrangement: corner_arrangement(StyleAnchor::Top, PanelGroup::Hosts, [0.25, 0.27]),
+    kind: SANS_TYPE,
+    arrangement: corner_arrangement(StyleAnchor::Top, PanelGroup::Hosts, FAVORITE_CORNER_WIDTHS),
 };
 
 /// Kirara on a delivery ride: cream cards over the town at the left, dusk navy
@@ -566,15 +553,8 @@ pub const FURINA_DEEP: StatusStyle = StatusStyle {
         clock: hex(0xe8f8fa),
         date: hex(0xa8d4da),
     },
-    kind: StyleType {
-        clock_family: STATUS_SANS_FONT_FAMILY,
-        clock_light: true,
-        clock_size: 112.0,
-        title_family: STATUS_SANS_FONT_FAMILY,
-        title_semibold: true,
-        radius: 12.0,
-    },
-    arrangement: corner_arrangement(StyleAnchor::Top, PanelGroup::Hosts, [0.23, 0.26]),
+    kind: SANS_TYPE,
+    arrangement: corner_arrangement(StyleAnchor::Top, PanelGroup::Hosts, FAVORITE_CORNER_WIDTHS),
 };
 
 /// Kafka in a ruined city: graphite glass over the debris at both edges, steel

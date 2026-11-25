@@ -11,7 +11,8 @@ use crate::status_fonts::{
     STATUS_MONO_FONT_FAMILY, STATUS_SANS_FONT_FAMILY, STATUS_SERIF_FONT_FAMILY,
 };
 use crate::wallpaper::status_style::{
-    PanelGroup, StatusStyle, StyleAnchor, StylePalette, StyleTone, StyleType, corner_arrangement,
+    FAVORITE_CORNER_WIDTHS, PanelGroup, SANS_TYPE, StatusStyle, StyleAnchor, StylePalette,
+    StyleTone, StyleType, corner_arrangement,
 };
 
 /// Opaque tone from a hex color.
@@ -41,15 +42,8 @@ pub const TRAILBLAZERS_ORBIT: StatusStyle = StatusStyle {
         clock: hex(0xf4f6fb),
         date: hex(0xa9b3c9),
     },
-    kind: StyleType {
-        clock_family: STATUS_SANS_FONT_FAMILY,
-        clock_light: true,
-        clock_size: 112.0,
-        title_family: STATUS_SANS_FONT_FAMILY,
-        title_semibold: true,
-        radius: 4.0,
-    },
-    arrangement: corner_arrangement(StyleAnchor::Top, PanelGroup::Hosts, [0.24, 0.24]),
+    kind: SANS_TYPE,
+    arrangement: corner_arrangement(StyleAnchor::Top, PanelGroup::Hosts, FAVORITE_CORNER_WIDTHS),
 };
 
 /// Cyrene draws a bow of light before a red star: plum glass at both edges
@@ -74,15 +68,8 @@ pub const CYRENE_BOW: StatusStyle = StatusStyle {
         clock: hex(0xfff4fa),
         date: hex(0xd4a8c4),
     },
-    kind: StyleType {
-        clock_family: STATUS_SERIF_FONT_FAMILY,
-        clock_light: true,
-        clock_size: 112.0,
-        title_family: STATUS_SERIF_FONT_FAMILY,
-        title_semibold: false,
-        radius: 4.0,
-    },
-    arrangement: corner_arrangement(StyleAnchor::Top, PanelGroup::Hosts, [0.24, 0.24]),
+    kind: SANS_TYPE,
+    arrangement: corner_arrangement(StyleAnchor::Top, PanelGroup::Hosts, FAVORITE_CORNER_WIDTHS),
 };
 
 /// Pearl paints a stream of water for March 7th and Stelle: teal glass at the
@@ -272,15 +259,8 @@ pub const CASTORICE_VIOLET: StatusStyle = StatusStyle {
         clock: hex(0xffffff),
         date: hex(0xcbbcec),
     },
-    kind: StyleType {
-        clock_family: STATUS_SERIF_FONT_FAMILY,
-        clock_light: true,
-        clock_size: 112.0,
-        title_family: STATUS_SERIF_FONT_FAMILY,
-        title_semibold: false,
-        radius: 4.0,
-    },
-    arrangement: corner_arrangement(StyleAnchor::Top, PanelGroup::Hosts, [0.24, 0.24]),
+    kind: SANS_TYPE,
+    arrangement: corner_arrangement(StyleAnchor::Top, PanelGroup::Hosts, FAVORITE_CORNER_WIDTHS),
 };
 
 /// Cyrene rests her head among flowers in glass jars: blush cards at both
