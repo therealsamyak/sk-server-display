@@ -18,7 +18,7 @@ use crate::{
         format_status_age, format_status_clock, format_status_date, status_clock_text_valid_for,
     },
     status_freshness::FeedFreshness,
-    status_panel::{FeedPanelView, HOST_SUMMARY_HEIGHT, side_panel_height},
+    status_panel::{FeedPanelView, HostDetailsClosed, side_panel_height},
     status_picker::{StatusPicker, StatusPickerEvent},
     status_playlist::{PlaylistChoice, StatusCarousel, StatusPlaybackMode},
     status_power::StatusPower,
@@ -28,7 +28,7 @@ use crate::{
         PanelGroup, StatusStyleName, StyleAnchor, StyleArea, StyleArrangement, active_status_style,
         active_status_style_name, set_status_style,
     },
-    status_theme::{PANEL_GAP, PRESENCE_PANEL_HEIGHT, Scale, StatusLayout, StatusTheme},
+    status_theme::{HOST_CARD_HEIGHT, PANEL_GAP, Scale, StatusLayout, StatusTheme},
     status_wallpaper::load_status_wallpaper,
     status_window::StatusDisplayApp,
 };
@@ -86,7 +86,7 @@ pub struct StatusView {
     picker: Option<PickerSession>,
     preview: Option<StatusStyleName>,
     preview_error: Option<String>,
-    details: Option<Entity<FeedPanelView>>,
+    details: Option<HostDetailsSession>,
     pointer_pressed: bool,
     controls_latched: bool,
     power: StatusPower,
@@ -109,6 +109,11 @@ struct PickerSession {
     view: Entity<StatusPicker>,
     original_style: StatusStyleName,
     _events: Subscription,
+}
+
+struct HostDetailsSession {
+    panel: Entity<FeedPanelView>,
+    _close: Subscription,
 }
 
 struct WallpaperFrame {
@@ -165,7 +170,7 @@ impl StatusView {
             .map(|index| {
                 let board = board.clone();
                 let carded = carded.clone();
-                cx.new(|cx| FeedPanelView::new_feed_panel(board, index, host_rows, carded, cx))
+                cx.new(|cx| FeedPanelView::new_feed_panel(board, index, carded, cx))
             })
             .collect();
         Self {
@@ -290,7 +295,7 @@ impl StatusView {
             }
             if frame.style != active_status_style_name() {
                 set_status_style(frame.style);
-                for panel in self.panels.iter().chain(self.details.iter()) {
+                for panel in &self.panels {
                     panel.update(cx, |_, cx| cx.notify());
                 }
             }
@@ -420,7 +425,14 @@ impl StatusView {
 
     fn open_host_details(&mut self, index: usize, cx: &mut Context<Self>) {
         let board = self.board.clone();
-        self.details = Some(cx.new(|cx| FeedPanelView::new_host_detail_panel(board, index, cx)));
+        let panel = cx.new(|cx| FeedPanelView::new_host_detail_panel(board, index, cx));
+        let close = cx.subscribe(&panel, |view, _, _: &HostDetailsClosed, cx| {
+            view.close_host_details(cx);
+        });
+        self.details = Some(HostDetailsSession {
+            panel,
+            _close: close,
+        });
         cx.notify();
     }
 
@@ -694,7 +706,7 @@ impl Render for StatusView {
             .children(
                 self.details
                     .as_ref()
-                    .map(|details| self.host_detail_overlay(s, window, details, cx)),
+                    .map(|details| self.host_detail_overlay(s, layout, window, &details.panel)),
             )
             .children(
                 self.picker
@@ -817,15 +829,15 @@ impl StatusView {
     fn host_detail_overlay(
         &self,
         s: Scale,
+        layout: StatusLayout,
         window: &Window,
         details: &Entity<FeedPanelView>,
-        cx: &Context<Self>,
     ) -> AnyElement {
         div()
             .absolute()
             .inset_0()
             .occlude()
-            .p(s(28.))
+            .px(s(24.))
             .flex()
             .items_center()
             .justify_center()
@@ -833,28 +845,9 @@ impl StatusView {
             .child(
                 div()
                     .w_full()
-                    .max_w(s(920.))
-                    .h(window.viewport_size().height * 0.86)
-                    .flex()
-                    .flex_col()
-                    .gap(s(12.))
-                    .p(s(12.))
-                    .rounded(s(10.))
-                    .bg(StatusTheme::background())
-                    .child(
-                        div().flex().justify_end().child(
-                            control_button(
-                                s,
-                                "close-host-details",
-                                "Done",
-                                cx.listener(|view, _, _, cx| view.close_host_details(cx)),
-                            )
-                            .min_h(s(36.))
-                            .flex()
-                            .items_center(),
-                        ),
-                    )
-                    .child(div().flex_1().min_h_0().child(details.clone())),
+                    .max_w(s(840.))
+                    .h(layout.host_detail_height(window))
+                    .child(details.clone()),
             )
             .into_any_element()
     }
@@ -948,7 +941,7 @@ impl StatusView {
             StyleRefinement::default()
                 .flex_none()
                 .min_w_0()
-                .h(s(PRESENCE_PANEL_HEIGHT))
+                .h(s(HOST_CARD_HEIGHT))
         };
         let mut host_panels = Vec::new();
         let mut service_panels = Vec::new();
@@ -968,7 +961,7 @@ impl StatusView {
                     .cached(StyleRefinement::default().size_full())
                     .into_any_element();
                 div()
-                    .h(s(HOST_SUMMARY_HEIGHT))
+                    .h(s(HOST_CARD_HEIGHT))
                     .flex_none()
                     .w_full()
                     .child(self.host_detail_target(panel, index, cx))

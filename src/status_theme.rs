@@ -14,9 +14,8 @@ pub const PANEL_GAP: f32 = 16.0;
 /// rows, and the smallest CPU and network graphs.
 pub const HOST_PANEL_BASE_HEIGHT: f32 = 330.0;
 
-/// Height of a status card: a host card with the online state only, in
-/// design pixels. Padding, the title row, and one state row.
-pub const PRESENCE_PANEL_HEIGHT: f32 = 76.0;
+/// Height of a two-row host card, including padding and border.
+pub const HOST_CARD_HEIGHT: f32 = 76.0;
 
 /// Height of one core grid row, in design pixels.
 pub const CORE_GRID_ROW_HEIGHT: f32 = 26.0;
@@ -118,10 +117,9 @@ impl StatusLayout {
         px(value * self.ui)
     }
 
-    /// Host panel height, in design pixels, when `host_rows` panels share
-    /// the host column.
-    pub fn host_panel_height(self, host_rows: usize) -> f32 {
-        (self.panel_area - PANEL_GAP * (host_rows as f32 - 1.0)) / host_rows.max(1) as f32
+    /// Height of the expanded host card, capped on tall displays.
+    pub fn host_detail_height(self, window: &Window) -> Pixels {
+        (window.viewport_size().height * 0.86).min(self.scale(560.))
     }
 }
 

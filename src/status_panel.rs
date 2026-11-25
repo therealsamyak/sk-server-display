@@ -23,22 +23,19 @@ use crate::{
     status_redraw::StatusRedrawTimer,
     status_style::{StyleArrangement, active_status_style},
     status_theme::{
-        CORE_GRID_ROW_HEIGHT, HOST_PANEL_BASE_HEIGHT, PRESENCE_PANEL_HEIGHT, Scale, StatusLayout,
+        CORE_GRID_ROW_HEIGHT, HOST_CARD_HEIGHT, HOST_PANEL_BASE_HEIGHT, Scale, StatusLayout,
         StatusTheme, threshold_color,
     },
 };
 use gpui::{
-    AnyElement, Context, Div, Entity, FontWeight, Hsla, IntoElement, Render, Subscription, Window,
-    div, prelude::*, relative,
+    AnyElement, ClickEvent, Context, Div, Entity, EventEmitter, FontWeight, Hsla, IntoElement,
+    Render, Role, Subscription, WeakEntity, Window, div, prelude::*, px, relative,
 };
 
 /// Feed panel view: the status panel of one feed.
 pub struct FeedPanelView {
     board: Entity<StatusBoard>,
     index: usize,
-    /// Number of host panels that share the host column, in the band
-    /// arrangement.
-    host_rows: usize,
     detail: bool,
     /// Devices with their own host card. The tailnet panel leaves them out.
     carded: Vec<String>,
@@ -51,7 +48,6 @@ impl FeedPanelView {
     pub fn new_feed_panel(
         board: Entity<StatusBoard>,
         index: usize,
-        host_rows: usize,
         carded: Vec<String>,
         cx: &mut Context<Self>,
     ) -> Self {
@@ -63,7 +59,6 @@ impl FeedPanelView {
         Self {
             board,
             index,
-            host_rows,
             detail: false,
             carded,
             redraw: StatusRedrawTimer::default(),
@@ -77,17 +72,23 @@ impl FeedPanelView {
         index: usize,
         cx: &mut Context<Self>,
     ) -> Self {
-        let mut panel = Self::new_feed_panel(board, index, 1, Vec::new(), cx);
+        let mut panel = Self::new_feed_panel(board, index, Vec::new(), cx);
         panel.detail = true;
         panel
     }
 }
+
+/// The user closed the expanded host card.
+pub struct HostDetailsClosed;
+
+impl EventEmitter<HostDetailsClosed> for FeedPanelView {}
 
 impl Render for FeedPanelView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let layout = StatusLayout::from_status_window(window);
         let scale = move |value: f32| layout.scale(value);
         let s: Scale = &scale;
+        let close_details = self.detail.then(|| cx.weak_entity());
         let panel = {
             let board = self.board.read(cx);
             let feed = &board.status_feeds()[self.index];
@@ -99,6 +100,7 @@ impl Render for FeedPanelView {
                 freshness: board.feed_freshness(feed),
                 redraw: &self.redraw,
                 now: OffsetDateTime::now_utc(),
+                close_details,
             };
             let compact = self.detail
                 || matches!(
@@ -109,11 +111,7 @@ impl Render for FeedPanelView {
                 StatusCollector::Glances(_) | StatusCollector::Local(_) => host_panel(
                     s,
                     &view,
-                    if self.detail {
-                        f32::from(window.viewport_size().height) / layout.ui * 0.72
-                    } else {
-                        layout.host_panel_height(self.host_rows)
-                    },
+                    f32::from(layout.host_detail_height(window)) / layout.ui,
                     self.detail,
                 ),
                 StatusCollector::TailnetHost(_) => presence_panel(s, &view, compact),
@@ -126,9 +124,6 @@ impl Render for FeedPanelView {
         panel
     }
 }
-
-/// Height of the collapsed host summary in a side column.
-pub const HOST_SUMMARY_HEIGHT: f32 = 112.;
 
 /// Line height of panel text, as a part of the text size.
 pub const PANEL_LINE_HEIGHT: f32 = 1.25;
@@ -150,9 +145,9 @@ fn list_panel_height(rows: usize) -> f32 {
 pub fn side_panel_height(feed: &StatusFeed, carded: &[String]) -> f32 {
     let rows = match (&feed.spec.collector, feed.latest_reading()) {
         (StatusCollector::Glances(_) | StatusCollector::Local(_), _) => {
-            return HOST_SUMMARY_HEIGHT;
+            return HOST_CARD_HEIGHT;
         }
-        (StatusCollector::TailnetHost(_), _) => return PRESENCE_PANEL_HEIGHT,
+        (StatusCollector::TailnetHost(_), _) => return HOST_CARD_HEIGHT,
         (_, Some(FeedData::Services(services))) => services.len(),
         (_, Some(FeedData::Disks(disks))) => disks.len(),
         (_, Some(FeedData::Tailnet(devices))) => devices
@@ -175,6 +170,7 @@ struct FeedView<'a> {
     /// Redraw timer of the panel. Age text asks it for a redraw.
     redraw: &'a StatusRedrawTimer,
     now: OffsetDateTime,
+    close_details: Option<WeakEntity<FeedPanelView>>,
 }
 
 impl FeedView<'_> {
@@ -233,18 +229,25 @@ fn feed_panel(
         .gap(s(gap))
         .p(s(padding))
         .rounded(s(kind.radius))
-        .bg(StatusTheme::panel())
+        .bg(if view.close_details.is_some() {
+            Hsla {
+                a: 1.,
+                ..StatusTheme::panel()
+            }
+        } else {
+            StatusTheme::panel()
+        })
         .border_1()
         .border_color(border)
         .overflow_hidden()
         .child(
             div()
                 .flex()
-                .items_baseline()
-                .justify_between()
+                .items_center()
                 .gap(s(12.))
                 .child(
                     div()
+                        .flex_1()
                         .min_w_0()
                         .font_family(kind.title_family)
                         .text_size(s(17.))
@@ -260,6 +263,29 @@ fn feed_panel(
                         .text_size(s(14.))
                         .text_color(state_color)
                         .child(text)
+                }))
+                .children(view.close_details.clone().map(|panel| {
+                    div()
+                        .id("close-host-details")
+                        .role(Role::Button)
+                        .flex_none()
+                        .h(px(44.))
+                        .px(s(12.))
+                        .flex()
+                        .items_center()
+                        .rounded(s(kind.radius))
+                        .border_1()
+                        .border_color(StatusTheme::panel_border())
+                        .text_size(s(14.))
+                        .cursor_pointer()
+                        .hover(|button| button.bg(StatusTheme::track()))
+                        .on_click(move |_: &ClickEvent, _, cx| {
+                            if let Err(error) = panel.update(cx, |_, cx| cx.emit(HostDetailsClosed))
+                            {
+                                log::debug!("host details already closed: {error:#}");
+                            }
+                        })
+                        .child("Done")
                 })),
         )
         .child(body)
@@ -386,7 +412,15 @@ fn host_panel(s: Scale, view: &FeedView, panel_height: f32, detail: bool) -> Div
     let host = match view.reading() {
         Some(FeedData::Host(host)) => host,
         Some(FeedData::HostPresence(_)) => return presence_panel(s, view, !detail),
-        _ => return feed_panel(s, view, None, empty_body(s, view), !detail),
+        _ => {
+            let body = if detail {
+                empty_body(s, view)
+            } else {
+                div().into_any_element()
+            };
+            return feed_panel(s, view, None, body, !detail)
+                .when(!detail, |panel| panel.justify_center().gap_0());
+        }
     };
     let body = if detail {
         host_body(s, host, view.feed.host_history(), panel_height, view.dim())
@@ -425,28 +459,18 @@ fn host_summary(s: Scale, host: &HostMetrics, dim: bool) -> Div {
     ];
     div()
         .flex()
-        .flex_col()
+        .items_center()
+        .justify_between()
         .gap(s(8.))
-        .child(
+        .text_size(s(14.))
+        .children(metrics.into_iter().map(|(label, value)| {
             div()
                 .flex()
                 .items_center()
-                .gap(s(16.))
-                .text_size(s(14.))
-                .children(metrics.into_iter().map(|(label, value)| {
-                    div()
-                        .flex()
-                        .gap(s(6.))
-                        .child(div().text_color(StatusTheme::muted()).child(label))
-                        .child(div().text_color(value_color(dim)).child(value))
-                })),
-        )
-        .child(
-            div()
-                .text_size(s(12.))
-                .text_color(StatusTheme::muted())
-                .child("Details ›"),
-        )
+                .gap(s(6.))
+                .child(div().text_color(StatusTheme::muted()).child(label))
+                .child(div().text_color(value_color(dim)).child(value))
+        }))
 }
 
 fn host_body(
@@ -509,13 +533,14 @@ fn host_body(
         );
     let cpu_header = div()
         .flex()
-        .items_baseline()
+        .items_center()
         .gap(s(16.))
         .text_size(s(15.))
         .child(div().text_color(StatusTheme::muted()).child("CPU"))
         .child(
             div()
                 .text_size(s(28.))
+                .line_height(s(32.))
                 .text_color(value_color(dim))
                 .child(host.cpu_percent.map_or("—".into(), |p| format!("{p:.0}%"))),
         )
@@ -787,15 +812,15 @@ fn presence_panel(s: Scale, view: &FeedView, compact: bool) -> Div {
         );
     // An offline device shows its last-seen age in the body only.
     let path = device.online.then(|| tailnet_connection_text(view, device));
-    let Some(error) = metrics_error else {
-        // Status card: one row with the online state and the OS. It has the
-        // fixed height `PRESENCE_PANEL_HEIGHT`.
-        let row = state_row.child(
-            div()
-                .flex_none()
-                .text_color(StatusTheme::muted())
-                .child(device.os.clone()),
-        );
+    let Some(error) = metrics_error.as_ref().filter(|_| !compact) else {
+        // Keep the state and OS on one line in the collapsed host card.
+        let row = state_row.child(div().flex_none().text_color(StatusTheme::muted()).child(
+            if device.online && metrics_error.is_some() {
+                "No metrics".into()
+            } else {
+                device.os.clone()
+            },
+        ));
         return feed_panel(s, view, path, row.into_any_element(), true);
     };
     let body = div()
