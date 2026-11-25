@@ -322,6 +322,24 @@ other panels at the right, and the character free in the middle:
 └──────────────────────────────────────────────────────────────────────────────────────────┘
 ```
 
+#### Favorites
+
+These eight styles are on the favorites list. The full tables below give their arrangement and
+palette.
+
+| Style | Artist | Wallpaper |
+| --- | --- | --- |
+| `furina-deep` | Hewaje | [Furina in deep water](https://www.pixiv.net/en/artworks/116931545) |
+| `focalors-blossom` | 喵咕君QAQ(KH3) | [Focalors in blue blossoms](https://www.pixiv.net/en/artworks/114423788) |
+| `fu-xuan-stars` | DAWN凌晨 | [Fu Xuan among constellations](https://www.pixiv.net/en/artworks/111937693) |
+| `nahida` | Yolanda | [Nahida in a flower ring](https://www.pixiv.net/en/artworks/124030045) |
+| `kokomi` | Yolanda | [Kokomi among jellyfish](https://www.pixiv.net/en/artworks/101664845) |
+| `trailblazers-orbit` | Minamo | [The Trailblazers on a star chart](https://www.pixiv.net/en/artworks/146476781) |
+| `cyrene-bow` | _Chowol | [Cyrene with a bow of light](https://www.pixiv.net/en/artworks/146437680) |
+| `castorice-violet` | YonesDraws | [Castorice among violet ribbons](https://x.com/YonesDraws/status/1938192528768905460) |
+
+#### All style drafts
+
 The styles below are drafts, one for each wallpaper. The wallpapers are illustrations by
 [Yolanda on pixiv](https://www.pixiv.net/en/users/8349252/illustrations). The artist owns them,
 so the repository does not include them or screenshots of them. Download a wallpaper from its
