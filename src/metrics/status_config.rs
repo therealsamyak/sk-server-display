@@ -184,7 +184,7 @@ pub fn build_status_feeds(config: &StatusConfig) -> anyhow::Result<Vec<StatusFee
         feeds.push(host_feed_spec(host, &tailscale, agent(HOST_POLL_INTERVAL))?);
     }
     if config.hosts.is_empty() {
-        feeds.push(local_feed_spec("This machine".into())?);
+        feeds.push(local_feed_spec("This machine".into()));
     }
     if let Some(kuma) = &config.uptime_kuma {
         feeds.push(StatusFeedSpec {
@@ -236,7 +236,7 @@ fn host_feed_spec(
     };
     ensure!(!title.is_empty(), "host name must not be empty");
     match host {
-        HostConfig::Local { .. } => local_feed_spec(title.into()),
+        HostConfig::Local { .. } => Ok(local_feed_spec(title.into())),
         HostConfig::Glances {
             url,
             fallback_device,
@@ -289,14 +289,14 @@ fn source_url(value: &str) -> anyhow::Result<String> {
 }
 
 /// Builds the feed of the machine that runs the display.
-fn local_feed_spec(title: String) -> anyhow::Result<StatusFeedSpec> {
-    Ok(StatusFeedSpec {
+fn local_feed_spec(title: String) -> StatusFeedSpec {
+    StatusFeedSpec {
         title,
         source: "local",
-        collector: StatusCollector::Local(LocalCollector::new_local_collector()?),
+        collector: StatusCollector::Local(LocalCollector::default()),
         poll_interval: HOST_POLL_INTERVAL,
         btop: StatusTerminal::local_btop(),
-    })
+    }
 }
 
 #[cfg(test)]

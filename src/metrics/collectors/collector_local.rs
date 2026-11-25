@@ -23,9 +23,9 @@ struct LocalSampler {
 }
 
 /// Local collector for the machine that runs the display.
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct LocalCollector {
-    sampler: Arc<Mutex<LocalSampler>>,
+    sampler: Arc<Mutex<Option<LocalSampler>>>,
 }
 
 impl std::fmt::Debug for LocalCollector {
@@ -34,31 +34,37 @@ impl std::fmt::Debug for LocalCollector {
     }
 }
 
-impl LocalCollector {
-    /// Creates the local collector.
-    pub fn new_local_collector() -> anyhow::Result<Self> {
+impl LocalSampler {
+    fn new() -> anyhow::Result<Self> {
         let mut system = System::new()?;
         system.refresh_cpu_all();
         Ok(Self {
-            sampler: Arc::new(Mutex::new(LocalSampler {
-                system,
-                networks: Networks::new_with_refreshed_list()?,
-                networks_read_at: Instant::now(),
-                disks: Disks::new_with_refreshed_list_specifics(
-                    DiskRefreshKind::nothing().with_storage(),
-                )?,
-                components: Components::new_with_refreshed_list().ok(),
-            })),
+            system,
+            networks: Networks::new_with_refreshed_list()?,
+            networks_read_at: Instant::now(),
+            disks: Disks::new_with_refreshed_list_specifics(
+                DiskRefreshKind::nothing().with_storage(),
+            )?,
+            components: Components::new_with_refreshed_list().ok(),
         })
     }
+}
 
+impl LocalCollector {
     /// Reads local host metrics. This call blocks; run it on a background thread.
     pub fn fetch_local_metrics(&self) -> anyhow::Result<HostMetrics> {
         let mut sampler = self
             .sampler
             .lock()
             .map_err(|_| anyhow::anyhow!("local metrics lock is poisoned"))?;
-        let sampler = &mut *sampler;
+        // Windows sensors initialize an MTA, so construct the sampler on the
+        // polling worker. GPUI needs the main thread in an STA for OLE.
+        if sampler.is_none() {
+            *sampler = Some(LocalSampler::new()?);
+        }
+        let sampler = sampler
+            .as_mut()
+            .ok_or_else(|| anyhow::anyhow!("local sampler unavailable"))?;
         sampler.system.refresh_cpu_usage();
         sampler.system.refresh_memory();
         sampler.networks.refresh(true);
