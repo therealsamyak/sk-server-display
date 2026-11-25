@@ -1,5 +1,5 @@
-//! Status styles for wallpapers by winners of official HoYoverse art
-//! contests on pixiv. Each style follows one wallpaper. The palette uses
+//! Status styles for wallpapers by artists from official HoYoverse art
+//! contests and HoYoFair on pixiv. Each style follows one wallpaper. The palette uses
 //! colors from the art, and the panels sit where the art is quiet.
 //!
 //! The colors and areas are fixed values, picked by hand for each wallpaper.
@@ -868,6 +868,656 @@ pub const ACHERON_RAIN: StatusStyle = StatusStyle {
         send: hex(0xc8bcbc),
         clock: hex(0xf4f0f0),
         date: hex(0xe04a5a),
+    },
+    kind: StyleType {
+        clock_family: STATUS_MONO_FONT_FAMILY,
+        clock_light: false,
+        clock_size: 112.0,
+        title_family: STATUS_MONO_FONT_FAMILY,
+        title_semibold: true,
+        radius: 0.0,
+    },
+    arrangement: StyleArrangement::Sides {
+        left: StyleArea {
+            width: 0.44,
+            clock: Some(StyleAnchor::Top),
+            groups: &[PanelGroup::Hosts, PanelGroup::Others],
+            panels: StyleAnchor::Bottom,
+        },
+        right: NO_AREA,
+    },
+};
+
+/// Odette on a starry floor (2026): navy glass over the dark sky at the left,
+/// pale blue type, and the glow of her dress.
+pub const ODETTE_STARS: StatusStyle = StatusStyle {
+    palette: StylePalette {
+        background: hex(0x0a0c22),
+        scrim: StyleTone(0x0a0c22, 0.08),
+        shade: StyleTone(0x0a0c22, 0.55),
+        panel: StyleTone(0x0c1030, 0.74),
+        panel_border: StyleTone(0xa9c2e6, 0.24),
+        track: StyleTone(0xe8f1fc, 0.14),
+        text: hex(0xe8f1fc),
+        muted: hex(0xa9c2e6),
+        faint: hex(0x5a6dab),
+        ok: hex(0x8fe0c0),
+        warn: hex(0xf2c46d),
+        bad: hex(0xff7a8a),
+        info: hex(0x8bb3eb),
+        receive: hex(0x8bb3eb),
+        send: hex(0xd0a6f0),
+        clock: hex(0xeef5ff),
+        date: hex(0xa9c2e6),
+    },
+    kind: StyleType {
+        clock_family: STATUS_SERIF_FONT_FAMILY,
+        clock_light: true,
+        clock_size: 112.0,
+        title_family: STATUS_SERIF_FONT_FAMILY,
+        title_semibold: false,
+        radius: 12.0,
+    },
+    arrangement: StyleArrangement::Sides {
+        left: StyleArea {
+            width: 0.42,
+            clock: Some(StyleAnchor::Top),
+            groups: &[PanelGroup::Hosts, PanelGroup::Others],
+            panels: StyleAnchor::Bottom,
+        },
+        right: NO_AREA,
+    },
+};
+
+/// Yaoguang among theater masks (2026): indigo glass over the masks at the right,
+/// mask orange, and one gold line.
+pub const YAOGUANG_MASKS: StatusStyle = StatusStyle {
+    palette: StylePalette {
+        background: hex(0x1c1e43),
+        scrim: StyleTone(0x1c1e43, 0.08),
+        shade: StyleTone(0x1c1e43, 0.55),
+        panel: StyleTone(0x1a1838, 0.74),
+        panel_border: StyleTone(0xc2b6c8, 0.24),
+        track: StyleTone(0xf4eef2, 0.14),
+        text: hex(0xf4eef2),
+        muted: hex(0xc2b6c8),
+        faint: hex(0x7a6a86),
+        ok: hex(0x8fe0c0),
+        warn: hex(0xe8c84a),
+        bad: hex(0xff6a5a),
+        info: hex(0xf0a060),
+        receive: hex(0xf0a060),
+        send: hex(0xe8c84a),
+        clock: hex(0xfff4ec),
+        date: hex(0xf0a060),
+    },
+    kind: StyleType {
+        clock_family: STATUS_SANS_FONT_FAMILY,
+        clock_light: true,
+        clock_size: 112.0,
+        title_family: STATUS_SANS_FONT_FAMILY,
+        title_semibold: true,
+        radius: 0.0,
+    },
+    arrangement: StyleArrangement::Sides {
+        left: NO_AREA,
+        right: StyleArea {
+            width: 0.42,
+            clock: Some(StyleAnchor::Top),
+            groups: &[PanelGroup::Others, PanelGroup::Hosts],
+            panels: StyleAnchor::Bottom,
+        },
+    },
+};
+
+/// Jingliu before the full moon: navy glass over the clouds at both edges, moon
+/// white, and sword blue.
+pub const JINGLIU_MOON: StatusStyle = StatusStyle {
+    palette: StylePalette {
+        background: hex(0x0d1642),
+        scrim: StyleTone(0x0d1642, 0.08),
+        shade: StyleTone(0x0d1642, 0.55),
+        panel: StyleTone(0x0e1640, 0.74),
+        panel_border: StyleTone(0xa0b3d6, 0.24),
+        track: StyleTone(0xeef1f6, 0.14),
+        text: hex(0xeef1f6),
+        muted: hex(0xa0b3d6),
+        faint: hex(0x5f70b0),
+        ok: hex(0x8fe0c0),
+        warn: hex(0xf2c46d),
+        bad: hex(0xff6b78),
+        info: hex(0x7fd0ff),
+        receive: hex(0x7fd0ff),
+        send: hex(0xc8d4ff),
+        clock: hex(0xffffff),
+        date: hex(0xa0b3d6),
+    },
+    kind: StyleType {
+        clock_family: STATUS_SERIF_FONT_FAMILY,
+        clock_light: true,
+        clock_size: 112.0,
+        title_family: STATUS_SERIF_FONT_FAMILY,
+        title_semibold: false,
+        radius: 8.0,
+    },
+    arrangement: StyleArrangement::Sides {
+        left: StyleArea {
+            width: 0.24,
+            clock: Some(StyleAnchor::Top),
+            groups: &[PanelGroup::Hosts],
+            panels: StyleAnchor::Bottom,
+        },
+        right: StyleArea {
+            width: 0.24,
+            clock: None,
+            groups: &[PanelGroup::Others],
+            panels: StyleAnchor::Bottom,
+        },
+    },
+};
+
+/// Lumine and Aether among constellations: night blue glass at both edges, star
+/// gold, and petal white.
+pub const LUMINE_STARS: StatusStyle = StatusStyle {
+    palette: StylePalette {
+        background: hex(0x222346),
+        scrim: StyleTone(0x222346, 0.08),
+        shade: StyleTone(0x222346, 0.55),
+        panel: StyleTone(0x1c2246, 0.74),
+        panel_border: StyleTone(0xc9d5eb, 0.24),
+        track: StyleTone(0xf8f4f0, 0.14),
+        text: hex(0xf8f4f0),
+        muted: hex(0xc9d5eb),
+        faint: hex(0x6a7fae),
+        ok: hex(0x9fe0b0),
+        warn: hex(0xf2d28a),
+        bad: hex(0xff7a7a),
+        info: hex(0xf2d28a),
+        receive: hex(0xf2d28a),
+        send: hex(0x9fc0ff),
+        clock: hex(0xfff8ee),
+        date: hex(0xc9d5eb),
+    },
+    kind: StyleType {
+        clock_family: STATUS_SERIF_FONT_FAMILY,
+        clock_light: true,
+        clock_size: 112.0,
+        title_family: STATUS_SERIF_FONT_FAMILY,
+        title_semibold: false,
+        radius: 10.0,
+    },
+    arrangement: StyleArrangement::Sides {
+        left: StyleArea {
+            width: 0.24,
+            clock: Some(StyleAnchor::Top),
+            groups: &[PanelGroup::Hosts],
+            panels: StyleAnchor::Bottom,
+        },
+        right: StyleArea {
+            width: 0.24,
+            clock: None,
+            groups: &[PanelGroup::Others],
+            panels: StyleAnchor::Bottom,
+        },
+    },
+};
+
+/// March 7th under meteors: plum glass over the pink sky at the right, rose and
+/// periwinkle.
+pub const MARCH_METEOR: StatusStyle = StatusStyle {
+    palette: StylePalette {
+        background: hex(0x4b3c65),
+        scrim: StyleTone(0x4b3c65, 0.08),
+        shade: StyleTone(0x4b3c65, 0.55),
+        panel: StyleTone(0x352a4c, 0.74),
+        panel_border: StyleTone(0xd8c2dc, 0.24),
+        track: StyleTone(0xfbf1f8, 0.14),
+        text: hex(0xfbf1f8),
+        muted: hex(0xd8c2dc),
+        faint: hex(0x8f7aa4),
+        ok: hex(0x8fe0c0),
+        warn: hex(0xf5c26b),
+        bad: hex(0xff6b8b),
+        info: hex(0x8fd0ff),
+        receive: hex(0x8fd0ff),
+        send: hex(0xf2a0c8),
+        clock: hex(0xfff6fb),
+        date: hex(0xf2a0c8),
+    },
+    kind: StyleType {
+        clock_family: STATUS_SANS_FONT_FAMILY,
+        clock_light: true,
+        clock_size: 112.0,
+        title_family: STATUS_SANS_FONT_FAMILY,
+        title_semibold: true,
+        radius: 14.0,
+    },
+    arrangement: StyleArrangement::Sides {
+        left: NO_AREA,
+        right: StyleArea {
+            width: 0.42,
+            clock: Some(StyleAnchor::Top),
+            groups: &[PanelGroup::Others, PanelGroup::Hosts],
+            panels: StyleAnchor::Bottom,
+        },
+    },
+};
+
+/// Fu Xuan among dark orbits: dusk glass over space at both edges, orchid type,
+/// and ring gold.
+pub const FU_XUAN_ORBIT: StatusStyle = StatusStyle {
+    palette: StylePalette {
+        background: hex(0x231d32),
+        scrim: StyleTone(0x231d32, 0.08),
+        shade: StyleTone(0x231d32, 0.55),
+        panel: StyleTone(0x211a30, 0.74),
+        panel_border: StyleTone(0xdcc0d1, 0.24),
+        track: StyleTone(0xf6eef6, 0.14),
+        text: hex(0xf6eef6),
+        muted: hex(0xdcc0d1),
+        faint: hex(0x8e7a9c),
+        ok: hex(0x8fe0c0),
+        warn: hex(0xe8c86a),
+        bad: hex(0xff6b8b),
+        info: hex(0xe8c86a),
+        receive: hex(0xe8c86a),
+        send: hex(0xe08ad8),
+        clock: hex(0xfff6fb),
+        date: hex(0xdcc0d1),
+    },
+    kind: StyleType {
+        clock_family: STATUS_SERIF_FONT_FAMILY,
+        clock_light: true,
+        clock_size: 112.0,
+        title_family: STATUS_SERIF_FONT_FAMILY,
+        title_semibold: false,
+        radius: 8.0,
+    },
+    arrangement: StyleArrangement::Sides {
+        left: StyleArea {
+            width: 0.24,
+            clock: Some(StyleAnchor::Top),
+            groups: &[PanelGroup::Hosts],
+            panels: StyleAnchor::Bottom,
+        },
+        right: StyleArea {
+            width: 0.22,
+            clock: None,
+            groups: &[PanelGroup::Others],
+            panels: StyleAnchor::Bottom,
+        },
+    },
+};
+
+/// Firefly in a night meadow: moss glass over the dark grass at both edges, and
+/// firefly light.
+pub const FIREFLY_MEADOW: StatusStyle = StatusStyle {
+    palette: StylePalette {
+        background: hex(0x181822),
+        scrim: StyleTone(0x181822, 0.08),
+        shade: StyleTone(0x181822, 0.55),
+        panel: StyleTone(0x141a18, 0.74),
+        panel_border: StyleTone(0xb8c8a8, 0.24),
+        track: StyleTone(0xeef2e6, 0.14),
+        text: hex(0xeef2e6),
+        muted: hex(0xb8c8a8),
+        faint: hex(0x6a7a62),
+        ok: hex(0xb6e36a),
+        warn: hex(0xe8d07a),
+        bad: hex(0xff7a6a),
+        info: hex(0xe8f0a0),
+        receive: hex(0xe8f0a0),
+        send: hex(0x9fd0c0),
+        clock: hex(0xf6f8ea),
+        date: hex(0xb8c8a8),
+    },
+    kind: StyleType {
+        clock_family: STATUS_SANS_FONT_FAMILY,
+        clock_light: true,
+        clock_size: 112.0,
+        title_family: STATUS_SANS_FONT_FAMILY,
+        title_semibold: true,
+        radius: 12.0,
+    },
+    arrangement: StyleArrangement::Sides {
+        left: StyleArea {
+            width: 0.24,
+            clock: Some(StyleAnchor::Top),
+            groups: &[PanelGroup::Hosts],
+            panels: StyleAnchor::Bottom,
+        },
+        right: StyleArea {
+            width: 0.25,
+            clock: None,
+            groups: &[PanelGroup::Others],
+            panels: StyleAnchor::Bottom,
+        },
+    },
+};
+
+/// Mualani under a Natlan sky: sky cards at the left, deep sea type, and surf
+/// teal.
+pub const MUALANI_SKY: StatusStyle = StatusStyle {
+    palette: StylePalette {
+        background: hex(0x7fabdf),
+        scrim: StyleTone(0xffffff, 0.0),
+        shade: StyleTone(0xf4f9ff, 0.32),
+        panel: StyleTone(0xf4f9ff, 0.84),
+        panel_border: StyleTone(0x182a4a, 0.16),
+        track: StyleTone(0x182a4a, 0.12),
+        text: hex(0x182a4a),
+        muted: hex(0x4a628c),
+        faint: hex(0x98aac8),
+        ok: hex(0x2f8a5a),
+        warn: hex(0xa86a10),
+        bad: hex(0xc0392b),
+        info: hex(0x1f8fb0),
+        receive: hex(0x1f8fb0),
+        send: hex(0xe0704a),
+        clock: hex(0x1a3a6a),
+        date: hex(0x4a628c),
+    },
+    kind: StyleType {
+        clock_family: STATUS_SANS_FONT_FAMILY,
+        clock_light: true,
+        clock_size: 112.0,
+        title_family: STATUS_SANS_FONT_FAMILY,
+        title_semibold: true,
+        radius: 16.0,
+    },
+    arrangement: StyleArrangement::Sides {
+        left: StyleArea {
+            width: 0.44,
+            clock: Some(StyleAnchor::Top),
+            groups: &[PanelGroup::Hosts, PanelGroup::Others],
+            panels: StyleAnchor::Bottom,
+        },
+        right: NO_AREA,
+    },
+};
+
+/// Ayaka in frost and butterflies: ice cards over the pale right, indigo type,
+/// and her ribbon red.
+pub const AYAKA_FROST: StatusStyle = StatusStyle {
+    palette: StylePalette {
+        background: hex(0x9fb7e9),
+        scrim: StyleTone(0xffffff, 0.0),
+        shade: StyleTone(0xf5f9ff, 0.32),
+        panel: StyleTone(0xf5f9ff, 0.84),
+        panel_border: StyleTone(0x1e2a5a, 0.16),
+        track: StyleTone(0x1e2a5a, 0.12),
+        text: hex(0x1e2a5a),
+        muted: hex(0x4f5f96),
+        faint: hex(0x9aa8cc),
+        ok: hex(0x2f8a5a),
+        warn: hex(0xa86a10),
+        bad: hex(0xc8405a),
+        info: hex(0x3a5ac0),
+        receive: hex(0x3a5ac0),
+        send: hex(0xc8405a),
+        clock: hex(0x26306a),
+        date: hex(0x4f5f96),
+    },
+    kind: StyleType {
+        clock_family: STATUS_SERIF_FONT_FAMILY,
+        clock_light: true,
+        clock_size: 112.0,
+        title_family: STATUS_SERIF_FONT_FAMILY,
+        title_semibold: false,
+        radius: 12.0,
+    },
+    arrangement: StyleArrangement::Sides {
+        left: NO_AREA,
+        right: StyleArea {
+            width: 0.44,
+            clock: Some(StyleAnchor::Top),
+            groups: &[PanelGroup::Others, PanelGroup::Hosts],
+            panels: StyleAnchor::Bottom,
+        },
+    },
+};
+
+/// Robin with a gift in the snow: navy glass over the pines at the left, snow
+/// white, and scarf violet.
+pub const ROBIN_SNOW: StatusStyle = StatusStyle {
+    palette: StylePalette {
+        background: hex(0x283660),
+        scrim: StyleTone(0x283660, 0.08),
+        shade: StyleTone(0x283660, 0.55),
+        panel: StyleTone(0x1e2850, 0.74),
+        panel_border: StyleTone(0xbec2d7, 0.24),
+        track: StyleTone(0xf0f2f5, 0.14),
+        text: hex(0xf0f2f5),
+        muted: hex(0xbec2d7),
+        faint: hex(0x7d88b0),
+        ok: hex(0x8fe0c0),
+        warn: hex(0xf2c46d),
+        bad: hex(0xff6a6a),
+        info: hex(0x9fb8ff),
+        receive: hex(0x9fb8ff),
+        send: hex(0xe06a6a),
+        clock: hex(0xffffff),
+        date: hex(0xbec2d7),
+    },
+    kind: StyleType {
+        clock_family: STATUS_SANS_FONT_FAMILY,
+        clock_light: true,
+        clock_size: 112.0,
+        title_family: STATUS_SANS_FONT_FAMILY,
+        title_semibold: true,
+        radius: 10.0,
+    },
+    arrangement: StyleArrangement::Sides {
+        left: StyleArea {
+            width: 0.42,
+            clock: Some(StyleAnchor::Top),
+            groups: &[PanelGroup::Hosts, PanelGroup::Others],
+            panels: StyleAnchor::Bottom,
+        },
+        right: NO_AREA,
+    },
+};
+
+/// March 7th and Stelle at the fireworks: warm night glass at both edges,
+/// spark gold, and lilac.
+pub const MARCH_FIREWORKS: StatusStyle = StatusStyle {
+    palette: StylePalette {
+        background: hex(0x292d39),
+        scrim: StyleTone(0x292d39, 0.08),
+        shade: StyleTone(0x292d39, 0.55),
+        panel: StyleTone(0x24242e, 0.74),
+        panel_border: StyleTone(0xe0beac, 0.24),
+        track: StyleTone(0xfbf1ea, 0.14),
+        text: hex(0xfbf1ea),
+        muted: hex(0xe0beac),
+        faint: hex(0x978786),
+        ok: hex(0xa6d6a0),
+        warn: hex(0xf2d27a),
+        bad: hex(0xff7a6a),
+        info: hex(0xf2d27a),
+        receive: hex(0xf2d27a),
+        send: hex(0xc8a8f0),
+        clock: hex(0xfff6ee),
+        date: hex(0xe0beac),
+    },
+    kind: StyleType {
+        clock_family: STATUS_SANS_FONT_FAMILY,
+        clock_light: true,
+        clock_size: 112.0,
+        title_family: STATUS_SANS_FONT_FAMILY,
+        title_semibold: true,
+        radius: 10.0,
+    },
+    arrangement: StyleArrangement::Sides {
+        left: StyleArea {
+            width: 0.24,
+            clock: Some(StyleAnchor::Top),
+            groups: &[PanelGroup::Hosts],
+            panels: StyleAnchor::Bottom,
+        },
+        right: StyleArea {
+            width: 0.22,
+            clock: None,
+            groups: &[PanelGroup::Others],
+            panels: StyleAnchor::Bottom,
+        },
+    },
+};
+
+/// Firefly at a city sunrise: amber cards over the towers at the right, leaf
+/// green, and sun gold.
+pub const FIREFLY_SUNRISE: StatusStyle = StatusStyle {
+    palette: StylePalette {
+        background: hex(0x4e3a30),
+        scrim: StyleTone(0x4e3a30, 0.08),
+        shade: StyleTone(0x4e3a30, 0.55),
+        panel: StyleTone(0x3a2a24, 0.74),
+        panel_border: StyleTone(0xf3d4b0, 0.24),
+        track: StyleTone(0xfff4e6, 0.14),
+        text: hex(0xfff4e6),
+        muted: hex(0xf3d4b0),
+        faint: hex(0xa8846a),
+        ok: hex(0x8fd0a0),
+        warn: hex(0xf3d495),
+        bad: hex(0xff7a6a),
+        info: hex(0xf3d495),
+        receive: hex(0xf3d495),
+        send: hex(0x8fd0a0),
+        clock: hex(0xfff8ec),
+        date: hex(0xf3d495),
+    },
+    kind: StyleType {
+        clock_family: STATUS_SERIF_FONT_FAMILY,
+        clock_light: true,
+        clock_size: 112.0,
+        title_family: STATUS_SERIF_FONT_FAMILY,
+        title_semibold: false,
+        radius: 8.0,
+    },
+    arrangement: StyleArrangement::Sides {
+        left: NO_AREA,
+        right: StyleArea {
+            width: 0.42,
+            clock: Some(StyleAnchor::Top),
+            groups: &[PanelGroup::Others, PanelGroup::Hosts],
+            panels: StyleAnchor::Bottom,
+        },
+    },
+};
+
+/// Firefly at violet dusk: lilac glass at both edges, window gold, and sea
+/// green.
+pub const FIREFLY_DUSK: StatusStyle = StatusStyle {
+    palette: StylePalette {
+        background: hex(0x3e355f),
+        scrim: StyleTone(0x3e355f, 0.08),
+        shade: StyleTone(0x3e355f, 0.55),
+        panel: StyleTone(0x2e2850, 0.74),
+        panel_border: StyleTone(0xcdb6eb, 0.24),
+        track: StyleTone(0xf8f2ff, 0.14),
+        text: hex(0xf8f2ff),
+        muted: hex(0xcdb6eb),
+        faint: hex(0x8a7aa8),
+        ok: hex(0x7fd0c0),
+        warn: hex(0xf2d28a),
+        bad: hex(0xff7a8a),
+        info: hex(0xf2d28a),
+        receive: hex(0xf2d28a),
+        send: hex(0x7fd0c0),
+        clock: hex(0xfff8ff),
+        date: hex(0xcdb6eb),
+    },
+    kind: StyleType {
+        clock_family: STATUS_SANS_FONT_FAMILY,
+        clock_light: true,
+        clock_size: 112.0,
+        title_family: STATUS_SANS_FONT_FAMILY,
+        title_semibold: true,
+        radius: 14.0,
+    },
+    arrangement: StyleArrangement::Sides {
+        left: StyleArea {
+            width: 0.23,
+            clock: Some(StyleAnchor::Top),
+            groups: &[PanelGroup::Hosts],
+            panels: StyleAnchor::Bottom,
+        },
+        right: StyleArea {
+            width: 0.24,
+            clock: None,
+            groups: &[PanelGroup::Others],
+            panels: StyleAnchor::Bottom,
+        },
+    },
+};
+
+/// Castorice among white butterflies: slate glass at both edges, wing white,
+/// and a violet accent.
+pub const CASTORICE_BUTTERFLIES: StatusStyle = StatusStyle {
+    palette: StylePalette {
+        background: hex(0x363d51),
+        scrim: StyleTone(0x363d51, 0.08),
+        shade: StyleTone(0x363d51, 0.55),
+        panel: StyleTone(0x2a3044, 0.74),
+        panel_border: StyleTone(0xaabcd6, 0.24),
+        track: StyleTone(0xeef2f8, 0.14),
+        text: hex(0xeef2f8),
+        muted: hex(0xaabcd6),
+        faint: hex(0x6e7c98),
+        ok: hex(0x8fe0c0),
+        warn: hex(0xf2c46d),
+        bad: hex(0xff6b8b),
+        info: hex(0xc6a6ff),
+        receive: hex(0xc6a6ff),
+        send: hex(0xe8a8d0),
+        clock: hex(0xffffff),
+        date: hex(0xaabcd6),
+    },
+    kind: StyleType {
+        clock_family: STATUS_SERIF_FONT_FAMILY,
+        clock_light: true,
+        clock_size: 112.0,
+        title_family: STATUS_SERIF_FONT_FAMILY,
+        title_semibold: false,
+        radius: 12.0,
+    },
+    arrangement: StyleArrangement::Sides {
+        left: StyleArea {
+            width: 0.24,
+            clock: Some(StyleAnchor::Top),
+            groups: &[PanelGroup::Hosts],
+            panels: StyleAnchor::Bottom,
+        },
+        right: StyleArea {
+            width: 0.24,
+            clock: None,
+            groups: &[PanelGroup::Others],
+            panels: StyleAnchor::Bottom,
+        },
+    },
+};
+
+/// Castorice in moonlit ruins: flat violet glass over the sky at the left, moon
+/// white, and square corners as the pixel style.
+pub const CASTORICE_RUINS: StatusStyle = StatusStyle {
+    palette: StylePalette {
+        background: hex(0x383965),
+        scrim: StyleTone(0x383965, 0.08),
+        shade: StyleTone(0x383965, 0.55),
+        panel: StyleTone(0x30315a, 0.74),
+        panel_border: StyleTone(0xc4c0e6, 0.24),
+        track: StyleTone(0xf2f0ff, 0.14),
+        text: hex(0xf2f0ff),
+        muted: hex(0xc4c0e6),
+        faint: hex(0x8a85ba),
+        ok: hex(0x9fe0c0),
+        warn: hex(0xf2d08a),
+        bad: hex(0xff7a8a),
+        info: hex(0xe8e6ff),
+        receive: hex(0xe8e6ff),
+        send: hex(0xf0a8c8),
+        clock: hex(0xffffff),
+        date: hex(0xc4c0e6),
     },
     kind: StyleType {
         clock_family: STATUS_MONO_FONT_FAMILY,

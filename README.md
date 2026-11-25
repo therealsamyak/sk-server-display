@@ -339,10 +339,10 @@ pixiv page into the Git-ignored `local/` folder, then point `wallpaper` at it.
 | `evernight` | [Evernight among letters](https://www.pixiv.net/en/artworks/136562527) | Clock and hosts at the left, other panels at the right | Light paper cards, dark red type, Plex Serif |
 | `yaoguang` | [Yaoguang with peacock feathers](https://www.pixiv.net/en/artworks/141114001) | All panels and the clock at the left | Teal glass and pale gold |
 
-The styles below are drafts for wallpapers by other artists. Each artist won an official
-HoYoverse illustration contest on pixiv: the two Genshin Impact contests of 2022, the Honkai: Star
-Rail "Multiverse Vistas" contest of 2023, or the "Merrily on Star Rail" contest of 2024 to 2025. Each
-wallpaper is from 2023 or later. Use them in the same way as the Yolanda wallpapers.
+The styles below are drafts for wallpapers by other artists. Each artist took part in an official
+HoYoverse event on pixiv: HoYoFair, the Honkai: Star Rail "Multiverse Vistas" contests, the "Merrily
+on Star Rail" contest, or a Genshin Impact illustration contest. Each wallpaper is from 2023 or
+later. Use them in the same way as the Yolanda wallpapers.
 
 | Style | Artist | Wallpaper | Arrangement | Palette and type |
 | --- | --- | --- | --- | --- |
@@ -366,6 +366,21 @@ wallpaper is from 2023 or later. Use them in the same way as the Yolanda wallpap
 | `kafka-ruins` | miiio | [Kafka in a ruined city](https://www.pixiv.net/en/artworks/111279076) | Clock and hosts at the left, other panels at the right | Graphite glass, magenta, square corners, Plex Mono |
 | `march-shrine` | camu | [March 7th and Stelle at a snowy shrine](https://www.pixiv.net/en/artworks/114753990) | Clock and hosts at the left, other panels at the right | Cocoa glass, lantern amber, March pink, Plex Serif |
 | `acheron-rain` | xUDe | [Acheron in red rain](https://www.pixiv.net/en/artworks/117062300) | All panels and the clock at the left | Ash glass, one red, square corners, Plex Mono |
+| `odette-stars` | Rurei | [Odette on a starry floor (2026)](https://www.pixiv.net/en/artworks/152255385) | All panels and the clock at the left, over the dark sky | Navy glass, pale blue, Plex Serif |
+| `yaoguang-masks` | 787namihira | [Yaoguang among theater masks (2026)](https://www.pixiv.net/en/artworks/146476145) | All panels and the clock at the right, over the masks | Indigo glass, mask orange, square corners |
+| `jingliu-moon` | 云开明 | [Jingliu before the full moon](https://www.pixiv.net/en/artworks/109669413) | Clock and hosts at the left, other panels at the right | Navy glass, moon white, Plex Serif |
+| `lumine-stars` | 雨壱絵穹 | [Lumine and Aether among constellations](https://www.pixiv.net/en/artworks/107210391) | Clock and hosts at the left, other panels at the right | Night blue glass, star gold, Plex Serif |
+| `march-meteor` | GUMi | [March 7th under meteors](https://www.pixiv.net/en/artworks/111548763) | All panels and the clock at the right, over the sky | Plum glass, rose and periwinkle |
+| `fu-xuan-orbit` | 于安awa | [Fu Xuan among dark orbits](https://www.pixiv.net/en/artworks/112002007) | Clock and hosts at the left, other panels at the right | Dusk glass, orchid, ring gold, Plex Serif |
+| `firefly-meadow` | ChipCheap | [Firefly in a night meadow](https://www.pixiv.net/en/artworks/119048272) | Clock and hosts at the left, other panels at the right | Moss glass, firefly light |
+| `mualani-sky` | 碧星 | [Mualani under a Natlan sky](https://www.pixiv.net/en/artworks/122772986) | All panels and the clock at the left, over the sky | Light: sky cards, deep sea type |
+| `ayaka-frost` | よる | [Ayaka in frost and butterflies](https://www.pixiv.net/en/artworks/125643452) | All panels and the clock at the right | Light: ice cards, indigo type, Plex Serif |
+| `robin-snow` | ziQ | [Robin with a gift in the snow](https://www.pixiv.net/en/artworks/126936381) | All panels and the clock at the left, over the pines | Navy glass, snow white, scarf violet |
+| `march-fireworks` | Zakimpo | [March 7th and Stelle at the fireworks](https://www.pixiv.net/en/artworks/126950821) | Clock and hosts at the left, other panels at the right | Warm night glass, spark gold |
+| `firefly-sunrise` | Gungo | [Firefly at a city sunrise](https://www.pixiv.net/en/artworks/127013746) | All panels and the clock at the right, over the towers | Amber glass, sun gold, Plex Serif |
+| `firefly-dusk` | ビン | [Firefly at violet dusk](https://www.pixiv.net/en/artworks/127067726) | Clock and hosts at the left, other panels at the right | Lilac glass, window gold |
+| `castorice-butterflies` | elidrich_lee_ | [Castorice among white butterflies](https://www.pixiv.net/en/artworks/131995733) | Clock and hosts at the left, other panels at the right | Slate glass, wing white, Plex Serif |
+| `castorice-ruins` | ようかんもち | [Castorice in moonlit ruins](https://www.pixiv.net/en/artworks/132468617) | All panels and the clock at the left, over the sky | Flat violet glass, square corners, Plex Mono |
 
 The `evernight` and `ayaka-moonlit` files have black bars at the top and the bottom. Crop them
 before you use them. The display fills the window with `ObjectFit::Cover`, so it keeps the bars
@@ -694,7 +709,7 @@ These checks ran on a Linux machine (KDE Plasma, Wayland) with GPUI at the pinne
   A request with the MagicDNS host name got status 200. A request with another `Host` header got
   status 400, and so did a request for the disabled process list. Glances used 0.1 % CPU at idle.
   A restart of the Mac did not run, so the start at sign-in needs a hands-on check.
-- Each of the 29 side styles rendered at 1920 × 1080 in the nested KWin session with its
+- Each of the 44 side styles rendered at 1920 × 1080 in the nested KWin session with its
   wallpaper and live data. The clock stayed on one line, and no list row lost its name. The
   screenshots stay out of Git, because the art belongs to the artist. The `hills` style rendered
   the band arrangement as before.
@@ -730,8 +745,9 @@ These items need a test on real hardware. Windows items come first:
 
 ## Open questions
 
-- Which styles do you keep? The repository has nine drafts for wallpapers by Yolanda, twenty
-  drafts for wallpapers by contest winners, and the `hills` style for the Windows XP "Bliss" placeholder.
+- Which styles do you keep? The repository has nine drafts for wallpapers by Yolanda, 35
+  drafts for wallpapers by HoYoverse event artists, and the `hills` style for the Windows XP
+  "Bliss" placeholder.
 - Must the app start at sign-in on the Windows laptop? This version adds no startup entry or
   service.
 

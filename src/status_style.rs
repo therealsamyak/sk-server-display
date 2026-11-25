@@ -50,6 +50,21 @@ pub enum StatusStyleName {
     KafkaRuins,
     MarchShrine,
     AcheronRain,
+    OdetteStars,
+    YaoguangMasks,
+    JingliuMoon,
+    LumineStars,
+    MarchMeteor,
+    FuXuanOrbit,
+    FireflyMeadow,
+    MualaniSky,
+    AyakaFrost,
+    RobinSnow,
+    MarchFireworks,
+    FireflySunrise,
+    FireflyDusk,
+    CastoriceButterflies,
+    CastoriceRuins,
 }
 
 /// One color with its opacity.
@@ -209,6 +224,21 @@ pub fn status_style_by_name(name: StatusStyleName) -> &'static StatusStyle {
         StatusStyleName::KafkaRuins => &status_style_contest::KAFKA_RUINS,
         StatusStyleName::MarchShrine => &status_style_contest::MARCH_SHRINE,
         StatusStyleName::AcheronRain => &status_style_contest::ACHERON_RAIN,
+        StatusStyleName::OdetteStars => &status_style_contest::ODETTE_STARS,
+        StatusStyleName::YaoguangMasks => &status_style_contest::YAOGUANG_MASKS,
+        StatusStyleName::JingliuMoon => &status_style_contest::JINGLIU_MOON,
+        StatusStyleName::LumineStars => &status_style_contest::LUMINE_STARS,
+        StatusStyleName::MarchMeteor => &status_style_contest::MARCH_METEOR,
+        StatusStyleName::FuXuanOrbit => &status_style_contest::FU_XUAN_ORBIT,
+        StatusStyleName::FireflyMeadow => &status_style_contest::FIREFLY_MEADOW,
+        StatusStyleName::MualaniSky => &status_style_contest::MUALANI_SKY,
+        StatusStyleName::AyakaFrost => &status_style_contest::AYAKA_FROST,
+        StatusStyleName::RobinSnow => &status_style_contest::ROBIN_SNOW,
+        StatusStyleName::MarchFireworks => &status_style_contest::MARCH_FIREWORKS,
+        StatusStyleName::FireflySunrise => &status_style_contest::FIREFLY_SUNRISE,
+        StatusStyleName::FireflyDusk => &status_style_contest::FIREFLY_DUSK,
+        StatusStyleName::CastoriceButterflies => &status_style_contest::CASTORICE_BUTTERFLIES,
+        StatusStyleName::CastoriceRuins => &status_style_contest::CASTORICE_RUINS,
     }
 }
 
@@ -634,7 +664,7 @@ const YAOGUANG: StatusStyle = StatusStyle {
 mod tests {
     use super::*;
 
-    const ALL_STYLE_NAMES: [StatusStyleName; 30] = [
+    const ALL_STYLE_NAMES: [StatusStyleName; 45] = [
         StatusStyleName::Hills,
         StatusStyleName::Kokomi,
         StatusStyleName::Nilou,
@@ -665,6 +695,21 @@ mod tests {
         StatusStyleName::KafkaRuins,
         StatusStyleName::MarchShrine,
         StatusStyleName::AcheronRain,
+        StatusStyleName::OdetteStars,
+        StatusStyleName::YaoguangMasks,
+        StatusStyleName::JingliuMoon,
+        StatusStyleName::LumineStars,
+        StatusStyleName::MarchMeteor,
+        StatusStyleName::FuXuanOrbit,
+        StatusStyleName::FireflyMeadow,
+        StatusStyleName::MualaniSky,
+        StatusStyleName::AyakaFrost,
+        StatusStyleName::RobinSnow,
+        StatusStyleName::MarchFireworks,
+        StatusStyleName::FireflySunrise,
+        StatusStyleName::FireflyDusk,
+        StatusStyleName::CastoriceButterflies,
+        StatusStyleName::CastoriceRuins,
     ];
 
     #[test]
