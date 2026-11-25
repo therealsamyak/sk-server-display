@@ -2,6 +2,14 @@
 
 SK Status Display is a GPUI dashboard for a monitor or a spare computer. It shows the time, local system metrics, and remote sources that you configure. A fresh profile starts with a solid background and one card named **This machine**.
 
+## Screenshots
+
+These screenshots show example hosts, services, and disk readings. See [WALLPAPERS.md](WALLPAPERS.md) for the artists and sources.
+
+![Dashboard with the Yolanda Kokomi wallpaper](docs/images/yolanda-kokomi.png)
+
+![Dashboard with the Fu Xuan wallpaper](docs/images/fu-xuan-stars.png)
+
 ## Quick start
 
 1. Download the executable for your device from the [GitHub releases](https://github.com/therealsamyak/server-status-display/releases).
