@@ -44,10 +44,9 @@ output folder. Keep these screenshots out of Git, because they show your hosts.
 
 ## Results
 
-These results compare the app before and after the rendering, polling, and build changes in the
-README section "Rendering and resource use". Both binaries ran in the same benchmark session on
-November 23, 2026, with the same configuration: one Glances host card, three presence cards,
-Uptime Kuma, Scrutiny, and the tailnet panel.
+These results show the effect of rendering, polling, and build changes in an earlier revision.
+Both binaries ran in one benchmark session on November 23, 2026, with the same configuration.
+It had one Glances host card, three presence cards, Uptime Kuma, Scrutiny, and the tailnet panel.
 
 The test machine was an Intel Core i5-9400 with Intel UHD Graphics 630, on CachyOS with KDE Plasma
 Wayland. The nested KWin session used one 1920 × 1080 output. The wallpaper file was 3840 × 2160.

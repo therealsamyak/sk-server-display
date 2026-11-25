@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="256" height="256">
+  <!-- Server status display app icon: a display with a rising bar chart on a dark tile. -->
+  <defs>
+    <linearGradient id="tile" x1="0" y1="0" x2="0" y2="32" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#1b2430"/>
+      <stop offset="1" stop-color="#111720"/>
+    </linearGradient>
+  </defs>
+  <rect x="0" y="0" width="32" height="32" rx="7" fill="url(#tile)"/>
+  <!-- Display frame (centreline 5..27 x 7..21, stroke 2) -->
+  <rect x="5" y="7" width="22" height="14" rx="2" fill="none" stroke="#a4d9ff" stroke-width="2"/>
+  <!-- Stand: neck and base -->
+  <rect x="14" y="22" width="4" height="2" fill="#a4d9ff"/>
+  <rect x="10" y="24" width="12" height="2" rx="1" fill="#a4d9ff"/>
+  <!-- Rising bar chart -->
+  <rect x="8" y="14" width="4" height="4" fill="#6fdc9a"/>
+  <rect x="14" y="12" width="4" height="6" fill="#6fdc9a"/>
+  <rect x="20" y="10" width="4" height="8" fill="#6fdc9a"/>
+</svg>

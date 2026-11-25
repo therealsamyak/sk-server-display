@@ -41,7 +41,7 @@ MILESTONE_RE = re.compile(r"startup: (.+) after ([0-9.]+) ms")
 
 
 PACKAGE = "server-status-display"
-VIEW_FILE = "src/status_view.rs"
+VIEW_FILE = "src/dashboard/status_view.rs"
 
 
 @dataclass(frozen=True)

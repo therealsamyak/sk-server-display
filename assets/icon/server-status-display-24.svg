@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24">
+  <!-- Server status display app icon, hinted for 24 and 48 px. Same drawing as the root favicon.svg. -->
+  <defs>
+    <linearGradient id="tile" x1="0" y1="0" x2="0" y2="24" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#1b2430"/>
+      <stop offset="1" stop-color="#111720"/>
+    </linearGradient>
+  </defs>
+  <rect x="0" y="0" width="24" height="24" rx="5" fill="url(#tile)"/>
+  <!-- Display frame (centreline 4..20 x 5..15, stroke 2) -->
+  <rect x="4" y="5" width="16" height="10" rx="1.5" fill="none" stroke="#a4d9ff" stroke-width="2"/>
+  <!-- Stand: neck and base -->
+  <rect x="11" y="16" width="2" height="1" fill="#a4d9ff"/>
+  <rect x="8" y="17" width="8" height="2" rx="1" fill="#a4d9ff"/>
+  <!-- Rising bar chart -->
+  <rect x="7" y="11" width="2" height="2" fill="#6fdc9a"/>
+  <rect x="11" y="9" width="2" height="4" fill="#6fdc9a"/>
+  <rect x="15" y="7" width="2" height="6" fill="#6fdc9a"/>
+</svg>
