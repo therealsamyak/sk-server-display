@@ -13,7 +13,7 @@ use std::time::{Duration, Instant};
 
 use gpui::{
     App, AppContext as _, ClickEvent, Context, Entity, FocusHandle, IntoElement, KeyBinding,
-    MouseButton, Render, Subscription, WeakEntity, Window, actions, div, prelude::*, px,
+    MouseButton, Render, Subscription, WeakEntity, Window, actions, div, prelude::*, px, relative,
 };
 use time::{OffsetDateTime, UtcOffset};
 
@@ -346,7 +346,6 @@ impl Render for StatusView {
         let scale = move |value: f32| layout.scale(value);
         let s: Scale = &scale;
         let now = OffsetDateTime::now_utc();
-        let offset = self.settings.local_offset;
         self.redraw.redraw_after(status_clock_text_valid_for(now));
 
         let style = self.wallpaper.style;

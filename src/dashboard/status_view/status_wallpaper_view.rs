@@ -181,7 +181,7 @@ impl StatusView {
             && paths.contains_key(&id)
             && let Some(image) = &self.wallpaper.image
         {
-            images.insert(id, image.clone());
+            images.entry(id).or_insert_with(|| image.clone());
         }
 
         let mut queue: Vec<_> = paths
@@ -355,6 +355,7 @@ impl StatusView {
 
     pub(super) fn open_picker(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.details = None;
+        self.incoming_panels = None;
         let carousel = self.carousel.read(cx);
         let active = self.wallpaper.shown;
         let presets = carousel.presets.clone();

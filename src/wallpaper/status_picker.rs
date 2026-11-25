@@ -11,9 +11,10 @@ use std::{
 };
 
 use gpui::{
-    App, AppContext as _, Context, Div, ElementId, Entity, EventEmitter, FocusHandle, FontWeight,
-    KeyDownEvent, ObjectFit, Render, RenderImage, Role, ScrollHandle, SharedString, Size, Stateful,
-    StyledImage as _, Window, div, img, prelude::*, px, rgb, rgba,
+    App, AppContext as _, ClickEvent, Context, Div, ElementId, Entity, EventEmitter, FocusHandle,
+    FontWeight, KeyDownEvent, MouseButton, MouseDownEvent, MouseMoveEvent, ObjectFit, Pixels,
+    Render, RenderImage, Role, ScrollHandle, SharedString, Size, Stateful, StyledImage as _,
+    Window, div, img, point, prelude::*, px, rgb, rgba,
 };
 
 use crate::{
@@ -111,6 +112,9 @@ pub struct StatusPicker {
     name: Entity<PickerInput>,
     interval: [Entity<PickerInput>; 3],
     list_scroll: ScrollHandle,
+    gallery_scroll: ScrollHandle,
+    gallery_press: Option<(Pixels, Pixels)>,
+    gallery_dragged: bool,
     validation: Option<&'static str>,
     save_error: Option<String>,
 }
@@ -149,6 +153,9 @@ impl StatusPicker {
             interval: INTERVAL_FIELDS
                 .map(|(label, _)| cx.new(|cx| PickerInput::new_picker_input(label, "0", true, cx))),
             list_scroll: ScrollHandle::new(),
+            gallery_scroll: ScrollHandle::new(),
+            gallery_press: None,
+            gallery_dragged: false,
             validation: None,
             save_error: None,
         };
@@ -274,7 +281,12 @@ impl StatusPicker {
     }
 
     fn set_page(&mut self, page: PickerPage, window: &mut Window, cx: &mut Context<Self>) {
+        if self.page != page {
+            self.gallery_scroll.set_offset(Default::default());
+        }
         self.page = page;
+        self.gallery_press = None;
+        self.gallery_dragged = false;
         self.import = None;
         self.name_form = None;
         self.validation = None;
@@ -465,6 +477,23 @@ impl StatusPicker {
         }
     }
 
+    fn scroll_gallery(&mut self, event: &MouseMoveEvent, cx: &mut Context<Self>) {
+        let Some((start_y, start_offset)) = self.gallery_press.filter(|_| event.dragging()) else {
+            return;
+        };
+        let delta = event.position.y - start_y;
+        if self.gallery_dragged || delta.abs() >= px(12.) {
+            self.gallery_dragged = true;
+            let y = (start_offset + delta).clamp(-self.gallery_scroll.max_offset().y, px(0.));
+            self.gallery_scroll.set_offset(point(px(0.), y));
+            cx.notify();
+        }
+    }
+
+    fn gallery_click_allowed(&self, event: &ClickEvent) -> bool {
+        !self.gallery_dragged || matches!(event, ClickEvent::Keyboard(_))
+    }
+
     fn gallery(&self, width: f32, cx: &mut Context<Self>) -> Div {
         let columns = if width >= 1060. {
             5
@@ -535,15 +564,41 @@ impl StatusPicker {
             .child(
                 div()
                     .id("styles-gallery")
+                    .flex()
+                    .flex_col()
                     .flex_1()
                     .min_h_0()
                     .overflow_y_scroll()
-                    .p_5()
-                    .child(div().grid().grid_cols(columns).gap_3().children(
-                        entries.map(|style| {
-                            self.style_card(style, styles.contains(&style), adding, cx)
-                        }),
-                    )),
+                    .track_scroll(&self.gallery_scroll)
+                    .capture_any_mouse_down(cx.listener(|picker, event: &MouseDownEvent, _, _| {
+                        if event.button == MouseButton::Left {
+                            picker.gallery_dragged = false;
+                            picker.gallery_press =
+                                Some((event.position.y, picker.gallery_scroll.offset().y));
+                        }
+                    }))
+                    .on_mouse_move(
+                        cx.listener(|picker, event, _, cx| picker.scroll_gallery(event, cx)),
+                    )
+                    .on_mouse_up(
+                        MouseButton::Left,
+                        cx.listener(|picker, _, _, _| picker.gallery_press = None),
+                    )
+                    .on_mouse_up_out(
+                        MouseButton::Left,
+                        cx.listener(|picker, _, _, _| picker.gallery_press = None),
+                    )
+                    .child(
+                        div()
+                            .grid()
+                            .flex_none()
+                            .grid_cols(columns)
+                            .gap_3()
+                            .p_5()
+                            .children(entries.map(|style| {
+                                self.style_card(style, styles.contains(&style), adding, cx)
+                            })),
+                    ),
             )
     }
 
@@ -591,7 +646,26 @@ impl StatusPicker {
     ) -> Stateful<Div> {
         let title = self.wallpaper_title(style);
         let available = self.preview_available(style);
-        let artwork = self.wallpaper_artwork(style);
+        let artwork = self
+            .wallpaper_artwork(style)
+            .id("preview-wallpaper-image")
+            .when(available, |image| {
+                image
+                    .role(Role::Button)
+                    .aria_label(format!("Preview {title}"))
+                    .focusable()
+                    .tab_stop(true)
+                    .cursor_pointer()
+                    .focus_visible(|style| style.border_2().border_color(rgb(PICKER_FOCUS)))
+                    .on_click(cx.listener(move |picker, event, _, cx| {
+                        if picker.gallery_click_allowed(event) {
+                            cx.emit(StatusPickerEvent::Preview {
+                                wallpaper: style,
+                                draft: None,
+                            });
+                        }
+                    }))
+            });
         let (list_label, list_action) = match (adding, in_list) {
             (true, true) => ("Remove", "Remove from slideshow"),
             (true, false) => ("Add", "Add to slideshow"),
@@ -648,24 +722,14 @@ impl StatusPicker {
                     .gap_2()
                     .p_2()
                     .child(
-                        button("preview", "Preview", enabled_tone(available))
-                            .aria_label(format!("Preview {title}"))
-                            .when(available, |button| {
-                                button.on_click(cx.listener(move |_, _, _, cx| {
-                                    cx.emit(StatusPickerEvent::Preview {
-                                        wallpaper: style,
-                                        draft: None,
-                                    });
-                                }))
-                            }),
-                    )
-                    .child(
                         button("style-membership", list_label, list_tone)
                             .aria_label(format!("{list_action} · {title}"))
                             .aria_selected(in_list)
                             .when(available || in_list, |button| {
-                                button.on_click(cx.listener(move |picker, _, _, cx| {
-                                    picker.toggle_style(style, cx);
+                                button.on_click(cx.listener(move |picker, event, _, cx| {
+                                    if picker.gallery_click_allowed(event) {
+                                        picker.toggle_style(style, cx);
+                                    }
                                 }))
                             }),
                     )
@@ -673,8 +737,10 @@ impl StatusPicker {
                         row.child(
                             button("edit-wallpaper", "Edit", ButtonTone::Normal)
                                 .aria_label(format!("Edit {title}"))
-                                .on_click(cx.listener(move |picker, _, window, cx| {
-                                    picker.open_import_form(Some(style), window, cx)
+                                .on_click(cx.listener(move |picker, event, window, cx| {
+                                    if picker.gallery_click_allowed(event) {
+                                        picker.open_import_form(Some(style), window, cx);
+                                    }
                                 })),
                         )
                     }),
@@ -1308,14 +1374,6 @@ fn picker_heading(label: impl Into<SharedString>) -> Div {
 
 fn validation_notice(label: impl Into<SharedString>) -> Div {
     div().text_color(rgb(PICKER_ERROR)).child(label.into())
-}
-
-const fn enabled_tone(enabled: bool) -> ButtonTone {
-    if enabled {
-        ButtonTone::Normal
-    } else {
-        ButtonTone::Disabled
-    }
 }
 
 const fn selected_tone(selected: bool) -> ButtonTone {

@@ -271,7 +271,7 @@ impl StatusView {
             }
         }
 
-        let clock = status_clock(s, style, now, self.settings.local_offset, false);
+        let clock = status_clock(s, style, now, self.settings.local_offset);
         let notices = div().w_full().flex().flex_col().gap(s(8.)).children(alerts);
         match style.arrangement {
             StyleArrangement::Band => {
@@ -570,45 +570,33 @@ fn area_shade(
     }
 }
 
-/// Clock and date. `at_end` aligns them to the right edge.
-fn status_clock(
-    s: Scale,
-    style: StatusStyle,
-    now: OffsetDateTime,
-    offset: UtcOffset,
-    at_end: bool,
-) -> Div {
+/// Clock and date for the selected wallpaper.
+fn status_clock(s: Scale, style: StatusStyle, now: OffsetDateTime, offset: UtcOffset) -> Div {
     let kind = style.kind;
     let theme = StatusTheme(style.palette);
-    div()
-        .flex()
-        .flex_col()
-        .when(at_end, |clock| clock.items_end())
-        .gap(s(16.))
-        .child(
-            div()
-                .flex()
-                .flex_col()
-                .when(at_end, |clock| clock.items_end())
-                .font_family(kind.clock_family)
-                .child(
-                    div()
-                        .text_size(s(kind.clock_size))
-                        .line_height(relative(1.))
-                        .whitespace_nowrap()
-                        .when(kind.clock_light, |clock| {
-                            clock.font_weight(FontWeight::LIGHT)
-                        })
-                        .text_color(theme.clock())
-                        .child(format_status_clock(now, offset)),
-                )
-                .child(
-                    div()
-                        .px(s(4.))
-                        .whitespace_nowrap()
-                        .text_size(s(28.))
-                        .text_color(theme.date())
-                        .child(format_status_date(now, offset)),
-                ),
-        )
+    div().flex().flex_col().gap(s(16.)).child(
+        div()
+            .flex()
+            .flex_col()
+            .font_family(kind.clock_family)
+            .child(
+                div()
+                    .text_size(s(kind.clock_size))
+                    .line_height(relative(1.))
+                    .whitespace_nowrap()
+                    .when(kind.clock_light, |clock| {
+                        clock.font_weight(FontWeight::LIGHT)
+                    })
+                    .text_color(theme.clock())
+                    .child(format_status_clock(now, offset)),
+            )
+            .child(
+                div()
+                    .px(s(4.))
+                    .whitespace_nowrap()
+                    .text_size(s(28.))
+                    .text_color(theme.date())
+                    .child(format_status_date(now, offset)),
+            ),
+    )
 }
