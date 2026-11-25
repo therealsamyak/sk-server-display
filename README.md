@@ -301,7 +301,7 @@ bottom, for a landscape photo. The other styles use a side arrangement:
   changes the tone only, not the hue.
 - In a side area, the host cards show the stacked body: meters above the CPU graph.
 
-The wireframe shows the `kokomi` style at 1920 × 1080: the clock and the hosts at the left, the
+The wireframe shows the `yolanda-kokomi` style at 1920 × 1080: the clock and the hosts at the left, the
 other panels at the right, and the character free in the middle:
 
 ```text
@@ -332,8 +332,8 @@ palette.
 | `furina-deep` | Hewaje | [Furina in deep water](https://www.pixiv.net/en/artworks/116931545) |
 | `focalors-blossom` | 喵咕君QAQ(KH3) | [Focalors in blue blossoms](https://www.pixiv.net/en/artworks/114423788) |
 | `fu-xuan-stars` | DAWN凌晨 | [Fu Xuan among constellations](https://www.pixiv.net/en/artworks/111937693) |
-| `nahida` | Yolanda | [Nahida in a flower ring](https://www.pixiv.net/en/artworks/124030045) |
-| `kokomi` | Yolanda | [Kokomi among jellyfish](https://www.pixiv.net/en/artworks/101664845) |
+| `yolanda-nahida` | Yolanda | [Nahida in a flower ring](https://www.pixiv.net/en/artworks/124030045) |
+| `yolanda-kokomi` | Yolanda | [Kokomi among jellyfish](https://www.pixiv.net/en/artworks/101664845) |
 | `trailblazers-orbit` | Minamo | [The Trailblazers on a star chart](https://www.pixiv.net/en/artworks/146476781) |
 | `cyrene-bow` | _Chowol | [Cyrene with a bow of light](https://www.pixiv.net/en/artworks/146437680) |
 | `castorice-violet` | YonesDraws | [Castorice among violet ribbons](https://x.com/YonesDraws/status/1938192528768905460) |
@@ -347,15 +347,15 @@ pixiv page into the Git-ignored `local/` folder, then point `wallpaper` at it.
 
 | Style | Wallpaper | Arrangement | Palette and type |
 | --- | --- | --- | --- |
-| `kokomi` | [Kokomi among jellyfish](https://www.pixiv.net/en/artworks/101664845) | Clock and hosts at the left, other panels at the right | Navy glass, aqua and pink, Plex Sans |
-| `nilou` | [Nilou in a gold mandala](https://www.pixiv.net/en/artworks/102143351) | Other panels at the left, clock and hosts at the right | Ink and gold hairlines, Plex Serif |
-| `raiden` | [Raiden Shogun and Ei](https://www.pixiv.net/en/artworks/115029674) | Clock and hosts over the starfield, other panels over the city | Violet night, Plex Sans |
-| `acheron` | [Acheron and Black Swan](https://www.pixiv.net/en/artworks/117657717) | Clock and hosts at the left, other panels at the right | Black and white with one red, square corners, Plex Mono |
-| `nahida` | [Nahida in a flower ring](https://www.pixiv.net/en/artworks/124030045) | All panels at the left, clock under the hosts | Light: pale leaf cards, forest green type |
-| `fugue` | [Fugue as a fox spirit](https://www.pixiv.net/en/artworks/125521081) | All panels and the clock at the left. The moon stays free | Warm night, moonlight and fox red |
-| `aglaea` | [Aglaea in a cathedral](https://www.pixiv.net/en/artworks/126929805) | Clock and hosts at the left, other panels at the right | Candle brown and gold, Plex Serif |
-| `evernight` | [Evernight among letters](https://www.pixiv.net/en/artworks/136562527) | Clock and hosts at the left, other panels at the right | Light paper cards, dark red type, Plex Serif |
-| `yaoguang` | [Yaoguang with peacock feathers](https://www.pixiv.net/en/artworks/141114001) | All panels and the clock at the left | Teal glass and pale gold |
+| `yolanda-kokomi` | [Kokomi among jellyfish](https://www.pixiv.net/en/artworks/101664845) | Clock and hosts at the left, other panels at the right | Navy glass, aqua and pink, Plex Sans |
+| `yolanda-nilou` | [Nilou in a gold mandala](https://www.pixiv.net/en/artworks/102143351) | Other panels at the left, clock and hosts at the right | Ink and gold hairlines, Plex Serif |
+| `yolanda-raiden` | [Raiden Shogun and Ei](https://www.pixiv.net/en/artworks/115029674) | Clock and hosts over the starfield, other panels over the city | Violet night, Plex Sans |
+| `yolanda-acheron` | [Acheron and Black Swan](https://www.pixiv.net/en/artworks/117657717) | Clock and hosts at the left, other panels at the right | Black and white with one red, square corners, Plex Mono |
+| `yolanda-nahida` | [Nahida in a flower ring](https://www.pixiv.net/en/artworks/124030045) | All panels at the left, clock under the hosts | Light: pale leaf cards, forest green type |
+| `yolanda-fugue` | [Fugue as a fox spirit](https://www.pixiv.net/en/artworks/125521081) | All panels and the clock at the left. The moon stays free | Warm night, moonlight and fox red |
+| `yolanda-aglaea` | [Aglaea in a cathedral](https://www.pixiv.net/en/artworks/126929805) | Clock and hosts at the left, other panels at the right | Candle brown and gold, Plex Serif |
+| `yolanda-evernight` | [Evernight among letters](https://www.pixiv.net/en/artworks/136562527) | Clock and hosts at the left, other panels at the right | Light paper cards, dark red type, Plex Serif |
+| `yolanda-yaoguang` | [Yaoguang with peacock feathers](https://www.pixiv.net/en/artworks/141114001) | All panels and the clock at the left | Teal glass and pale gold |
 
 The styles below are drafts for wallpapers by other artists. Each artist took part in an official
 HoYoverse event on pixiv: HoYoFair, the Honkai: Star Rail "Multiverse Vistas" contests, the "Merrily
@@ -427,7 +427,7 @@ winner, the wallpaper is a later work by the same artist.
 | `hunters-daylight` | なかゥま/ NAKAuMA | Top prize, pixiv Honkai: Star Rail contest 2023 | [Silver Wolf and Kafka in a pale morning (2024)](https://www.pixiv.net/en/artworks/121547648) | All panels and the clock at the right | Light: lilac cards, navy type |
 | `lumine-linen` | きの | Excellence prize, pixiv Genshin Impact contest 2022 | [Lumine and Paimon on white linen (2023)](https://www.pixiv.net/en/artworks/112092132) | All panels and the clock at the right, over the sheet | Light: paper cards, warm ink, Plex Serif |
 
-The `evernight`, `ayaka-moonlit`, and `lumine-linen` files have black bars at the top and the
+The `yolanda-evernight`, `ayaka-moonlit`, and `lumine-linen` files have black bars at the top and the
 bottom. Crop them before you use them. The display fills the window with `ObjectFit::Cover`, so it
 keeps the bars otherwise.
 
@@ -464,7 +464,7 @@ The styles keep these rules:
 - Each style takes its colors from its wallpaper. The shade behind a panel area goes from one
   color to the same color at zero opacity, so no gradient goes from one hue to another (U17).
 - State colors stay state colors. Green, amber, and red show only feed, row, and meter state. The
-  `acheron` style shows a healthy state in white and keeps red for problems.
+  `yolanda-acheron` style shows a healthy state in white and keeps red for problems.
 - No panel has an accent stripe on one edge (U24). Borders are 1 pixel on all sides.
 - Panel titles are short nouns in sentence case, with no uppercase labels (U1).
 

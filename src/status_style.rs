@@ -22,15 +22,15 @@ pub enum StatusStyleName {
     /// Clock at the top and a panel band at the bottom, for a landscape.
     #[default]
     Hills,
-    Kokomi,
-    Nilou,
-    Raiden,
-    Acheron,
-    Nahida,
-    Fugue,
-    Aglaea,
-    Evernight,
-    Yaoguang,
+    YolandaKokomi,
+    YolandaNilou,
+    YolandaRaiden,
+    YolandaAcheron,
+    YolandaNahida,
+    YolandaFugue,
+    YolandaAglaea,
+    YolandaEvernight,
+    YolandaYaoguang,
     FurinaBalloon,
     RosariaRuins,
     LumineCathedral,
@@ -210,15 +210,15 @@ pub fn active_status_style() -> &'static StatusStyle {
 pub fn status_style_by_name(name: StatusStyleName) -> &'static StatusStyle {
     match name {
         StatusStyleName::Hills => &HILLS,
-        StatusStyleName::Kokomi => &KOKOMI,
-        StatusStyleName::Nilou => &NILOU,
-        StatusStyleName::Raiden => &RAIDEN,
-        StatusStyleName::Acheron => &ACHERON,
-        StatusStyleName::Nahida => &NAHIDA,
-        StatusStyleName::Fugue => &FUGUE,
-        StatusStyleName::Aglaea => &AGLAEA,
-        StatusStyleName::Evernight => &EVERNIGHT,
-        StatusStyleName::Yaoguang => &YAOGUANG,
+        StatusStyleName::YolandaKokomi => &YOLANDA_KOKOMI,
+        StatusStyleName::YolandaNilou => &YOLANDA_NILOU,
+        StatusStyleName::YolandaRaiden => &YOLANDA_RAIDEN,
+        StatusStyleName::YolandaAcheron => &YOLANDA_ACHERON,
+        StatusStyleName::YolandaNahida => &YOLANDA_NAHIDA,
+        StatusStyleName::YolandaFugue => &YOLANDA_FUGUE,
+        StatusStyleName::YolandaAglaea => &YOLANDA_AGLAEA,
+        StatusStyleName::YolandaEvernight => &YOLANDA_EVERNIGHT,
+        StatusStyleName::YolandaYaoguang => &YOLANDA_YAOGUANG,
         StatusStyleName::FurinaBalloon => &status_style_contest::FURINA_BALLOON,
         StatusStyleName::RosariaRuins => &status_style_contest::ROSARIA_RUINS,
         StatusStyleName::LumineCathedral => &status_style_contest::LUMINE_CATHEDRAL,
@@ -306,7 +306,7 @@ const HILLS: StatusStyle = StatusStyle {
 };
 
 /// Kokomi among jellyfish: navy glass rails at both dark edges.
-const KOKOMI: StatusStyle = StatusStyle {
+const YOLANDA_KOKOMI: StatusStyle = StatusStyle {
     palette: StylePalette {
         background: solid(0x060f33),
         scrim: StyleTone(0x010c2b, 0.08),
@@ -348,7 +348,7 @@ const KOKOMI: StatusStyle = StatusStyle {
 };
 
 /// Nilou in a gold mandala: serif gold type and thin gold frames.
-const NILOU: StatusStyle = StatusStyle {
+const YOLANDA_NILOU: StatusStyle = StatusStyle {
     palette: StylePalette {
         background: solid(0x0e0e1d),
         scrim: StyleTone(0x030316, 0.10),
@@ -394,7 +394,7 @@ const NILOU: StatusStyle = StatusStyle {
 
 /// Raiden Shogun and Ei: the clock and the hosts over the dark starfield,
 /// the services over the city at the right.
-const RAIDEN: StatusStyle = StatusStyle {
+const YOLANDA_RAIDEN: StatusStyle = StatusStyle {
     palette: StylePalette {
         background: solid(0x06041e),
         scrim: StyleTone(0x06041e, 0.10),
@@ -438,7 +438,7 @@ const RAIDEN: StatusStyle = StatusStyle {
 
 /// Acheron and Black Swan: black, white, and one red. Mono type, as the
 /// signature on the art.
-const ACHERON: StatusStyle = StatusStyle {
+const YOLANDA_ACHERON: StatusStyle = StatusStyle {
     palette: StylePalette {
         background: solid(0x080304),
         scrim: StyleTone(0x000000, 0.12),
@@ -484,7 +484,7 @@ const ACHERON: StatusStyle = StatusStyle {
 
 /// Nahida in a flower ring: a light style. Pale cards over the flowers at
 /// the left, the clock under them. Nahida and her friends stay free.
-const NAHIDA: StatusStyle = StatusStyle {
+const YOLANDA_NAHIDA: StatusStyle = StatusStyle {
     palette: StylePalette {
         background: solid(0x6ab9cc),
         scrim: StyleTone(0xffffff, 0.0),
@@ -523,7 +523,7 @@ const NAHIDA: StatusStyle = StatusStyle {
 
 /// Fugue as a fox spirit at night: warm cards over the dark tails at the
 /// left. The moon and its light stay free at the right.
-const FUGUE: StatusStyle = StatusStyle {
+const YOLANDA_FUGUE: StatusStyle = StatusStyle {
     palette: StylePalette {
         background: solid(0x19141b),
         scrim: StyleTone(0x000000, 0.08),
@@ -562,7 +562,7 @@ const FUGUE: StatusStyle = StatusStyle {
 
 /// Aglaea in a cathedral: the gold window stays free in the middle. Serif
 /// type and dark warm cards over the candles at both sides.
-const AGLAEA: StatusStyle = StatusStyle {
+const YOLANDA_AGLAEA: StatusStyle = StatusStyle {
     palette: StylePalette {
         background: solid(0x1a1513),
         scrim: StyleTone(0x000000, 0.06),
@@ -608,7 +608,7 @@ const AGLAEA: StatusStyle = StatusStyle {
 
 /// Evernight among letters: pale paper cards and dark red type, as the
 /// notes on the red carpet.
-const EVERNIGHT: StatusStyle = StatusStyle {
+const YOLANDA_EVERNIGHT: StatusStyle = StatusStyle {
     palette: StylePalette {
         background: solid(0x898c9d),
         scrim: StyleTone(0xffffff, 0.04),
@@ -653,7 +653,7 @@ const EVERNIGHT: StatusStyle = StatusStyle {
 };
 
 /// Yaoguang with peacock feathers: teal glass and gold type at the left.
-const YAOGUANG: StatusStyle = StatusStyle {
+const YOLANDA_YAOGUANG: StatusStyle = StatusStyle {
     palette: StylePalette {
         background: solid(0x071b29),
         scrim: StyleTone(0x000000, 0.06),
@@ -695,15 +695,15 @@ mod tests {
 
     const ALL_STYLE_NAMES: [StatusStyleName; 59] = [
         StatusStyleName::Hills,
-        StatusStyleName::Kokomi,
-        StatusStyleName::Nilou,
-        StatusStyleName::Raiden,
-        StatusStyleName::Acheron,
-        StatusStyleName::Nahida,
-        StatusStyleName::Fugue,
-        StatusStyleName::Aglaea,
-        StatusStyleName::Evernight,
-        StatusStyleName::Yaoguang,
+        StatusStyleName::YolandaKokomi,
+        StatusStyleName::YolandaNilou,
+        StatusStyleName::YolandaRaiden,
+        StatusStyleName::YolandaAcheron,
+        StatusStyleName::YolandaNahida,
+        StatusStyleName::YolandaFugue,
+        StatusStyleName::YolandaAglaea,
+        StatusStyleName::YolandaEvernight,
+        StatusStyleName::YolandaYaoguang,
         StatusStyleName::FurinaBalloon,
         StatusStyleName::RosariaRuins,
         StatusStyleName::LumineCathedral,
@@ -792,8 +792,8 @@ mod tests {
         struct Holder {
             style: StatusStyleName,
         }
-        let holder: Holder = toml::from_str("style = \"evernight\"").expect("style parses");
-        assert_eq!(holder.style, StatusStyleName::Evernight);
+        let holder: Holder = toml::from_str("style = \"yolanda-evernight\"").expect("style parses");
+        assert_eq!(holder.style, StatusStyleName::YolandaEvernight);
         assert!(toml::from_str::<Holder>("style = \"unknown\"").is_err());
     }
 }
