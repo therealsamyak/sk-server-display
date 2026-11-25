@@ -181,6 +181,24 @@ trust. Review the configuration before opening it on the new device. Set up any 
 Tailscale executable paths and SSH aliases there. The export contains no SSH keys, known-host
 records, or credentials from other apps.
 
+## Check for updates
+
+Move the pointer over the dashboard to show **Check for updates**. The app checks the latest
+public GitHub release. If a newer release has a verified build for your device, select
+**Update and restart**. The app verifies the asset size and the GitHub SHA-256 digest before
+it closes, then restarts with the same profile and launch arguments. If the new build exits
+or fails to show a window within 30 seconds, the updater restores the previous executable.
+
+Use a standalone app executable in a folder you can write to. The repository is private
+during development, so the unauthenticated update check currently reports that no public
+release is available.
+
+Future public releases use a version tag such as `v0.2.0` and a standalone executable named
+`server-status-display-<os>-<arch>`. Use `windows`, `linux`, or `macos` for the OS and
+`aarch64` or `x86_64` for the architecture. Append `.exe` for Windows. For example, the
+Windows ARM64 asset is `server-status-display-windows-aarch64.exe`. Upload the executable
+as a GitHub release asset with a SHA-256 digest.
+
 ## Keep the display awake
 
 While the fullscreen window is visible on AC power, the app requests that the OS keep the
@@ -201,7 +219,7 @@ The project uses one Rust crate.
 | `dashboard` | Window and display lifecycle, view layout, clock, cached feed panels, and graphs. |
 | `metrics` | Profile parsing, data sources, polling, and freshness. Each collector has its own file. |
 | `wallpaper` | Import editor, local image decoding, layouts, preset catalog, and slideshow state. |
-| `platform` | Display selection, native power and display APIs, and the btop terminal launcher. |
+| `platform` | Display selection, native power and display APIs, the btop terminal launcher, and portable executable updates. |
 
 OXC's Oxlint binary uses a short entry point, with private implementation modules behind specific
 exports. That pattern informed the app composition and feature module exports.

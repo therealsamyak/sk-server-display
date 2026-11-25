@@ -4,6 +4,7 @@
 //! controls. Each feed panel is a cached child view (see `status_panel`), so
 //! a root redraw for the clock reuses the panels as they are.
 
+mod status_update_view;
 mod status_view_layout;
 mod status_wallpaper_view;
 
@@ -18,7 +19,7 @@ use time::{OffsetDateTime, UtcOffset};
 
 use crate::{
     metrics::{StatusBoard, StatusFeed},
-    platform::StatusPower,
+    platform::{StatusPower, status_update::finish_app_update},
     status_fonts::STATUS_MONO_FONT_FAMILY,
     status_startup::{StartupMilestone, log_startup_milestone},
     wallpaper::{StatusCarousel, StyleArrangement},
@@ -31,6 +32,7 @@ use super::{
     status_theme::{Scale, StatusLayout, StatusTheme},
     status_window::StatusDisplayApp,
 };
+use status_update_view::StatusUpdateDialog;
 use status_view_layout::{alert_row, area_shade, control_button, feed_alert, status_clock};
 use status_wallpaper_view::{PickerSession, StatusWallpaper, WallpaperPreview};
 
@@ -99,6 +101,8 @@ pub struct StatusView {
     power: StatusPower,
     pointer_moved_at: Option<Instant>,
     first_frame_requested: bool,
+    update_busy: bool,
+    update_dialog: Option<StatusUpdateDialog>,
     redraw: StatusRedrawTimer,
     _subscriptions: Vec<Subscription>,
 }
@@ -179,6 +183,8 @@ impl StatusView {
             power: StatusPower::default(),
             pointer_moved_at: None,
             first_frame_requested: false,
+            update_busy: false,
+            update_dialog: None,
             redraw: StatusRedrawTimer::default(),
             _subscriptions: subscriptions,
         }
@@ -227,7 +233,9 @@ impl StatusView {
     }
 
     fn exit_fullscreen(&mut self, _: &ExitFullscreen, window: &mut Window, cx: &mut Context<Self>) {
-        if self.preview.is_some() {
+        if self.update_dialog.is_some() {
+            self.close_update_dialog(cx);
+        } else if self.preview.is_some() {
             self.cancel_preview(window, cx);
         } else if self.picker.is_some() {
             self.close_picker(window, cx);
@@ -261,8 +269,19 @@ impl Render for StatusView {
             // this one, so the logged time is at most one refresh late.
             self.first_frame_requested = true;
             log_startup_milestone(StartupMilestone::FirstViewBuilt);
-            window
-                .on_next_frame(|_, _| log_startup_milestone(StartupMilestone::FirstFramePresented));
+            let view = cx.weak_entity();
+            window.on_next_frame(move |_, cx| {
+                log_startup_milestone(StartupMilestone::FirstFramePresented);
+                if let Some(error) = finish_app_update() {
+                    let _ = view.update(cx, |view, cx| {
+                        view.update_dialog = Some(StatusUpdateDialog::Notice {
+                            title: "Update failed",
+                            detail: Some(error),
+                        });
+                        cx.notify();
+                    });
+                }
+            });
         }
         self.update_display_power(window, cx);
         self.update_slideshow(cx);
@@ -311,7 +330,7 @@ impl Render for StatusView {
         let controls_left = self
             .pointer_moved_at
             .and_then(|at| CONTROLS_VISIBLE_DURATION.checked_sub(at.elapsed()));
-        let modal = self.picker.is_some();
+        let modal = self.picker.is_some() || self.update_dialog.is_some();
         let show_window_controls = !modal && self.details.is_none();
         if show_window_controls && let Some(left) = controls_left {
             self.redraw.redraw_after(left);
@@ -362,6 +381,17 @@ impl Render for StatusView {
                 cx.listener(|this, _: &ClickEvent, window, cx| {
                     this.refresh(&RefreshStatus, window, cx)
                 }),
+            ))
+            .child(control_button(
+                s,
+                theme,
+                "control-update",
+                if self.update_busy {
+                    "Updating…"
+                } else {
+                    "Check for updates"
+                },
+                cx.listener(|this, _, window, cx| this.check_for_updates(window, cx)),
             ))
             .child(control_button(
                 s,
@@ -505,6 +535,11 @@ impl Render for StatusView {
                 self.preview
                     .as_ref()
                     .map(|preview| self.wallpaper_preview_bar(s, theme, preview, cx)),
+            )
+            .children(
+                self.update_dialog
+                    .as_ref()
+                    .map(|dialog| self.render_update_dialog(dialog, cx)),
             );
         self.redraw.schedule_status_redraw(cx);
         root

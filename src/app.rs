@@ -53,6 +53,13 @@ impl Global for StatusDisplayRoot {}
 
 /// Starts the status display process.
 pub(super) fn run_status_display() {
+    if let Some(result) = crate::platform::status_update::handle_app_update_worker() {
+        if let Err(error) = result {
+            eprintln!("{error:#}");
+            std::process::exit(1);
+        }
+        return;
+    }
     crate::status_startup::record_process_start();
     // Read the local offset before GPUI starts threads. The `time` crate
     // refuses this lookup in a multithreaded process on Unix.
