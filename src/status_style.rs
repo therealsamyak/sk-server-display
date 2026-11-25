@@ -4,10 +4,13 @@
 //! and its colors come from the art. The configuration key `style` selects
 //! one style for the whole run.
 
-use std::sync::OnceLock;
+use std::sync::{
+    OnceLock,
+    atomic::{AtomicUsize, Ordering},
+};
 
 use gpui::{Hsla, rgb};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 use crate::status_fonts::{
     STATUS_MONO_FONT_FAMILY, STATUS_SANS_FONT_FAMILY, STATUS_SERIF_FONT_FAMILY,
@@ -15,8 +18,9 @@ use crate::status_fonts::{
 use crate::status_style_contest;
 use crate::status_style_winners;
 
-/// Name of a built-in status style, as the configuration key `style` gives it.
-#[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Eq)]
+/// Name of a built-in status style, such as `cyrene-bow`. The slideshow
+/// state file and the wallpaper file names use this name.
+#[derive(Clone, Copy, Debug, Default, Deserialize, Serialize, PartialEq, Eq, Hash)]
 #[serde(rename_all = "kebab-case")]
 pub enum StatusStyleName {
     /// Clock at the top and a panel band at the bottom, for a landscape.
@@ -81,6 +85,70 @@ pub enum StatusStyleName {
     HuntersDaylight,
     LumineLinen,
 }
+
+/// Every built-in status style, in declaration order. The style picker
+/// lists them in this order.
+pub const ALL_STATUS_STYLES: [StatusStyleName; 59] = [
+    StatusStyleName::Hills,
+    StatusStyleName::YolandaKokomi,
+    StatusStyleName::YolandaNilou,
+    StatusStyleName::YolandaRaiden,
+    StatusStyleName::YolandaAcheron,
+    StatusStyleName::YolandaNahida,
+    StatusStyleName::YolandaFugue,
+    StatusStyleName::YolandaAglaea,
+    StatusStyleName::YolandaEvernight,
+    StatusStyleName::YolandaYaoguang,
+    StatusStyleName::FurinaBalloon,
+    StatusStyleName::RosariaRuins,
+    StatusStyleName::LumineCathedral,
+    StatusStyleName::AyakaMoonlit,
+    StatusStyleName::KeqingWedding,
+    StatusStyleName::BronyaSnow,
+    StatusStyleName::FuXuanStars,
+    StatusStyleName::NahidaForest,
+    StatusStyleName::FocalorsBlossom,
+    StatusStyleName::KiraraDelivery,
+    StatusStyleName::FurinaSky,
+    StatusStyleName::RuanMeiBlossom,
+    StatusStyleName::MavuikaRide,
+    StatusStyleName::CastoriceGarden,
+    StatusStyleName::YaeMist,
+    StatusStyleName::ShenheLanterns,
+    StatusStyleName::FurinaDeep,
+    StatusStyleName::KafkaRuins,
+    StatusStyleName::MarchShrine,
+    StatusStyleName::AcheronRain,
+    StatusStyleName::OdetteStars,
+    StatusStyleName::YaoguangMasks,
+    StatusStyleName::JingliuMoon,
+    StatusStyleName::LumineStars,
+    StatusStyleName::MarchMeteor,
+    StatusStyleName::FuXuanOrbit,
+    StatusStyleName::FireflyMeadow,
+    StatusStyleName::MualaniSky,
+    StatusStyleName::AyakaFrost,
+    StatusStyleName::RobinSnow,
+    StatusStyleName::MarchFireworks,
+    StatusStyleName::FireflySunrise,
+    StatusStyleName::FireflyDusk,
+    StatusStyleName::CastoriceButterflies,
+    StatusStyleName::CastoriceRuins,
+    StatusStyleName::TrailblazersOrbit,
+    StatusStyleName::CyreneBow,
+    StatusStyleName::PearlWater,
+    StatusStyleName::StelleShards,
+    StatusStyleName::SparxieStage,
+    StatusStyleName::KafkaCity,
+    StatusStyleName::AglaeaMeadow,
+    StatusStyleName::CastoriceViolet,
+    StatusStyleName::CyreneFlowers,
+    StatusStyleName::RobinConcert,
+    StatusStyleName::SparkleMaple,
+    StatusStyleName::AcheronEclipse,
+    StatusStyleName::HuntersDaylight,
+    StatusStyleName::LumineLinen,
+];
 
 /// One color with its opacity.
 #[derive(Clone, Copy, Debug)]
@@ -191,19 +259,52 @@ pub struct StatusStyle {
     pub arrangement: StyleArrangement,
 }
 
-static ACTIVE_STATUS_STYLE: OnceLock<&'static StatusStyle> = OnceLock::new();
+/// Index in `ALL_STATUS_STYLES` of the style on screen.
+static ACTIVE_STATUS_STYLE: AtomicUsize = AtomicUsize::new(0);
 
-/// Selects the status style for this run. Call it once, before the first
-/// window opens.
+/// Shows this status style. The views draw with it after their next
+/// notify. The slideshow calls this when the style changes.
 pub fn set_status_style(name: StatusStyleName) {
-    if ACTIVE_STATUS_STYLE.set(status_style_by_name(name)).is_err() {
-        log::warn!("status style is already set");
-    }
+    ACTIVE_STATUS_STYLE.store(name.status_style_index(), Ordering::Relaxed);
 }
 
-/// The status style of this run. Without `set_status_style`: `hills`.
+/// Name of the status style on screen. Before `set_status_style`: `hills`.
+pub fn active_status_style_name() -> StatusStyleName {
+    ALL_STATUS_STYLES[ACTIVE_STATUS_STYLE.load(Ordering::Relaxed)]
+}
+
+/// The status style on screen.
 pub fn active_status_style() -> &'static StatusStyle {
-    ACTIVE_STATUS_STYLE.get_or_init(|| status_style_by_name(StatusStyleName::Hills))
+    status_style_by_name(active_status_style_name())
+}
+
+impl StatusStyleName {
+    /// Index of this style in `ALL_STATUS_STYLES`.
+    pub fn status_style_index(self) -> usize {
+        self as usize
+    }
+
+    /// Kebab-case style name, such as `cyrene-bow`.
+    pub fn style_name_text(self) -> &'static str {
+        static NAMES: OnceLock<Vec<String>> = OnceLock::new();
+        let names = NAMES.get_or_init(|| {
+            ALL_STATUS_STYLES
+                .iter()
+                .map(|name| match serde_json::to_value(name) {
+                    Ok(serde_json::Value::String(text)) => text,
+                    _ => format!("{name:?}"),
+                })
+                .collect()
+        });
+        &names[self.status_style_index()]
+    }
+
+    /// Style with this kebab-case name, such as `cyrene-bow`.
+    pub fn status_style_from_text(text: &str) -> Option<Self> {
+        ALL_STATUS_STYLES
+            .into_iter()
+            .find(|name| name.style_name_text() == text)
+    }
 }
 
 /// Built-in status style with this name.
@@ -693,71 +794,25 @@ const YOLANDA_YAOGUANG: StatusStyle = StatusStyle {
 mod tests {
     use super::*;
 
-    const ALL_STYLE_NAMES: [StatusStyleName; 59] = [
-        StatusStyleName::Hills,
-        StatusStyleName::YolandaKokomi,
-        StatusStyleName::YolandaNilou,
-        StatusStyleName::YolandaRaiden,
-        StatusStyleName::YolandaAcheron,
-        StatusStyleName::YolandaNahida,
-        StatusStyleName::YolandaFugue,
-        StatusStyleName::YolandaAglaea,
-        StatusStyleName::YolandaEvernight,
-        StatusStyleName::YolandaYaoguang,
-        StatusStyleName::FurinaBalloon,
-        StatusStyleName::RosariaRuins,
-        StatusStyleName::LumineCathedral,
-        StatusStyleName::AyakaMoonlit,
-        StatusStyleName::KeqingWedding,
-        StatusStyleName::BronyaSnow,
-        StatusStyleName::FuXuanStars,
-        StatusStyleName::NahidaForest,
-        StatusStyleName::FocalorsBlossom,
-        StatusStyleName::KiraraDelivery,
-        StatusStyleName::FurinaSky,
-        StatusStyleName::RuanMeiBlossom,
-        StatusStyleName::MavuikaRide,
-        StatusStyleName::CastoriceGarden,
-        StatusStyleName::YaeMist,
-        StatusStyleName::ShenheLanterns,
-        StatusStyleName::FurinaDeep,
-        StatusStyleName::KafkaRuins,
-        StatusStyleName::MarchShrine,
-        StatusStyleName::AcheronRain,
-        StatusStyleName::OdetteStars,
-        StatusStyleName::YaoguangMasks,
-        StatusStyleName::JingliuMoon,
-        StatusStyleName::LumineStars,
-        StatusStyleName::MarchMeteor,
-        StatusStyleName::FuXuanOrbit,
-        StatusStyleName::FireflyMeadow,
-        StatusStyleName::MualaniSky,
-        StatusStyleName::AyakaFrost,
-        StatusStyleName::RobinSnow,
-        StatusStyleName::MarchFireworks,
-        StatusStyleName::FireflySunrise,
-        StatusStyleName::FireflyDusk,
-        StatusStyleName::CastoriceButterflies,
-        StatusStyleName::CastoriceRuins,
-        StatusStyleName::TrailblazersOrbit,
-        StatusStyleName::CyreneBow,
-        StatusStyleName::PearlWater,
-        StatusStyleName::StelleShards,
-        StatusStyleName::SparxieStage,
-        StatusStyleName::KafkaCity,
-        StatusStyleName::AglaeaMeadow,
-        StatusStyleName::CastoriceViolet,
-        StatusStyleName::CyreneFlowers,
-        StatusStyleName::RobinConcert,
-        StatusStyleName::SparkleMaple,
-        StatusStyleName::AcheronEclipse,
-        StatusStyleName::HuntersDaylight,
-        StatusStyleName::LumineLinen,
-    ];
+    #[test]
+    fn style_list_follows_the_declaration_order() {
+        for (index, name) in ALL_STATUS_STYLES.into_iter().enumerate() {
+            assert_eq!(name.status_style_index(), index);
+            assert_eq!(
+                StatusStyleName::status_style_from_text(name.style_name_text()),
+                Some(name)
+            );
+        }
+        assert_eq!(StatusStyleName::CyreneBow.style_name_text(), "cyrene-bow");
+        assert_eq!(
+            StatusStyleName::YolandaKokomi.style_name_text(),
+            "yolanda-kokomi"
+        );
+    }
 
     #[test]
     fn side_styles_place_each_panel_group_and_the_clock_once() {
-        for name in ALL_STYLE_NAMES {
+        for name in ALL_STATUS_STYLES {
             let StyleArrangement::Sides { left, right } = status_style_by_name(name).arrangement
             else {
                 continue;

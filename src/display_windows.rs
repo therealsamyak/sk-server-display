@@ -1,8 +1,5 @@
 //! Windows display helpers: list active displays with their output kind,
-//! find the physical status display, and stop the status window from taking
-//! keyboard focus away from a streamed game.
-
-use std::ffi::c_void;
+//! and find the physical status display.
 
 use windows::Win32::{
     Devices::Display::{
@@ -17,13 +14,11 @@ use windows::Win32::{
         DisplayConfigGetDeviceInfo, GetDisplayConfigBufferSizes, QDC_ONLY_ACTIVE_PATHS,
         QueryDisplayConfig,
     },
-    Foundation::{ERROR_SUCCESS, HWND, LPARAM, RECT},
+    Foundation::{ERROR_SUCCESS, LPARAM, RECT},
     Graphics::Gdi::{
         EnumDisplayMonitors, GetMonitorInfoW, HDC, HMONITOR, MONITORINFO, MONITORINFOEXW,
     },
-    UI::WindowsAndMessaging::{
-        GWL_EXSTYLE, GetWindowLongPtrW, MONITORINFOF_PRIMARY, SetWindowLongPtrW, WS_EX_NOACTIVATE,
-    },
+    UI::WindowsAndMessaging::MONITORINFOF_PRIMARY,
 };
 use windows::core::BOOL;
 
@@ -113,27 +108,6 @@ pub fn find_physical_windows_display(displays: &[WindowsDisplay]) -> Option<&Win
         })
         .collect();
     displays.get(rank_physical_display_candidates(&candidates)?)
-}
-
-/// Stops the GPUI status window from becoming the foreground window on click.
-///
-/// Sunshine sends remote keyboard input to the foreground window. Without
-/// this style, one local click on the status display moves the game's input
-/// to the status window.
-pub fn apply_no_activate_style(window: &gpui::Window) {
-    use raw_window_handle::{HasWindowHandle, RawWindowHandle};
-    let Ok(handle) = HasWindowHandle::window_handle(window) else {
-        return;
-    };
-    let RawWindowHandle::Win32(handle) = handle.as_raw() else {
-        return;
-    };
-    let hwnd = HWND(handle.hwnd.get() as *mut c_void);
-    // SAFETY: `hwnd` is the live top-level window that GPUI created.
-    unsafe {
-        let style = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
-        SetWindowLongPtrW(hwnd, GWL_EXSTYLE, style | WS_EX_NOACTIVATE.0 as isize);
-    }
 }
 
 fn output_kind(technology: DISPLAYCONFIG_VIDEO_OUTPUT_TECHNOLOGY) -> DisplayOutputKind {

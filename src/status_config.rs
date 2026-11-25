@@ -18,7 +18,6 @@ use crate::{
     collector_scrutiny::ScrutinyCollector,
     collector_tailscale::{TailnetHostCollector, TailscaleCollector, TailscaleStatusReader},
     status_collector::StatusCollector,
-    status_style::StatusStyleName,
 };
 
 /// Poll interval of host metrics from this machine and from Glances.
@@ -34,15 +33,12 @@ pub const DISK_POLL_INTERVAL: Duration = Duration::from_secs(300);
 #[derive(Debug, Default, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct StatusConfig {
-    /// Background image of the status display. A relative path starts from
-    /// the folder of the configuration file. Without it the background is
-    /// a solid color.
+    /// Folder with one wallpaper file for each status style, named after
+    /// the style, such as `cyrene-bow.png`. JPEG and PNG files work. A
+    /// relative path starts from the folder of the configuration file.
+    /// Without it, each style shows its solid background color.
     #[serde(default)]
-    pub wallpaper: Option<PathBuf>,
-    /// Look of the display: palette, fonts, and panel placement. Pick the
-    /// style made for the wallpaper. Default: `hills`.
-    #[serde(default)]
-    pub style: StatusStyleName,
+    pub wallpapers: Option<PathBuf>,
     /// Host cards, in column order. Empty: one card for this machine.
     #[serde(default, rename = "host")]
     pub hosts: Vec<HostConfig>,
@@ -123,6 +119,17 @@ pub fn default_status_config_path() -> Option<PathBuf> {
     dirs::config_dir().map(|dir| dir.join("server-status-display").join("config.toml"))
 }
 
+/// Slideshow state file: favorites, slideshows, and the style on screen.
+/// The app writes it next to the configuration file, such as
+/// `%APPDATA%\server-status-display\status-display-state.toml`.
+pub fn status_state_path(explicit_config: Option<&Path>) -> Option<PathBuf> {
+    let config = match explicit_config {
+        Some(path) => path.to_path_buf(),
+        None => default_status_config_path()?,
+    };
+    Some(config.with_file_name("status-display-state.toml"))
+}
+
 /// Reads the configuration. A missing default file gives the default
 /// configuration: this machine and Tailscale only.
 pub fn load_status_config(explicit: Option<&Path>) -> anyhow::Result<StatusConfig> {
@@ -137,8 +144,8 @@ pub fn load_status_config(explicit: Option<&Path>) -> anyhow::Result<StatusConfi
         .with_context(|| format!("cannot read status config {}", path.display()))?;
     let mut config: StatusConfig = toml::from_str(&text)
         .with_context(|| format!("status config {} is not valid", path.display()))?;
-    if let (Some(wallpaper), Some(folder)) = (&config.wallpaper, path.parent()) {
-        config.wallpaper = Some(folder.join(wallpaper));
+    if let (Some(wallpapers), Some(folder)) = (&config.wallpapers, path.parent()) {
+        config.wallpapers = Some(folder.join(wallpapers));
     }
     Ok(config)
 }

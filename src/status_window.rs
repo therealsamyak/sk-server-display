@@ -1,7 +1,7 @@
 //! Status window controller: opens the status window on the chosen display
 //! and reopens it when monitors change.
 
-use std::{path::PathBuf, time::Duration};
+use std::time::Duration;
 
 use gpui::{
     App, AppContext as _, Bounds, Context, DisplayEvent, Entity, Subscription, Task,
@@ -14,6 +14,7 @@ use crate::status_display::DisplaySelector;
 use crate::{
     display_select::{DisplayChoice, choose_status_display, ordered_status_displays},
     status_board::StatusBoard,
+    status_playlist::StatusCarousel,
     status_view::{StatusView, StatusViewSettings},
 };
 
@@ -24,19 +25,15 @@ const DISPLAY_CHANGE_SETTLE_DELAY: Duration = Duration::from_millis(750);
 /// Startup settings for the status window.
 #[derive(Clone, Debug)]
 pub struct StatusWindowSettings {
-    /// Background image file, if the configuration sets one.
-    pub wallpaper: Option<PathBuf>,
     pub selector: DisplaySelector,
     pub start_fullscreen: bool,
-    /// Windows only: `false` stops clicks from taking keyboard focus.
-    #[cfg_attr(not(target_os = "windows"), allow(dead_code))]
-    pub allow_focus: bool,
     pub local_offset: UtcOffset,
 }
 
 /// Status display app: owns the status window and its display placement.
 pub struct StatusDisplayApp {
     board: Entity<StatusBoard>,
+    carousel: Entity<StatusCarousel>,
     settings: StatusWindowSettings,
     selector: DisplaySelector,
     fullscreen: bool,
@@ -50,6 +47,7 @@ impl StatusDisplayApp {
     /// Starts the status display: chooses a display and opens the window.
     pub fn start_status_display(
         board: Entity<StatusBoard>,
+        carousel: Entity<StatusCarousel>,
         settings: StatusWindowSettings,
         cx: &mut App,
     ) -> Entity<Self> {
@@ -71,6 +69,7 @@ impl StatusDisplayApp {
             });
             Self {
                 board,
+                carousel,
                 selector: settings.selector,
                 fullscreen: settings.start_fullscreen,
                 settings,
@@ -155,7 +154,7 @@ impl StatusDisplayApp {
                 title: Some("Server status display".into()),
                 ..Default::default()
             }),
-            focus: false,
+            focus: true,
             show: true,
             app_id: Some("server-status-display".into()),
             ..Default::default()
@@ -164,22 +163,16 @@ impl StatusDisplayApp {
         let controller = cx.weak_entity();
         let label = choice.label.clone();
         let local_offset = self.settings.local_offset;
-        let wallpaper = self.settings.wallpaper.clone();
-        #[cfg(target_os = "windows")]
-        let allow_focus = self.settings.allow_focus;
+        let carousel = self.carousel.clone();
         match cx.open_window(options, move |window, cx| {
-            #[cfg(target_os = "windows")]
-            if !allow_focus {
-                crate::display_windows::apply_no_activate_style(window);
-            }
             cx.new(|cx| {
                 StatusView::new_status_view(
                     StatusViewSettings {
                         display_label: label,
                         local_offset,
-                        wallpaper,
                     },
                     board,
+                    carousel,
                     controller,
                     window,
                     cx,

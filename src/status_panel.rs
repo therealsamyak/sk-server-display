@@ -21,7 +21,7 @@ use crate::{
         TailnetConnection, TailnetDevice,
     },
     status_redraw::StatusRedrawTimer,
-    status_style::active_status_style,
+    status_style::{StyleArrangement, active_status_style},
     status_theme::{
         CORE_GRID_ROW_HEIGHT, HOST_PANEL_BASE_HEIGHT, PRESENCE_PANEL_HEIGHT, Scale, StatusLayout,
         StatusTheme, threshold_color,
@@ -39,7 +39,7 @@ pub struct FeedPanelView {
     /// Number of host panels that share the host column, in the band
     /// arrangement.
     host_rows: usize,
-    host_body: HostBodyKind,
+    detail: bool,
     /// Devices with their own host card. The tailnet panel leaves them out.
     carded: Vec<String>,
     redraw: StatusRedrawTimer,
@@ -52,7 +52,6 @@ impl FeedPanelView {
         board: Entity<StatusBoard>,
         index: usize,
         host_rows: usize,
-        host_body: HostBodyKind,
         carded: Vec<String>,
         cx: &mut Context<Self>,
     ) -> Self {
@@ -65,11 +64,22 @@ impl FeedPanelView {
             board,
             index,
             host_rows,
-            host_body,
+            detail: false,
             carded,
             redraw: StatusRedrawTimer::default(),
             _subscription: subscription,
         }
+    }
+
+    /// Create a full metrics panel for the selected host.
+    pub fn new_host_detail_panel(
+        board: Entity<StatusBoard>,
+        index: usize,
+        cx: &mut Context<Self>,
+    ) -> Self {
+        let mut panel = Self::new_feed_panel(board, index, 1, Vec::new(), cx);
+        panel.detail = true;
+        panel
     }
 }
 
@@ -90,13 +100,21 @@ impl Render for FeedPanelView {
                 redraw: &self.redraw,
                 now: OffsetDateTime::now_utc(),
             };
-            let compact = self.host_body != HostBodyKind::Full;
+            let compact = self.detail
+                || matches!(
+                    active_status_style().arrangement,
+                    StyleArrangement::Sides { .. }
+                );
             match &feed.spec.collector {
                 StatusCollector::Glances(_) | StatusCollector::Local(_) => host_panel(
                     s,
                     &view,
-                    layout.host_panel_height(self.host_rows),
-                    self.host_body,
+                    if self.detail {
+                        f32::from(window.viewport_size().height) / layout.ui * 0.72
+                    } else {
+                        layout.host_panel_height(self.host_rows)
+                    },
+                    self.detail,
                 ),
                 StatusCollector::TailnetHost(_) => presence_panel(s, &view, compact),
                 StatusCollector::Kuma(_) => services_panel(s, &view),
@@ -109,20 +127,8 @@ impl Render for FeedPanelView {
     }
 }
 
-/// Host card body: what a host card with metrics shows.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum HostBodyKind {
-    /// Graphs, the core grid, and meters, for a host with its own column.
-    Full,
-    /// Meters at the left and the CPU graph at the right, for a shared
-    /// host column in the band arrangement.
-    Row,
-    /// Meters above the CPU graph, for a narrow side column.
-    Stacked,
-}
-
-/// Height of a stacked host card, in design pixels.
-const STACKED_HOST_PANEL_HEIGHT: f32 = 208.0;
+/// Height of the collapsed host summary in a side column.
+pub const HOST_SUMMARY_HEIGHT: f32 = 112.;
 
 /// Line height of panel text, as a part of the text size.
 pub const PANEL_LINE_HEIGHT: f32 = 1.25;
@@ -144,7 +150,7 @@ fn list_panel_height(rows: usize) -> f32 {
 pub fn side_panel_height(feed: &StatusFeed, carded: &[String]) -> f32 {
     let rows = match (&feed.spec.collector, feed.latest_reading()) {
         (StatusCollector::Glances(_) | StatusCollector::Local(_), _) => {
-            return STACKED_HOST_PANEL_HEIGHT;
+            return HOST_SUMMARY_HEIGHT;
         }
         (StatusCollector::TailnetHost(_), _) => return PRESENCE_PANEL_HEIGHT,
         (_, Some(FeedData::Services(services))) => services.len(),
@@ -376,145 +382,70 @@ fn core_grid(s: Scale, cores: &[f32], dim: bool) -> Div {
         }))
 }
 
-fn host_panel(s: Scale, view: &FeedView, panel_height: f32, kind: HostBodyKind) -> Div {
-    let compact = kind != HostBodyKind::Full;
+fn host_panel(s: Scale, view: &FeedView, panel_height: f32, detail: bool) -> Div {
     let host = match view.reading() {
         Some(FeedData::Host(host)) => host,
-        // Glances does not answer, and Tailscale knows the host.
-        Some(FeedData::HostPresence(_)) => return presence_panel(s, view, compact),
-        _ => return feed_panel(s, view, None, empty_body(s, view), compact),
+        Some(FeedData::HostPresence(_)) => return presence_panel(s, view, !detail),
+        _ => return feed_panel(s, view, None, empty_body(s, view), !detail),
     };
-    let history = view.feed.host_history();
-    let body = match kind {
-        HostBodyKind::Row => compact_host_body(s, host, history, view.dim(), false),
-        HostBodyKind::Stacked => compact_host_body(s, host, history, view.dim(), true),
-        HostBodyKind::Full => host_body(s, host, history, panel_height, view.dim()),
-    }
-    .into_any_element();
+    let body = if detail {
+        host_body(s, host, view.feed.host_history(), panel_height, view.dim())
+    } else {
+        host_summary(s, host, view.dim())
+    };
     feed_panel(
         s,
         view,
         host.uptime_seconds
             .map(|up| format!("up {}", format_status_uptime(up))),
-        body,
-        compact,
+        body.into_any_element(),
+        !detail,
     )
 }
 
-/// Compact host body: CPU, memory, and disk meters, then the CPU graph and
-/// the network rates. `stacked` puts the graph under the meters for a
-/// narrow column. Otherwise the graph is at the right of the meters.
-fn compact_host_body(
-    s: Scale,
-    host: &HostMetrics,
-    history: &HostHistory,
-    dim: bool,
-    stacked: bool,
-) -> Div {
-    let ratio = |used: Option<u64>, total: Option<u64>| match (used, total) {
-        (Some(used), Some(total)) if total > 0 => Some(used as f32 / total as f32),
-        _ => None,
+fn host_summary(s: Scale, host: &HostMetrics, dim: bool) -> Div {
+    let percent = |part: Option<u64>, total: Option<u64>| {
+        part.zip(total)
+            .filter(|(_, total)| *total > 0)
+            .map_or("—".into(), |(part, total)| {
+                format!("{:.0}%", part as f64 / total as f64 * 100.)
+            })
     };
-    let usage = |used: Option<u64>, total: Option<u64>| match (used, total) {
-        (Some(used), Some(total)) => format_status_usage(used, total),
-        _ => "—".into(),
-    };
-    let mut cpu_value = host.cpu_percent.map_or("—".into(), |p| format!("{p:.0}%"));
-    if let Some(t) = host.temperature_celsius {
-        cpu_value = format!("{cpu_value}  {t:.0}°C");
-    }
-    let rate_text = |rate: Option<f64>| rate.map_or("—".into(), format_status_rate);
-    let rate_color = |color: Hsla| if dim { StatusTheme::muted() } else { color };
-    let meters = div()
-        .when(!stacked, |meters| meters.w(relative(0.6)))
-        .flex_none()
-        .flex()
-        .flex_col()
-        .gap(s(6.))
-        .child(compact_metric_row(
-            s,
+    let metrics = [
+        (
             "CPU",
-            host.cpu_percent.map(|p| p / 100.0),
-            cpu_value,
-            dim,
-        ))
-        .child(compact_metric_row(
-            s,
+            host.cpu_percent
+                .map_or("—".into(), |value| format!("{value:.0}%")),
+        ),
+        (
             "Mem",
-            ratio(host.memory_used_bytes, host.memory_total_bytes),
-            usage(host.memory_used_bytes, host.memory_total_bytes),
-            dim,
-        ))
-        .child(compact_metric_row(
-            s,
-            "Disk",
-            ratio(host.disk_used_bytes, host.disk_total_bytes),
-            usage(host.disk_used_bytes, host.disk_total_bytes),
-            dim,
-        ));
-    let activity = div()
-        .flex_1()
-        .min_w_0()
+            percent(host.memory_used_bytes, host.memory_total_bytes),
+        ),
+        ("Disk", percent(host.disk_used_bytes, host.disk_total_bytes)),
+    ];
+    div()
         .flex()
         .flex_col()
-        .gap(s(6.))
-        .child(cpu_graph(s, &history.cpu_percent, dim))
+        .gap(s(8.))
         .child(
             div()
                 .flex()
-                .justify_end()
-                .gap(s(12.))
-                .text_size(s(13.))
-                .child(
+                .items_center()
+                .gap(s(16.))
+                .text_size(s(14.))
+                .children(metrics.into_iter().map(|(label, value)| {
                     div()
-                        .text_color(rate_color(StatusTheme::receive()))
-                        .child(format!("↓ {}", rate_text(host.network_receive_rate))),
-                )
-                .child(
-                    div()
-                        .text_color(rate_color(StatusTheme::send()))
-                        .child(format!("↑ {}", rate_text(host.network_send_rate))),
-                ),
-        );
-    // The body fills the card, so the CPU graph grows into the free height.
-    div()
-        .flex_1()
-        .min_h_0()
-        .flex()
-        .when(stacked, |body| body.flex_col())
-        .gap(s(if stacked { 8. } else { 20. }))
-        .child(meters)
-        .child(activity)
-}
-
-fn compact_metric_row(
-    s: Scale,
-    label: &str,
-    fraction: Option<f32>,
-    value: String,
-    dim: bool,
-) -> Div {
-    div()
-        .flex()
-        .items_center()
-        .gap(s(10.))
-        .text_size(s(14.))
-        .child(
-            div()
-                .w(s(40.))
-                .flex_none()
-                .text_color(StatusTheme::muted())
-                .child(label.to_string()),
+                        .flex()
+                        .gap(s(6.))
+                        .child(div().text_color(StatusTheme::muted()).child(label))
+                        .child(div().text_color(value_color(dim)).child(value))
+                })),
         )
-        .child(meter(s, fraction, 5., dim))
         .child(
             div()
-                .w(s(148.))
-                .flex_none()
-                .flex()
-                .justify_end()
-                .text_color(value_color(dim))
-                .child(value),
+                .text_size(s(12.))
+                .text_color(StatusTheme::muted())
+                .child("Details ›"),
         )
 }
 

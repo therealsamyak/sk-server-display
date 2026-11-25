@@ -8,13 +8,13 @@
 #
 # Use full Tailscale MagicDNS names. Do not commit your real file.
 
-# Background image: a JPEG, PNG, or WebP file. A relative path starts from
-# the folder of this file. Remove the line for a solid background.
-wallpaper = "wallpaper.jpg"
-
-# Look of the display: palette, fonts, and panel placement. Each style is
-# made for one wallpaper. See "Styles" in README.md. Default: "hills".
-style = "hills"
+# Wallpaper folder: one JPEG or PNG file for each style, named after the
+# style, such as "cyrene-bow.png" or "hills.jpg". See "Styles" in README.md.
+# A relative path starts from the folder of this file. A style without a
+# file shows its solid background color, and slideshows skip it.
+# The app keeps favorites, slideshows, and the style on screen in
+# status-display-state.toml next to this file.
+wallpapers = "wallpapers"
 
 # Host cards for the left column, in order. Each card reads one source:
 # - glances_url: CPU, memory, disk, network, and uptime from Glances

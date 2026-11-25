@@ -2,3 +2,4 @@
 /config.local.toml
 /local/
 __pycache__/
+/status-display-state.toml

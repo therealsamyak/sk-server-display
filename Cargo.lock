@@ -4616,18 +4616,23 @@ dependencies = [
  "clap",
  "dirs 7.0.0",
  "env_logger",
+ "futures-lite",
  "gpui",
  "gpui_platform",
  "image",
  "log",
+ "objc2-core-foundation",
+ "objc2-io-kit",
  "raw-window-handle",
  "serde",
  "serde_json",
  "sysinfo 0.40.4",
+ "tempfile",
  "time",
  "toml 1.2.2+spec-1.1.0",
  "ureq",
  "windows 0.62.2",
+ "zbus 5.19.0",
 ]
 
 [[package]]

@@ -40,8 +40,8 @@ To configure the display, do these steps:
    that runs Glances. Set `this_machine = true` for metrics of the machine that runs the display. A
    block with only `name` shows a status card: the online state of that device.
 3. Replace the example URLs with full Tailscale MagicDNS names of your hosts.
-4. Set `wallpaper` to an image file, or remove the line for a solid background.
-5. Set `style` to the style made for your wallpaper. See [Styles](#styles).
+4. Set `wallpapers` to your image folder. Match each filename to its style ID.
+   See [wallpaper filenames and artist credits](WALLPAPERS.md).
 
 Without `[[host]]` blocks, the display shows one card for this machine. Without a configuration
 file, it shows this machine and the tailnet only, on a solid
@@ -139,22 +139,43 @@ The command-line options are:
 | `--config <path>` | platform path | Reads this configuration file. |
 | `--display <auto, primary, or N>` | `auto` | Selects the monitor. `auto` prefers the physical display on Windows. |
 | `--windowed` | off | Opens a normal window instead of fullscreen. |
-| `--allow-focus` | off | Windows only. Lets a click give the status window keyboard focus. |
 
 The keyboard shortcuts work only when the status window has keyboard focus:
 
 | Key | Action |
 | --- | --- |
 | `F11` | Enter or leave fullscreen. |
-| `Esc` | Leave fullscreen. The window stays open on the same display. |
+| `Esc` | Close the open picker, preview, or metrics panel. Otherwise leave fullscreen. |
 | `D` | Move the window to the next display. |
 | `R` | Poll all sources now. |
 | `Ctrl+Q` (macOS: `Cmd+Q`) | Quit. |
 
-The window also has `Fullscreen` or `Windowed`, `Next display`, `Refresh`, and `Quit` buttons in the
-upper-right corner. The buttons and the display label show for 3 seconds after the pointer moves
-over the window. On Windows, these buttons are the main controls, because the window does not take
-keyboard focus by default.
+Open **Wallpaper** in the top-right corner. The other window controls appear beside it
+when you move the pointer or lift your finger. They hide after three seconds.
+
+### Keep the display awake
+
+On AC power, visible fullscreen mode requests that the operating system keep the screen and
+system awake. The app releases both requests on battery, when you leave fullscreen, or when
+the fullscreen window is hidden, minimized, or closed. You can still sleep the system manually.
+
+| Platform | Native request |
+| --- | --- |
+| Windows | `PowerRequestDisplayRequired` and `PowerRequestSystemRequired`, with AC power notifications. |
+| macOS | IOKit display and system idle assertions with power source notifications. |
+| Linux | The desktop Inhibit portal with idle and suspend flags, gated by UPower. |
+
+On Linux, the desktop needs UPower and an Inhibit portal backend. The app logs a warning when
+it cannot make a native request.
+
+### Use the display on a dedicated laptop
+
+Add a host card with `this_machine = true` to show CPU, memory, and disk usage for the display
+laptop. The app reads these values locally. Tap the card to open per-core and network graphs.
+Tap **Done** to close the graphs.
+
+To launch at Windows sign-in, put a shortcut to the executable in `shell:startup` for the display
+user. Add `--config` and the absolute configuration path to the shortcut if you use a custom path.
 
 ## Private data
 
@@ -164,7 +185,10 @@ Git:
 - Git ignores `config.local.toml`. The committed `config.example.toml` uses `example.ts.net` names.
 - The repository has no screenshots of real data. Agent screenshots stay in the Git-ignored
   `.agent-screenshots/` folder.
-- Git ignores the `local/` folder. Keep the wallpaper file there or in the configuration folder.
+- Git ignores `local/`. Keep the art there or beside your configuration. The credit catalog
+  links to the sources.
+- Keep `status-display-state.toml` beside your configuration. The app updates it when you edit
+  a slideshow or select a playback mode.
 
 ## Design
 
@@ -173,7 +197,7 @@ Git:
 The status display must do these things:
 
 - Fill the physical laptop monitor and update without user action.
-- Never take keyboard input away from the game that Sunshine streams.
+- Accept touch and keyboard input on the dedicated display.
 - Show clearly when data is old or missing. Old numbers must never look current.
 - Stay on the physical monitor when the virtual display appears, disappears, or becomes primary.
 - Build from one code base for Windows, macOS, and Linux.
@@ -266,17 +290,29 @@ date, and the panel titles use the fonts of the style: IBM Plex Sans, Serif, or 
 
 ### Wallpaper
 
-Set `wallpaper` in the configuration file to show an image behind the panels. A relative path
-starts from the folder of the configuration file. The app decodes the file once on a background
-thread and scales it down to the physical size of the window's display. GPUI's `img` element then
-shows it with `ObjectFit::Cover`, so the image fills the window and keeps its aspect ratio
-([img.rs#L197-L205](https://github.com/zed-industries/zed/blob/6501df15765d66d6c2a2b66b1eb22434ccef3f86/crates/gpui/src/elements/img.rs#L197-L205),
-[style.rs#L28-L40](https://github.com/zed-industries/zed/blob/6501df15765d66d6c2a2b66b1eb22434ccef3f86/crates/gpui/src/style.rs#L28-L40)).
-The app reads JPEG, PNG, and the other formats that GPUI turns on in the `image` crate.
+Set `wallpapers` to a folder of JPEG or PNG files. Relative paths start from the folder
+containing the configuration file. Save each image under its style ID, such as
+`yolanda-kokomi.jpg`. See [wallpaper credits](WALLPAPERS.md) for file names and sources.
 
-The repository does not include a wallpaper. The test screenshots use the Windows XP "Bliss" photo
-as a placeholder. Microsoft owns that photo, so it stays in the Git-ignored `local/` folder. Replace
-it with your own image.
+The app decodes each selected image in the background and scales it to the window size.
+GPUI fills the screen with `ObjectFit::Cover` and preserves the aspect ratio.
+The palette, panel positions, and wallpaper change together after the image loads.
+
+#### Pick a wallpaper or edit a slideshow
+
+1. Open **Wallpaper** and tap a thumbnail to preview the full status display with live data.
+2. Tap **Use wallpaper** to hold that wallpaper. Tap **Back** to return to the gallery.
+3. Use **Favorite** on a wallpaper card to add or remove it from **Favorites**.
+4. Open **Slideshows** to play Favorites or create a named slideshow. Add styles and set their
+   order. Set the time with the **Days**, **Hours**, and **Minutes** fields.
+
+Favorites plays on first launch. Each slideshow defaults to one hour per wallpaper. You can
+set intervals in whole minutes, including durations longer than a week. Playback advances in list order
+and skips unavailable art. If every slide is unavailable, the display uses `hills`.
+The display waits for an active tap, picker, preview, or metrics panel before advancing.
+
+The app saves Favorites, custom slideshows, and the selected playback mode in
+`status-display-state.toml`. It starts a saved slideshow at its first available slide at sign-in.
 
 In the `hills` style, a black layer at 28 % opacity covers the wallpaper, so the white clock stays
 readable on a bright image. The panels use a dark color at 78 % opacity. The other styles set
@@ -285,21 +321,19 @@ their own layers. See [Styles](#styles).
 ### Styles
 
 A style sets the palette, the fonts, and the place of the clock and the panels for one wallpaper.
-The art comes first: the panels go where the art is quiet, and the colors come from the art. Set
-the style with the `style` key in the configuration file.
+The panel layout and colors follow each wallpaper. The built-in style ID is the wallpaper file stem.
 
-The `hills` style is the default. It puts the clock at the top and all panels in a band at the
+The `hills` style works with a landscape photo or a solid background. It puts the clock at the top
+and all panels in a band at the
 bottom, for a landscape photo. The other styles use a side arrangement:
 
 - One column area at the left edge, one at the right edge, or both. The middle of the screen stays
   free for the character.
 - Each area holds the host cards, the services, disks, and tailnet panels, or both groups side by
   side. The clock and the alerts stand on top of or under the host column.
-- Each panel has a fixed height from its row count. A host card with metrics gives up height when
-  its column is full, so the CPU graph gets shorter. Lists do not shrink.
+- Host cards show compact values. Tap a card to read the graphs and detailed metrics.
 - A shade behind each area fades out toward the middle. It uses one color of the art, so it
   changes the tone only, not the hue.
-- In a side area, the host cards show the stacked body: meters above the CPU graph.
 
 The wireframe shows the `yolanda-kokomi` style at 1920 × 1080: the clock and the hosts at the left, the
 other panels at the right, and the character free in the middle:
@@ -311,10 +345,10 @@ other panels at the right, and the character free in the middle:
 │ ┌ alert, only when needed ──┐                                 │ ● Service B      99.8% │ │
 │ └───────────────────────────┘                                 │ …                      │ │
 │ ┌ server ───── up 4h 46m ───┐            character            └────────────────────────┘ │
-│ │ CPU  ▬─────    10%  41°C  │           (no panels)           ┌ Disks ───── 2/3 passed ┐ │
-│ │ Mem  ▬▬▬───  13.1/31.1 GiB│                                 │ ● nvme0  40°C  477 GiB │ │
-│ │ Disk ▬▬────   140/473 GiB │                                 └────────────────────────┘ │
-│ │ ▁▂▁▃▂▁▂ CPU graph   ↓  ↑  │                                 ┌ Tailnet ──── 1/2 online┐ │
+│ │ CPU 10%  Mem 42%  Disk 30% │          (no panels)           ┌ Disks ───── 2/3 passed ┐ │
+│ │ Details ›                 │                                │ ● nvme0  40°C  477 GiB │ │
+│ │                           │                                └────────────────────────┘ │
+│ │                           │                                ┌ Tailnet ──── 1/2 online┐ │
 │ └───────────────────────────┘                                 │ ● phone   iOS     idle │ │
 │ ┌ laptop ──────────── idle ─┐                                 └────────────────────────┘ │
 │ │ ● online          windows │                                                            │
@@ -343,7 +377,7 @@ palette.
 The styles below are drafts, one for each wallpaper. The wallpapers are illustrations by
 [Yolanda on pixiv](https://www.pixiv.net/en/users/8349252/illustrations). The artist owns them,
 so the repository does not include them or screenshots of them. Download a wallpaper from its
-pixiv page into the Git-ignored `local/` folder, then point `wallpaper` at it.
+pixiv page into your wallpaper folder and name it with the style ID.
 
 | Style | Wallpaper | Arrangement | Palette and type |
 | --- | --- | --- | --- |
@@ -412,7 +446,7 @@ winner, the wallpaper is a later work by the same artist.
 
 | Style | Artist | Award | Wallpaper | Arrangement | Palette and type |
 | --- | --- | --- | --- | --- | --- |
-| `trailblazers-orbit` | Minamo | Multiverse Vistas 2026, top illustration award | [The Trailblazers on a star chart](https://www.pixiv.net/en/artworks/146476781) | Clock and hosts at the left, other panels at the right | Navy glass, chart white, Plex Sans |
+| `trailblazers-orbit` | Minamo | Multiverse Vistas 2026, illustration award | [The Trailblazers on a star chart](https://www.pixiv.net/en/artworks/146476781) | Clock and hosts at the left, other panels at the right | Navy glass, chart white, Plex Sans |
 | `cyrene-bow` | _Chowol | Multiverse Vistas 2026, illustration award | [Cyrene with a bow of light](https://www.pixiv.net/en/artworks/146437680) | Clock and hosts at the left, other panels at the right | Plum glass, bow magenta, Plex Serif |
 | `pearl-water` | うい みちこ | Multiverse Vistas 2026, illustration award | [Pearl paints with water](https://www.pixiv.net/en/artworks/146822020) | All panels and the clock at the left | Teal glass, water white, Plex Serif |
 | `stelle-shards` | えるも | Multiverse Vistas 2026, illustration award | [Stelle among glass shards](https://www.pixiv.net/en/artworks/146397839) | Clock and hosts at the left, other panels at the right | Navy glass, light gold |
@@ -502,47 +536,12 @@ through `App::on_system_wake`
 
 GPUI limits the frame rate of an inactive window to about 30 frames per second by default
 ([platform.rs#L2734-L2738](https://github.com/zed-industries/zed/blob/6501df15765d66d6c2a2b66b1eb22434ccef3f86/crates/gpui/src/platform.rs#L2734-L2738)).
-The status window is inactive while you play. It redraws at most once per second, so this limit
-has no visible effect.
+The status display uses scheduled redraws for data and clock changes.
 
 ### Keyboard focus
 
-Keyboard focus is the main risk in this setup. Sunshine sends remote keyboard and mouse input to the
-Windows foreground window. If the status window becomes the foreground window, the game stops
-receiving input. The design prevents this in four ways:
-
-1. The window opens with `WindowOptions::focus = false`. On Windows, GPUI then shows the window with
-   `SW_SHOWNOACTIVATE`
-   ([gpui_windows/src/window.rs#L580-L585](https://github.com/zed-industries/zed/blob/6501df15765d66d6c2a2b66b1eb22434ccef3f86/crates/gpui_windows/src/window.rs#L580-L585)).
-2. The app never calls `Window::activate_window` or `App::activate`. On Windows,
-   `activate_window` sends a synthetic Alt key press with `SendInput` before `SetForegroundWindow`
-   ([gpui_windows/src/window.rs#L817-L868](https://github.com/zed-industries/zed/blob/6501df15765d66d6c2a2b66b1eb22434ccef3f86/crates/gpui_windows/src/window.rs#L817-L868)).
-   During a stream, that key press can reach the game.
-3. On Windows, the app adds `WS_EX_NOACTIVATE` to the window after GPUI creates it. GPUI has no
-   option for this style. The app gets the `HWND` through GPUI's `HasWindowHandle` implementation
-   ([window.rs#L8112](https://github.com/zed-industries/zed/blob/6501df15765d66d6c2a2b66b1eb22434ccef3f86/crates/gpui/src/window.rs#L8112)).
-   With this style, a click on the window does not make it the foreground window. Use
-   `--allow-focus` to turn this off.
-4. When the window has keyboard focus, a short amber alert shows: "Keyboard focus is here" and
-   "Click another window to move it." The text names no stream client, so it applies to any setup. The view observes activation changes with `observe_window_activation`.
-
-The trade-off of `WS_EX_NOACTIVATE` is that the keyboard shortcuts do not work in the default Windows
-mode. The window buttons work with the mouse. Use them to leave fullscreen, change display, refresh,
-or quit.
-
-GPUI handles focus differently on each platform:
-
-| Platform | `focus: false` at open | Source |
-| --- | --- | --- |
-| Windows | Supported. Shows with `SW_SHOWNOACTIVATE`. | [window.rs#L580-L585](https://github.com/zed-industries/zed/blob/6501df15765d66d6c2a2b66b1eb22434ccef3f86/crates/gpui_windows/src/window.rs#L580-L585) |
-| macOS | Supported. Uses `orderFront` instead of `makeKeyAndOrderFront`. | [window.rs#L1370-L1375](https://github.com/zed-industries/zed/blob/6501df15765d66d6c2a2b66b1eb22434ccef3f86/crates/gpui_macos/src/window.rs#L1370-L1375) |
-| Linux | Not supported. `WindowParams::focus` is dead code on Linux. The compositor decides. | [platform.rs#L2825-L2829](https://github.com/zed-industries/zed/blob/6501df15765d66d6c2a2b66b1eb22434ccef3f86/crates/gpui/src/platform.rs#L2825-L2829) |
-
-On macOS, simple fullscreen calls `makeKeyAndOrderFront` when it enters or leaves
-([gpui_macos/src/window.rs#L638-L646](https://github.com/zed-industries/zed/blob/6501df15765d66d6c2a2b66b1eb22434ccef3f86/crates/gpui_macos/src/window.rs#L638-L646)).
-Native fullscreen moves the window to its own Space
-([window.rs#L2031-L2042](https://github.com/zed-industries/zed/blob/6501df15765d66d6c2a2b66b1eb22434ccef3f86/crates/gpui_macos/src/window.rs#L2031-L2042)).
-Both can take focus on macOS. The focus alert shows when this happens.
+The dedicated status display accepts ordinary window focus at launch. Tap window controls
+to use them. The wallpaper picker keeps keyboard input within the picker while it is open.
 
 ### Display selection
 
@@ -696,7 +695,10 @@ Each module has one concern:
 | `src/status_redraw.rs` | Redraw timer for clock, age, and freshness text. |
 | `src/status_theme.rs` | Colors of the active style and the layout scale. |
 | `src/status_style.rs` | Built-in styles: palette, fonts, and panel arrangement for each wallpaper. |
-| `src/status_wallpaper.rs` | Wallpaper decode and scale to the display size. |
+| `src/status_wallpaper.rs` | Style-named wallpaper files, decode, and scale. |
+| `src/status_playlist.rs` | Playback selection, slideshow timing, and saved state. |
+| `src/status_picker.rs` | Wallpaper gallery and slideshow editor. |
+| `src/status_power.rs` | Native fullscreen AC-power idle inhibition. |
 | `src/status_window.rs` | Window open, fullscreen state, and monitor change handling. |
 | `src/display_select.rs` | Display selectors mapped to GPUI displays. |
 | `src/status_config.rs` | TOML configuration and the feed list. |
@@ -734,15 +736,11 @@ These checks ran on a Linux machine (KDE Plasma, Wayland) with GPUI at the pinne
   needs a MinGW C compiler. It used `llvm-windres` for the GPUI manifest and `llvm-dlltool` for
   import libraries.
 
-- The app ran against the real Glances, Uptime Kuma, Scrutiny, and Tailscale sources over Tailscale,
-  in a nested KWin Wayland session with two virtual outputs. A focused app on output 2 stood in for
-  the game.
+- An earlier build read Glances, Uptime Kuma, Scrutiny, and Tailscale in a nested KWin
+  Wayland session with two virtual outputs.
 - A Glances entry for an offline tailnet device showed the offline panel and alert after 30 s.
-- The wallpaper, clock, CPU and network graphs, and core grid rendered at 1920 × 1080 and
-  1280 × 720. A Glances entry for a closed port showed the offline panel and alert. With no other
-  window focused, the keyboard focus alert showed.
-- The window buttons did not show in these screenshots, because the virtual session does not move
-  the pointer. The pointer reveal needs a hands-on check.
+- An earlier build rendered the wallpaper, clock, CPU and network graphs, and core grid at
+  1920 × 1080 and 1280 × 720. A closed Glances port produced an offline panel and alert.
 - A temporary Glances 4 server ran on an Apple silicon Mac (`uvx --from "glances[web]" glances -w`)
   and was then stopped. The Mac card showed CPU, memory, uptime, and network rates. The disk meter
   showed the APFS Data volume, and the network rates came from the Wi-Fi interface, not from the
@@ -774,28 +772,13 @@ These items need a test on real hardware. Windows items come first:
    Confirm that the status window stays on, or returns to, the physical panel within about 1 second.
 3. **`HMONITOR` stability.** Confirm that GPUI `DisplayId` values match the `HMONITOR` values after a
    display change.
-4. **`WS_EX_NOACTIVATE` with GPUI.** Click the status window during a stream. Confirm that the game
-   keeps input and that the window buttons show and work. Confirm that GPUI's DirectComposition
-   renderer draws normally with this style.
-5. **Taskbar overlap.** The status window is not the foreground window, so Windows can draw the
-   taskbar over it. Check whether the taskbar covers the bottom of the panels. If it does, use taskbar auto-hide or
-   move the taskbar to another display.
-6. **Sleep and lid.** Close and open the laptop lid during a stream. Confirm that the display
-   recovers and each panel header shows its live fact again.
-7. **macOS fullscreen focus.** Confirm whether native fullscreen takes focus from the streamed app.
-   If it does, test `toggle_simple_fullscreen`.
-8. **Linux X11.** Confirm fullscreen placement with more than one monitor. GPUI X11 sees one display
+4. **Windows power.** Run `powercfg /requests` while fullscreen on AC. Check for both the display
+   and system requests. Check that each clears after switching to battery or leaving fullscreen.
+5. **Touch.** Tap a host card, check its details, and close it. Hold a tap across a slideshow
+   deadline. Check that the wallpaper and card positions change after the tap ends.
+6. **Sleep and lid.** After manual sleep, check that polling and idle inhibition resume on AC.
+7. **Linux X11.** Confirm fullscreen placement with more than one monitor. GPUI X11 sees one display
    for the whole X screen.
-
-## Open questions
-
-- Which styles do you keep? The repository has nine drafts for wallpapers by Yolanda, 35
-  drafts for wallpapers by HoYoverse event artists, 14 drafts for official contest winners, and
-  the `hills` style for the Windows XP "Bliss" placeholder. The 15 drafts from `odette-stars` to
-  `castorice-ruins` use contest entries and HoYoFair works without a known award. Do you remove
-  them?
-- Must the app start at sign-in on the Windows laptop? This version adds no startup entry or
-  service.
 
 ## Licenses
 

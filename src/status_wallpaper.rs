@@ -5,11 +5,61 @@
 //! the display can show. This module scales the image down before GPUI
 //! uploads it to the GPU.
 
-use std::{path::Path, sync::Arc};
+use std::{
+    collections::{HashMap, HashSet},
+    path::{Path, PathBuf},
+    sync::Arc,
+};
 
 use anyhow::Context as _;
 use gpui::{RenderImage, Size};
 use image::{DynamicImage, Frame, ImageDecoder as _, ImageReader};
+
+use crate::status_style::StatusStyleName;
+
+/// Lists the style wallpapers in `folder`: files named after a status style,
+/// such as `cyrene-bow.png`. Other files stay unused. A missing folder gives
+/// no wallpapers.
+pub fn find_style_wallpapers(folder: &Path) -> HashMap<StatusStyleName, PathBuf> {
+    let entries = match std::fs::read_dir(folder) {
+        Ok(entries) => entries,
+        Err(error) => {
+            log::warn!("cannot read wallpaper folder {}: {error}", folder.display());
+            return HashMap::new();
+        }
+    };
+    let mut wallpapers = HashMap::new();
+    let mut duplicates = HashSet::new();
+    for path in entries
+        .flatten()
+        .map(|entry| entry.path())
+        .filter(|path| path.is_file())
+    {
+        let extension = path
+            .extension()
+            .and_then(|extension| extension.to_str())
+            .map(str::to_ascii_lowercase);
+        if !matches!(extension.as_deref(), Some("png" | "jpg" | "jpeg")) {
+            continue;
+        }
+        let Some(style) = path
+            .file_stem()
+            .and_then(|stem| stem.to_str())
+            .and_then(StatusStyleName::status_style_from_text)
+        else {
+            continue;
+        };
+        if duplicates.contains(&style) {
+            continue;
+        }
+        if wallpapers.insert(style, path).is_some() {
+            wallpapers.remove(&style);
+            duplicates.insert(style);
+            log::warn!("multiple wallpaper files for {}", style.style_name_text());
+        }
+    }
+    wallpapers
+}
 
 /// Decodes the wallpaper and scales it down to the smallest size that still
 /// covers `target`, in physical pixels. A smaller image keeps its size. This

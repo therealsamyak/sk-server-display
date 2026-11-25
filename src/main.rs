@@ -23,6 +23,9 @@ mod status_freshness;
 mod status_graph;
 mod status_model;
 mod status_panel;
+mod status_picker;
+mod status_playlist;
+mod status_power;
 mod status_redraw;
 mod status_startup;
 mod status_style;
@@ -36,11 +39,13 @@ mod status_window;
 use std::path::PathBuf;
 
 use crate::{
-    status_config::{build_status_feeds, load_status_config},
+    status_config::{build_status_feeds, load_status_config, status_state_path},
     status_display::DisplaySelector,
+    status_playlist::{StatusCarousel, StatusPlayback},
+    status_wallpaper::find_style_wallpapers,
 };
 use clap::Parser;
-use gpui::{App, Application, Entity, Global, KeyBinding};
+use gpui::{App, AppContext as _, Application, Entity, Global, KeyBinding};
 use time::UtcOffset;
 
 use crate::{
@@ -68,10 +73,6 @@ struct StatusDisplayArgs {
     /// Open as a normal window instead of fullscreen.
     #[arg(long)]
     windowed: bool,
-
-    /// Windows: let a click give the status window keyboard focus.
-    #[arg(long)]
-    allow_focus: bool,
 }
 
 /// Global that keeps the status display controller alive for the whole run.
@@ -96,12 +97,23 @@ fn main() {
             std::process::exit(2);
         }
     };
-    status_style::set_status_style(config.style);
+    let state_path = status_state_path(args.config.as_deref());
+    let playback = match StatusPlayback::load_status_playback(state_path.as_deref()) {
+        Ok(playback) => playback,
+        Err(error) => {
+            log::error!("{error:#}");
+            std::process::exit(2);
+        }
+    };
+    let wallpapers = config
+        .wallpapers
+        .as_deref()
+        .map(find_style_wallpapers)
+        .unwrap_or_default();
+    let carousel = StatusCarousel::new_status_carousel(playback, state_path, wallpapers);
     let settings = StatusWindowSettings {
-        wallpaper: config.wallpaper,
         selector: args.display,
         start_fullscreen: !args.windowed,
-        allow_focus: args.allow_focus,
         local_offset,
     };
 
@@ -119,7 +131,8 @@ fn main() {
         })
         .detach();
         let board = StatusBoard::new_status_board(feeds, cx);
-        let app = StatusDisplayApp::start_status_display(board, settings, cx);
+        let carousel = cx.new(|_| carousel);
+        let app = StatusDisplayApp::start_status_display(board, carousel, settings, cx);
         cx.set_global(StatusDisplayRoot(app));
     });
 }

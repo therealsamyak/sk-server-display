@@ -5,7 +5,6 @@
 //! a root redraw for the clock reuses the panels as they are.
 
 use std::{
-    path::PathBuf,
     sync::Arc,
     time::{Duration, Instant},
 };
@@ -19,19 +18,25 @@ use crate::{
         format_status_age, format_status_clock, format_status_date, status_clock_text_valid_for,
     },
     status_freshness::FeedFreshness,
-    status_panel::{FeedPanelView, HostBodyKind, side_panel_height},
+    status_panel::{FeedPanelView, HOST_SUMMARY_HEIGHT, side_panel_height},
+    status_picker::{StatusPicker, StatusPickerEvent},
+    status_playlist::{PlaylistChoice, StatusCarousel, StatusPlaybackMode},
+    status_power::StatusPower,
     status_redraw::StatusRedrawTimer,
     status_startup::{StartupMilestone, log_startup_milestone},
-    status_style::{PanelGroup, StyleAnchor, StyleArea, StyleArrangement, active_status_style},
+    status_style::{
+        PanelGroup, StatusStyleName, StyleAnchor, StyleArea, StyleArrangement, active_status_style,
+        active_status_style_name, set_status_style,
+    },
     status_theme::{PANEL_GAP, PRESENCE_PANEL_HEIGHT, Scale, StatusLayout, StatusTheme},
     status_wallpaper::load_status_wallpaper,
     status_window::StatusDisplayApp,
 };
 use gpui::{
     AnyElement, App, AppContext as _, ClickEvent, Context, Div, Entity, FocusHandle, FontWeight,
-    Hsla, IntoElement, ObjectFit, Render, RenderImage, Size, Stateful, StyleRefinement,
-    StyledImage as _, Subscription, Task, WeakEntity, Window, actions, div, img, linear_color_stop,
-    linear_gradient, prelude::*, relative,
+    Hsla, IntoElement, MouseButton, ObjectFit, Render, RenderImage, Size, Stateful,
+    StyleRefinement, StyledImage as _, Subscription, Task, WeakEntity, Window, actions, div, img,
+    linear_color_stop, linear_gradient, prelude::*, px, relative, rgb,
 };
 use time::{OffsetDateTime, UtcOffset};
 
@@ -62,13 +67,12 @@ pub struct StatusViewSettings {
     /// Display description, such as `Display 1 of 2 (primary)`.
     pub display_label: String,
     pub local_offset: UtcOffset,
-    /// Background image file. `None` gives a solid background.
-    pub wallpaper: Option<PathBuf>,
 }
 
 /// Status view: clock, alerts, host panels, services, disks, and tailnet.
 pub struct StatusView {
     board: Entity<StatusBoard>,
+    carousel: Entity<StatusCarousel>,
     controller: WeakEntity<StatusDisplayApp>,
     settings: StatusViewSettings,
     focus_handle: FocusHandle,
@@ -79,6 +83,13 @@ pub struct StatusView {
     /// Devices with a host card. The tailnet panel leaves them out.
     carded: Vec<String>,
     wallpaper: StatusWallpaper,
+    picker: Option<PickerSession>,
+    preview: Option<StatusStyleName>,
+    preview_error: Option<String>,
+    details: Option<Entity<FeedPanelView>>,
+    pointer_pressed: bool,
+    controls_latched: bool,
+    power: StatusPower,
     pointer_moved_at: Option<Instant>,
     first_frame_requested: bool,
     redraw: StatusRedrawTimer,
@@ -89,9 +100,20 @@ pub struct StatusView {
 #[derive(Default)]
 struct StatusWallpaper {
     image: Option<Arc<RenderImage>>,
-    /// Size in physical pixels of the last load request.
-    requested: Size<u32>,
+    requested: Option<(StatusStyleName, Size<u32>)>,
+    ready: Option<WallpaperFrame>,
     task: Option<Task<()>>,
+}
+
+struct PickerSession {
+    view: Entity<StatusPicker>,
+    original_style: StatusStyleName,
+    _events: Subscription,
+}
+
+struct WallpaperFrame {
+    style: StatusStyleName,
+    image: Option<Arc<RenderImage>>,
 }
 
 impl StatusView {
@@ -99,6 +121,7 @@ impl StatusView {
     pub fn new_status_view(
         settings: StatusViewSettings,
         board: Entity<StatusBoard>,
+        carousel: Entity<StatusCarousel>,
         controller: WeakEntity<StatusDisplayApp>,
         window: &mut Window,
         cx: &mut Context<Self>,
@@ -107,7 +130,26 @@ impl StatusView {
         focus_handle.focus(window, cx);
         // The board emits events and does not notify, so the root view draws
         // again only for its own changes and for panel changes.
-        let subscriptions = vec![cx.observe_window_activation(window, |_, _, cx| cx.notify())];
+        let view = cx.weak_entity();
+        let subscriptions = vec![
+            window.observe_window_visibility(move |_, window, cx| {
+                if let Err(error) = view.update(cx, |view, cx| {
+                    view.update_display_power(window, cx);
+                    if !window.is_visible() {
+                        view.pointer_pressed = false;
+                    }
+                    cx.notify();
+                }) {
+                    log::debug!("status window closed: {error:#}");
+                }
+            }),
+            cx.observe_window_activation(window, |view, window, cx| {
+                if !window.is_window_active() {
+                    view.pointer_pressed = false;
+                }
+                cx.notify();
+            }),
+        ];
         let feeds = board.read(cx).status_feeds();
         let is_host = |feed: &&StatusFeed| feed.spec.collector.is_host_collector();
         let host_count = feeds.iter().filter(is_host).count();
@@ -119,22 +161,16 @@ impl StatusView {
             .filter(is_host)
             .map(|feed| feed.spec.title.clone())
             .collect();
-        let host_body = match active_status_style().arrangement {
-            StyleArrangement::Sides { .. } => HostBodyKind::Stacked,
-            StyleArrangement::Band if host_rows > 1 => HostBodyKind::Row,
-            StyleArrangement::Band => HostBodyKind::Full,
-        };
         let panels = (0..feeds.len())
             .map(|index| {
                 let board = board.clone();
                 let carded = carded.clone();
-                cx.new(|cx| {
-                    FeedPanelView::new_feed_panel(board, index, host_rows, host_body, carded, cx)
-                })
+                cx.new(|cx| FeedPanelView::new_feed_panel(board, index, host_rows, carded, cx))
             })
             .collect();
         Self {
             board,
+            carousel,
             controller,
             settings,
             focus_handle,
@@ -142,6 +178,13 @@ impl StatusView {
             host_rows,
             carded,
             wallpaper: StatusWallpaper::default(),
+            picker: None,
+            preview: None,
+            preview_error: None,
+            details: None,
+            pointer_pressed: false,
+            controls_latched: false,
+            power: StatusPower::default(),
             pointer_moved_at: None,
             first_frame_requested: false,
             redraw: StatusRedrawTimer::default(),
@@ -149,58 +192,266 @@ impl StatusView {
         }
     }
 
-    /// Loads the wallpaper at the size of the window's display, once. A
-    /// move to a larger display loads it again at the new size.
-    fn load_wallpaper_for_window(&mut self, window: &Window, cx: &mut Context<Self>) {
-        let Some(path) = self.settings.wallpaper.clone() else {
+    fn update_display_power(&mut self, window: &Window, cx: &Context<Self>) {
+        self.power.set_display_mode(
+            window.is_fullscreen() && window.is_visible(),
+            window,
+            cx.background_executor(),
+        );
+    }
+
+    fn update_slideshow(&mut self, cx: &mut Context<Self>) {
+        if self.picker.is_some() || self.details.is_some() || self.pointer_pressed {
+            return;
+        }
+        let carousel = self.carousel.read(cx);
+        let Some(list) = carousel.state.playing_playlist() else {
             return;
         };
-        let logical = window
-            .display(cx)
-            .map(|display| display.bounds().size)
-            .unwrap_or_else(|| window.viewport_size());
+        let wait = list
+            .slide_duration()
+            .saturating_sub(carousel.last_switch.elapsed());
+        if !wait.is_zero() {
+            self.redraw.redraw_after(wait);
+            return;
+        }
+        self.carousel.update(cx, |carousel, _| {
+            if let Some(next) = carousel.next_available_slide(Some(carousel.current)) {
+                carousel.current = next;
+            }
+            carousel.last_switch = Instant::now();
+        });
+    }
+
+    // Commit the image and the layout together. A ready image waits for the
+    // current tap to end before it can move the cards.
+    fn update_wallpaper(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let carousel = self.carousel.read(cx);
+        let style = self
+            .preview
+            .or_else(|| self.picker.as_ref().map(|picker| picker.original_style))
+            .unwrap_or(carousel.current);
+        let logical = window.viewport_size();
         let scale = window.scale_factor();
         let target = Size::new(
             (f32::from(logical.width) * scale).ceil() as u32,
             (f32::from(logical.height) * scale).ceil() as u32,
         );
-        let requested = self.wallpaper.requested;
-        if target.width <= requested.width && target.height <= requested.height {
+        if self.wallpaper.requested != Some((style, target)) {
+            self.wallpaper.requested = Some((style, target));
+            self.wallpaper.task = None;
+            self.wallpaper.ready = None;
+            if let Some(path) = carousel.wallpaper_path(style).map(ToOwned::to_owned) {
+                let load = cx.background_spawn(async move { load_status_wallpaper(&path, target) });
+                self.wallpaper.task = Some(cx.spawn_in(window, async move |this, cx| {
+                    let result = load.await;
+                    if let Err(error) = this.update_in(cx, |view, _, cx| {
+                        view.wallpaper.task = None;
+                        match result {
+                            Ok(image) => {
+                                view.wallpaper.ready = Some(WallpaperFrame {
+                                    style,
+                                    image: Some(image),
+                                })
+                            }
+                            Err(error) => {
+                                log::warn!(
+                                    "cannot load wallpaper for {}: {error:#}",
+                                    style.style_name_text()
+                                );
+                                if view.preview == Some(style) {
+                                    view.preview_error =
+                                        Some("Could not open this wallpaper.".into());
+                                } else {
+                                    view.carousel.update(cx, |carousel, _| {
+                                        carousel.skip_failed_wallpaper(style);
+                                    });
+                                    view.wallpaper.requested = None;
+                                }
+                            }
+                        }
+                        cx.notify();
+                    }) {
+                        log::debug!("status window closed before wallpaper loaded: {error:#}");
+                    }
+                }));
+            } else {
+                self.wallpaper.ready = Some(WallpaperFrame { style, image: None });
+            }
+        }
+        if !self.pointer_pressed
+            && self.details.is_none()
+            && let Some(frame) = self.wallpaper.ready.take()
+        {
+            if let Some(old) = std::mem::replace(&mut self.wallpaper.image, frame.image)
+                && let Err(error) = window.drop_image(old)
+            {
+                log::debug!("cannot release previous wallpaper: {error:#}");
+            }
+            if frame.style != active_status_style_name() {
+                set_status_style(frame.style);
+                for panel in self.panels.iter().chain(self.details.iter()) {
+                    panel.update(cx, |_, cx| cx.notify());
+                }
+            }
+        }
+    }
+
+    fn open_picker(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let carousel = self.carousel.read(cx);
+        let active = active_status_style_name();
+        let wallpapers = carousel.wallpapers.clone();
+        let settings = carousel.state.settings.clone();
+        let picker =
+            cx.new(|cx| StatusPicker::new_status_picker(active, wallpapers, settings, window, cx));
+        let subscription = cx.subscribe_in(&picker, window, Self::handle_picker_event);
+        self.picker = Some(PickerSession {
+            view: picker,
+            original_style: active,
+            _events: subscription,
+        });
+        cx.notify();
+    }
+
+    fn handle_picker_event(
+        &mut self,
+        picker: &Entity<StatusPicker>,
+        event: &StatusPickerEvent,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let result = match event {
+            StatusPickerEvent::Preview(style) => {
+                self.preview = Some(*style);
+                self.preview_error = None;
+                self.focus_handle.focus(window, cx);
+                cx.notify();
+                return;
+            }
+            StatusPickerEvent::Cancel => {
+                self.close_picker(window, cx);
+                return;
+            }
+            StatusPickerEvent::Save { settings, rename } => {
+                self.carousel.update(cx, |carousel, _| {
+                    let mut next = carousel.state.clone();
+                    next.settings = settings.clone();
+                    if let StatusPlaybackMode::Slideshow(PlaylistChoice::Custom(active)) =
+                        &mut next.playback
+                    {
+                        if let Some((old, new)) = rename
+                            && active == old
+                        {
+                            *active = new.clone();
+                        }
+                        if next.playing_playlist().is_none() {
+                            next.playback =
+                                StatusPlaybackMode::Slideshow(PlaylistChoice::Favorites);
+                        }
+                    }
+                    carousel.update_status_playback(next)
+                })
+            }
+            StatusPickerEvent::Play { choice, settings } => {
+                let result = self.carousel.update(cx, |carousel, _| {
+                    let mut next = carousel.state.clone();
+                    next.settings = settings.clone();
+                    next.playback = StatusPlaybackMode::Slideshow(choice.clone());
+                    carousel.update_status_playback(next)?;
+                    carousel.select_initial_slide();
+                    Ok(())
+                });
+                if result.is_ok() {
+                    self.close_picker(window, cx);
+                    return;
+                }
+                result
+            }
+        };
+        picker.update(cx, |picker, cx| {
+            picker.set_save_error(result.err().map(|error| format!("{error:#}")), cx)
+        });
+        cx.notify();
+    }
+
+    fn close_picker(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.preview = None;
+        self.preview_error = None;
+        self.picker = None;
+        self.focus_handle.focus(window, cx);
+        cx.notify();
+    }
+
+    fn cancel_preview(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.preview = None;
+        self.preview_error = None;
+        if let Some(picker) = &self.picker {
+            picker
+                .view
+                .update(cx, |picker, cx| picker.focus_status_picker(window, cx));
+        }
+        cx.notify();
+    }
+
+    fn apply_preview(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(style) = self.preview else {
+            return;
+        };
+        if style != active_status_style_name()
+            || self.preview_error.is_some()
+            || self.wallpaper.task.is_some()
+        {
             return;
         }
-        self.wallpaper.requested = Size::new(
-            target.width.max(requested.width),
-            target.height.max(requested.height),
-        );
-        let target = self.wallpaper.requested;
-        let load = cx.background_spawn(async move { load_status_wallpaper(&path, target) });
-        self.wallpaper.task = Some(cx.spawn_in(window, async move |this, cx| {
-            let result = load.await;
-            this.update_in(cx, |this, window, cx| match result {
-                Ok(image) => {
-                    if let Some(old) = this.wallpaper.image.replace(image) {
-                        window.drop_image(old).ok();
-                    }
-                    cx.notify();
-                }
-                Err(error) => log::error!("{error:#}"),
-            })
-            .ok();
-        }));
+        match self.carousel.update(cx, |carousel, _| {
+            let mut next = carousel.state.clone();
+            next.playback = StatusPlaybackMode::Fixed(style);
+            carousel.update_status_playback(next)?;
+            carousel.current = style;
+            Ok::<_, anyhow::Error>(())
+        }) {
+            Ok(()) => self.close_picker(window, cx),
+            Err(error) => {
+                self.preview_error = Some(format!("{error:#}"));
+                cx.notify();
+            }
+        }
+    }
+
+    fn open_host_details(&mut self, index: usize, cx: &mut Context<Self>) {
+        let board = self.board.clone();
+        self.details = Some(cx.new(|cx| FeedPanelView::new_host_detail_panel(board, index, cx)));
+        cx.notify();
+    }
+
+    fn close_host_details(&mut self, cx: &mut Context<Self>) {
+        self.details = None;
+        cx.notify();
     }
 
     fn toggle_fullscreen(
         &mut self,
         _: &ToggleFullscreen,
         window: &mut Window,
-        _: &mut Context<Self>,
+        cx: &mut Context<Self>,
     ) {
+        if window.is_fullscreen() {
+            self.power
+                .set_display_mode(false, window, cx.background_executor());
+        }
         window.toggle_fullscreen();
+        cx.notify();
     }
 
-    fn exit_fullscreen(&mut self, _: &ExitFullscreen, window: &mut Window, _: &mut Context<Self>) {
-        if window.is_fullscreen() {
-            window.toggle_fullscreen();
+    fn exit_fullscreen(&mut self, _: &ExitFullscreen, window: &mut Window, cx: &mut Context<Self>) {
+        if self.preview.is_some() {
+            self.cancel_preview(window, cx);
+        } else if self.picker.is_some() {
+            self.close_picker(window, cx);
+        } else if self.details.is_some() {
+            self.close_host_details(cx);
+        } else if window.is_fullscreen() {
+            self.toggle_fullscreen(&ToggleFullscreen, window, cx);
         }
     }
 
@@ -230,7 +481,9 @@ impl Render for StatusView {
             window
                 .on_next_frame(|_, _| log_startup_milestone(StartupMilestone::FirstFramePresented));
         }
-        self.load_wallpaper_for_window(window, cx);
+        self.update_display_power(window, cx);
+        self.update_slideshow(cx);
+        self.update_wallpaper(window, cx);
         let layout = StatusLayout::from_status_window(window);
         let scale = move |value: f32| layout.scale(value);
         let s: Scale = &scale;
@@ -239,17 +492,6 @@ impl Render for StatusView {
         self.redraw.redraw_after(status_clock_text_valid_for(now));
 
         let mut alerts: Vec<AnyElement> = Vec::new();
-        if window.is_window_active() {
-            alerts.push(
-                alert_row(
-                    s,
-                    StatusTheme::warn(),
-                    "Keyboard focus is here".into(),
-                    "Click another window to move it.".into(),
-                )
-                .into_any_element(),
-            );
-        }
         let board = self.board.read(cx);
         for feed in board.status_feeds() {
             if let Some(change) = board.next_freshness_change(feed) {
@@ -271,20 +513,24 @@ impl Render for StatusView {
         let controls_left = self
             .pointer_moved_at
             .and_then(|at| CONTROLS_VISIBLE_DURATION.checked_sub(at.elapsed()));
+        let modal = self.picker.is_some() || self.details.is_some();
         if let Some(left) = controls_left {
             self.redraw.redraw_after(left);
         }
         let controls = div()
             .flex()
             .flex_wrap()
-            .when(clock_end, |row| row.justify_end())
+            .justify_end()
             .items_center()
             .gap(s(8.))
             .child(
                 div()
-                    .pr(s(8.))
                     .text_size(s(13.))
                     .text_color(StatusTheme::muted())
+                    .px(s(8.))
+                    .py(s(4.))
+                    .rounded(s(6.))
+                    .bg(StatusTheme::panel())
                     .child(self.settings.display_label.clone()),
             )
             .child(control_button(
@@ -329,17 +575,16 @@ impl Render for StatusView {
             .flex_col()
             .when(clock_end, |column| column.items_end())
             .gap(s(8.))
-            .when(controls_left.is_some(), |column| column.child(controls))
             .children(alerts);
 
         // Each panel is a cached view laid out at its style. GPUI reuses
         // its last drawing until the panel is notified.
         let content = match style.arrangement {
             StyleArrangement::Band => {
-                self.band_content(s, layout, board, clock, notices.w(relative(0.5)))
+                self.band_content(s, layout, clock, notices.w(relative(0.5)), cx)
             }
             StyleArrangement::Sides { left, right } => {
-                self.sides_content(s, layout, board, clock.child(notices), left, right)
+                self.sides_content(s, layout, clock.child(notices), [left, right], cx)
             }
         };
         let shades = match style.arrangement {
@@ -353,13 +598,39 @@ impl Render for StatusView {
 
         let root = div()
             .id("status-root")
-            .key_context(STATUS_VIEW_KEY_CONTEXT)
+            .when(self.picker.is_none() || self.preview.is_some(), |root| {
+                root.key_context(STATUS_VIEW_KEY_CONTEXT)
+            })
             .track_focus(&self.focus_handle)
             .on_action(cx.listener(Self::toggle_fullscreen))
             .on_action(cx.listener(Self::exit_fullscreen))
             .on_action(cx.listener(Self::quit))
             .on_action(cx.listener(Self::refresh))
             .on_action(cx.listener(Self::next_display))
+            .capture_any_mouse_down(cx.listener(|this, event: &gpui::MouseDownEvent, _, _| {
+                if event.button == MouseButton::Left {
+                    this.controls_latched = this
+                        .pointer_moved_at
+                        .is_some_and(|at| at.elapsed() < CONTROLS_VISIBLE_DURATION);
+                    this.pointer_pressed = true;
+                }
+            }))
+            .capture_any_mouse_up(cx.listener(|this, event: &gpui::MouseUpEvent, _, cx| {
+                if event.button == MouseButton::Left && this.pointer_pressed {
+                    this.pointer_pressed = false;
+                    this.pointer_moved_at = Some(Instant::now());
+                    cx.notify();
+                }
+            }))
+            .on_mouse_up_out(
+                MouseButton::Left,
+                cx.listener(|this, _, _, cx| {
+                    if this.pointer_pressed {
+                        this.pointer_pressed = false;
+                        cx.notify();
+                    }
+                }),
+            )
             .on_mouse_move(cx.listener(|this, _, _, cx| {
                 // Draw again only to show hidden controls. The redraw timer
                 // hides them after the last move.
@@ -386,7 +657,54 @@ impl Render for StatusView {
             }))
             .child(div().absolute().inset_0().bg(StatusTheme::scrim()))
             .children(shades)
-            .child(content);
+            .child(content)
+            .when(!modal, |root| {
+                root.child(
+                    div()
+                        .absolute()
+                        .top(s(8.))
+                        .right(s(8.))
+                        .left(s(8.))
+                        .flex()
+                        .justify_end()
+                        .items_center()
+                        .gap(s(8.))
+                        .when(
+                            if self.pointer_pressed {
+                                self.controls_latched
+                            } else {
+                                controls_left.is_some()
+                            },
+                            |bar| bar.child(controls),
+                        )
+                        .child(
+                            control_button(
+                                s,
+                                "open-wallpaper-picker",
+                                "Wallpaper",
+                                cx.listener(|view, _, window, cx| view.open_picker(window, cx)),
+                            )
+                            .min_h(px(44.))
+                            .flex_none()
+                            .flex()
+                            .items_center(),
+                        ),
+                )
+            })
+            .children(
+                self.details
+                    .as_ref()
+                    .map(|details| self.host_detail_overlay(s, window, details, cx)),
+            )
+            .children(
+                self.picker
+                    .as_ref()
+                    .and_then(|picker| self.preview.is_none().then(|| picker.view.clone())),
+            )
+            .children(
+                self.preview
+                    .map(|style| self.wallpaper_preview_bar(s, style, cx)),
+            );
         self.redraw.schedule_status_redraw(cx);
         root
     }
@@ -478,16 +796,142 @@ fn control_button(
 }
 
 impl StatusView {
+    fn host_detail_target(
+        &self,
+        panel: AnyElement,
+        index: usize,
+        cx: &Context<Self>,
+    ) -> AnyElement {
+        div()
+            .id(("host-details", index))
+            .relative()
+            .min_h_0()
+            .min_w_0()
+            .size_full()
+            .cursor_pointer()
+            .on_click(cx.listener(move |view, _, _, cx| view.open_host_details(index, cx)))
+            .child(panel)
+            .into_any_element()
+    }
+
+    fn host_detail_overlay(
+        &self,
+        s: Scale,
+        window: &Window,
+        details: &Entity<FeedPanelView>,
+        cx: &Context<Self>,
+    ) -> AnyElement {
+        div()
+            .absolute()
+            .inset_0()
+            .occlude()
+            .p(s(28.))
+            .flex()
+            .items_center()
+            .justify_center()
+            .bg(gpui::black().opacity(0.60))
+            .child(
+                div()
+                    .w_full()
+                    .max_w(s(920.))
+                    .h(window.viewport_size().height * 0.86)
+                    .flex()
+                    .flex_col()
+                    .gap(s(12.))
+                    .p(s(12.))
+                    .rounded(s(10.))
+                    .bg(StatusTheme::background())
+                    .child(
+                        div().flex().justify_end().child(
+                            control_button(
+                                s,
+                                "close-host-details",
+                                "Done",
+                                cx.listener(|view, _, _, cx| view.close_host_details(cx)),
+                            )
+                            .min_h(s(36.))
+                            .flex()
+                            .items_center(),
+                        ),
+                    )
+                    .child(div().flex_1().min_h_0().child(details.clone())),
+            )
+            .into_any_element()
+    }
+
+    fn wallpaper_preview_bar(
+        &self,
+        s: Scale,
+        style: StatusStyleName,
+        cx: &Context<Self>,
+    ) -> AnyElement {
+        let ready = active_status_style_name() == style
+            && self.wallpaper.task.is_none()
+            && self.preview_error.is_none();
+        let message = self.preview_error.clone().unwrap_or_else(|| {
+            if ready {
+                style.style_name_text().into()
+            } else {
+                "Loading preview…".into()
+            }
+        });
+        div()
+            .absolute()
+            .inset_0()
+            .occlude()
+            .flex()
+            .justify_center()
+            .items_end()
+            .pb(s(10.))
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap(s(12.))
+                    .p(s(8.))
+                    .rounded(s(8.))
+                    .bg(rgb(0x1e2630))
+                    .text_color(rgb(0xf3f5f7))
+                    .child(div().px(s(6.)).text_size(s(14.)).child(message))
+                    .child(
+                        control_button(
+                            s,
+                            "cancel-wallpaper-preview",
+                            "Back",
+                            cx.listener(|view, _, window, cx| view.cancel_preview(window, cx)),
+                        )
+                        .min_h(s(36.))
+                        .flex()
+                        .items_center(),
+                    )
+                    .when(ready, |bar| {
+                        bar.child(
+                            control_button(
+                                s,
+                                "apply-wallpaper-preview",
+                                "Use wallpaper",
+                                cx.listener(|view, _, window, cx| view.apply_preview(window, cx)),
+                            )
+                            .min_h(s(36.))
+                            .flex()
+                            .items_center(),
+                        )
+                    }),
+            )
+            .into_any_element()
+    }
+
     /// Band arrangement: the clock and the notices at the top, all panels in
     /// a band at the bottom.
     fn band_content(
         &self,
         s: Scale,
         layout: StatusLayout,
-        board: &StatusBoard,
         clock: Div,
         notices: Div,
+        cx: &Context<Self>,
     ) -> Div {
+        let board = self.board.read(cx);
         let top = div()
             .flex_1()
             .min_h_0()
@@ -509,12 +953,29 @@ impl StatusView {
         let mut host_panels = Vec::new();
         let mut service_panels = Vec::new();
         let mut side_panels = Vec::new();
-        for (feed, panel) in board.status_feeds().iter().zip(&self.panels) {
+        for (index, (feed, panel)) in board.status_feeds().iter().zip(&self.panels).enumerate() {
             let style = match feed.spec.collector {
                 StatusCollector::TailnetHost(_) => status_card_style(),
                 _ => panel_style(),
             };
-            let panel = panel.clone().cached(style).into_any_element();
+            let metrics = matches!(
+                feed.spec.collector,
+                StatusCollector::Glances(_) | StatusCollector::Local(_)
+            );
+            let panel = if metrics {
+                let panel = panel
+                    .clone()
+                    .cached(StyleRefinement::default().size_full())
+                    .into_any_element();
+                div()
+                    .h(s(HOST_SUMMARY_HEIGHT))
+                    .flex_none()
+                    .w_full()
+                    .child(self.host_detail_target(panel, index, cx))
+                    .into_any_element()
+            } else {
+                panel.clone().cached(style).into_any_element()
+            };
             match &feed.spec.collector {
                 StatusCollector::Glances(_)
                 | StatusCollector::Local(_)
@@ -573,28 +1034,34 @@ impl StatusView {
         &self,
         s: Scale,
         layout: StatusLayout,
-        board: &StatusBoard,
         clock: Div,
-        left: StyleArea,
-        right: StyleArea,
+        [left, right]: [StyleArea; 2],
+        cx: &Context<Self>,
     ) -> Div {
+        let board = self.board.read(cx);
         let mut hosts = Vec::new();
         let mut others = Vec::new();
-        for (feed, panel) in board.status_feeds().iter().zip(&self.panels) {
-            let height = side_panel_height(feed, &self.carded);
-            // Only a host card with metrics gives up height when the column
-            // is full: its CPU graph is shorter then.
-            let style = match feed.spec.collector {
-                StatusCollector::Glances(_) | StatusCollector::Local(_) => {
-                    StyleRefinement::default()
-                        .flex_shrink(1.)
-                        .min_h(s(STACKED_HOST_MIN_HEIGHT))
-                }
-                _ => StyleRefinement::default().flex_none(),
-            }
-            .w_full()
-            .h(s(height));
-            let panel = panel.clone().cached(style).into_any_element();
+        for (index, (feed, panel)) in board.status_feeds().iter().zip(&self.panels).enumerate() {
+            let height = s(side_panel_height(feed, &self.carded));
+            let style = StyleRefinement::default().flex_none().w_full().h(height);
+            let metrics = matches!(
+                feed.spec.collector,
+                StatusCollector::Glances(_) | StatusCollector::Local(_)
+            );
+            let panel = if metrics {
+                let panel = panel
+                    .clone()
+                    .cached(StyleRefinement::default().size_full())
+                    .into_any_element();
+                div()
+                    .w_full()
+                    .h(height)
+                    .flex_none()
+                    .child(self.host_detail_target(panel, index, cx))
+                    .into_any_element()
+            } else {
+                panel.clone().cached(style).into_any_element()
+            };
             if feed.spec.collector.is_host_collector() {
                 hosts.push(panel);
             } else {
@@ -674,9 +1141,6 @@ type SideColumn = (Option<(StyleAnchor, Div)>, Vec<AnyElement>, f32);
 /// Width share of the services, disks, and tailnet column next to a host
 /// column. Its rows have more columns than the host cards.
 const OTHERS_COLUMN_GROW: f32 = 1.15;
-
-/// Lowest height of a stacked host card, in design pixels.
-const STACKED_HOST_MIN_HEIGHT: f32 = 152.;
 
 /// Padding at the window edges, in design pixels.
 const SCREEN_PADDING: f32 = 32.;
