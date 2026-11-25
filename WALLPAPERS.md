@@ -1,12 +1,12 @@
 # Wallpaper credits
 
 Use the source links to find the artwork. Keep the image files in the Git-ignored
-`local/wallpapers/` directory. Save each image with its style ID as the file stem, such as
+`local/wallpapers/` directory or another private folder. Save each image with its style ID as the file stem, such as
 `cyrene-bow.jpg`. Use one `.png`, `.jpg`, or `.jpeg` file per style. The filenames below match
 the local set. If you download a file in a different supported format, keep its actual extension.
 
 For `hills`, you can also use your own landscape photo. See the [README](README.md) for display
-configuration and style layouts.
+configuration and imported layouts.
 
 ## Landscape
 
