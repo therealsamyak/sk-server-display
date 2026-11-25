@@ -12,6 +12,7 @@ use serde::Deserialize;
 use crate::status_fonts::{
     STATUS_MONO_FONT_FAMILY, STATUS_SANS_FONT_FAMILY, STATUS_SERIF_FONT_FAMILY,
 };
+use crate::status_style_contest;
 
 /// Name of a built-in status style, as the configuration key `style` gives it.
 #[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Eq)]
@@ -29,6 +30,26 @@ pub enum StatusStyleName {
     Aglaea,
     Evernight,
     Yaoguang,
+    FurinaBalloon,
+    RosariaRuins,
+    LumineCathedral,
+    AyakaMoonlit,
+    KeqingWedding,
+    BronyaSnow,
+    FuXuanStars,
+    NahidaForest,
+    FocalorsBlossom,
+    KiraraDelivery,
+    FurinaSky,
+    RuanMeiBlossom,
+    MavuikaRide,
+    CastoriceGarden,
+    YaeMist,
+    ShenheLanterns,
+    FurinaDeep,
+    KafkaRuins,
+    MarchShrine,
+    AcheronRain,
 }
 
 /// One color with its opacity.
@@ -168,6 +189,26 @@ pub fn status_style_by_name(name: StatusStyleName) -> &'static StatusStyle {
         StatusStyleName::Aglaea => &AGLAEA,
         StatusStyleName::Evernight => &EVERNIGHT,
         StatusStyleName::Yaoguang => &YAOGUANG,
+        StatusStyleName::FurinaBalloon => &status_style_contest::FURINA_BALLOON,
+        StatusStyleName::RosariaRuins => &status_style_contest::ROSARIA_RUINS,
+        StatusStyleName::LumineCathedral => &status_style_contest::LUMINE_CATHEDRAL,
+        StatusStyleName::AyakaMoonlit => &status_style_contest::AYAKA_MOONLIT,
+        StatusStyleName::KeqingWedding => &status_style_contest::KEQING_WEDDING,
+        StatusStyleName::BronyaSnow => &status_style_contest::BRONYA_SNOW,
+        StatusStyleName::FuXuanStars => &status_style_contest::FU_XUAN_STARS,
+        StatusStyleName::NahidaForest => &status_style_contest::NAHIDA_FOREST,
+        StatusStyleName::FocalorsBlossom => &status_style_contest::FOCALORS_BLOSSOM,
+        StatusStyleName::KiraraDelivery => &status_style_contest::KIRARA_DELIVERY,
+        StatusStyleName::FurinaSky => &status_style_contest::FURINA_SKY,
+        StatusStyleName::RuanMeiBlossom => &status_style_contest::RUAN_MEI_BLOSSOM,
+        StatusStyleName::MavuikaRide => &status_style_contest::MAVUIKA_RIDE,
+        StatusStyleName::CastoriceGarden => &status_style_contest::CASTORICE_GARDEN,
+        StatusStyleName::YaeMist => &status_style_contest::YAE_MIST,
+        StatusStyleName::ShenheLanterns => &status_style_contest::SHENHE_LANTERNS,
+        StatusStyleName::FurinaDeep => &status_style_contest::FURINA_DEEP,
+        StatusStyleName::KafkaRuins => &status_style_contest::KAFKA_RUINS,
+        StatusStyleName::MarchShrine => &status_style_contest::MARCH_SHRINE,
+        StatusStyleName::AcheronRain => &status_style_contest::ACHERON_RAIN,
     }
 }
 
@@ -593,7 +634,7 @@ const YAOGUANG: StatusStyle = StatusStyle {
 mod tests {
     use super::*;
 
-    const ALL_STYLE_NAMES: [StatusStyleName; 10] = [
+    const ALL_STYLE_NAMES: [StatusStyleName; 30] = [
         StatusStyleName::Hills,
         StatusStyleName::Kokomi,
         StatusStyleName::Nilou,
@@ -604,6 +645,26 @@ mod tests {
         StatusStyleName::Aglaea,
         StatusStyleName::Evernight,
         StatusStyleName::Yaoguang,
+        StatusStyleName::FurinaBalloon,
+        StatusStyleName::RosariaRuins,
+        StatusStyleName::LumineCathedral,
+        StatusStyleName::AyakaMoonlit,
+        StatusStyleName::KeqingWedding,
+        StatusStyleName::BronyaSnow,
+        StatusStyleName::FuXuanStars,
+        StatusStyleName::NahidaForest,
+        StatusStyleName::FocalorsBlossom,
+        StatusStyleName::KiraraDelivery,
+        StatusStyleName::FurinaSky,
+        StatusStyleName::RuanMeiBlossom,
+        StatusStyleName::MavuikaRide,
+        StatusStyleName::CastoriceGarden,
+        StatusStyleName::YaeMist,
+        StatusStyleName::ShenheLanterns,
+        StatusStyleName::FurinaDeep,
+        StatusStyleName::KafkaRuins,
+        StatusStyleName::MarchShrine,
+        StatusStyleName::AcheronRain,
     ];
 
     #[test]

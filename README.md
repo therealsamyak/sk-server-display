@@ -339,10 +339,44 @@ pixiv page into the Git-ignored `local/` folder, then point `wallpaper` at it.
 | `evernight` | [Evernight among letters](https://www.pixiv.net/en/artworks/136562527) | Clock and hosts at the left, other panels at the right | Light paper cards, dark red type, Plex Serif |
 | `yaoguang` | [Yaoguang with peacock feathers](https://www.pixiv.net/en/artworks/141114001) | All panels and the clock at the left | Teal glass and pale gold |
 
-The `evernight` file has black bars at the top and the bottom. Crop them before you use it. The
-display fills the window with `ObjectFit::Cover`, so it keeps the bars otherwise.
+The styles below are drafts for wallpapers by other artists. Each artist won an official
+HoYoverse illustration contest on pixiv: the two Genshin Impact contests of 2022, the Honkai: Star
+Rail "Multiverse Vistas" contest of 2023, or the "Merrily on Star Rail" contest of 2024 to 2025. Each
+wallpaper is from 2023 or later. Use them in the same way as the Yolanda wallpapers.
 
-The styles are in `src/status_style.rs`. Each style is one constant. Remove the styles that you do
+| Style | Artist | Wallpaper | Arrangement | Palette and type |
+| --- | --- | --- | --- | --- |
+| `furina-balloon` | シオザワホウショウ | [Furina in a balloon over Fontaine](https://www.pixiv.net/en/artworks/115029794) | All panels and the clock at the right, over the mist | Light: mist cards, teal type, Plex Serif |
+| `rosaria-ruins` | シオザワホウショウ | [Rosaria in flooded ruins](https://www.pixiv.net/en/artworks/115029756) | Clock and hosts at the left, other panels at the right | Slate glass, glyph blue, sash red |
+| `lumine-cathedral` | といれっとぺーぱー | [Lumine in a sunlit cathedral](https://www.pixiv.net/en/artworks/104137242) | Clock and hosts at the left, other panels at the right | Umber glass and gold, Plex Serif |
+| `ayaka-moonlit` | 仰望天空的樹 | [Ayaka in a moonlit room](https://www.pixiv.net/en/artworks/105339824) | Clock and hosts at the left, other panels at the right | Ink glass, butterfly blue, ribbon red, Plex Serif |
+| `keqing-wedding` | ぶし | [Keqing in a wedding dress](https://www.pixiv.net/en/artworks/110502639) | All panels and the clock at the left, over the sky | Light: lilac cards, violet type |
+| `bronya-snow` | Fukuro袋子 | [Bronya on a snowy field](https://www.pixiv.net/en/artworks/110744252) | All panels and the clock at the right | Light: ice cards, navy type, coat gold |
+| `fu-xuan-stars` | DAWN凌晨 | [Fu Xuan among constellations](https://www.pixiv.net/en/artworks/111937693) | Clock and hosts at the left, other panels at the right | Violet glass over stars, Plex Serif |
+| `nahida-forest` | UllV◇ | [Nahida in the Sumeru forest](https://www.pixiv.net/en/artworks/111987496) | All panels and the clock at the left, over the trees | Moss glass, dendro green, sun gold |
+| `focalors-blossom` | 喵咕君QAQ(KH3) | [Focalors in blue blossoms](https://www.pixiv.net/en/artworks/114423788) | All panels and the clock at the right | Light: water cards, deep blue type, Plex Serif |
+| `kirara-delivery` | キョウ屋斎 | [Kirara on a delivery ride](https://www.pixiv.net/en/artworks/114733430) | All panels and the clock at the left, over the town | Light: cream cards, dusk navy, cat green |
+| `furina-sky` | コユコム | [Furina in an open sky](https://www.pixiv.net/en/artworks/121122586) | All panels at the left, clock under them | Navy glass, white type, Plex Serif |
+| `ruan-mei-blossom` | コユコム | [Ruan Mei by a plum window](https://www.pixiv.net/en/artworks/114596167) | Clock and hosts at the left, other panels at the right | Light: blush cards, plum type, Plex Serif |
+| `mavuika-ride` | xUDe | [Mavuika on a desert ride](https://www.pixiv.net/en/artworks/125448796) | All panels and the clock at the right, under the sky | Light: sand cards, ember and sky teal |
+| `castorice-garden` | カルヒKarlHe | [Castorice in a violet garden](https://www.pixiv.net/en/artworks/128606489) | All panels and the clock at the left, over the trunks | Dusk glass, lilac type, Plex Serif |
+| `yae-mist` | 大猫 | [Yae Miko in a misty forest](https://www.pixiv.net/en/artworks/139487231) | All panels and the clock at the left, over the mist | Light: paper cards, ink type, shrine red, Plex Serif |
+| `shenhe-lanterns` | kirabunni | [Shenhe and Ganyu under lanterns](https://www.pixiv.net/en/artworks/116114165) | Clock and hosts at the left, other panels at the right | Amber glass, lantern gold, Plex Serif |
+| `furina-deep` | Hewaje | [Furina in deep water](https://www.pixiv.net/en/artworks/116931545) | Clock and hosts at the left, other panels at the right | Teal glass, caustic aqua |
+| `kafka-ruins` | miiio | [Kafka in a ruined city](https://www.pixiv.net/en/artworks/111279076) | Clock and hosts at the left, other panels at the right | Graphite glass, magenta, square corners, Plex Mono |
+| `march-shrine` | camu | [March 7th and Stelle at a snowy shrine](https://www.pixiv.net/en/artworks/114753990) | Clock and hosts at the left, other panels at the right | Cocoa glass, lantern amber, March pink, Plex Serif |
+| `acheron-rain` | xUDe | [Acheron in red rain](https://www.pixiv.net/en/artworks/117062300) | All panels and the clock at the left | Ash glass, one red, square corners, Plex Mono |
+
+The `evernight` and `ayaka-moonlit` files have black bars at the top and the bottom. Crop them
+before you use them. The display fills the window with `ObjectFit::Cover`, so it keeps the bars
+otherwise.
+
+The display draws the wallpaper file as it is. No AI image tool makes or changes an image. A style
+is only Rust code: fixed colors, fonts, and panel areas. To make a style for another wallpaper,
+copy one constant, pick colors from the art, and set the area widths where the art is quiet.
+
+The styles are in `src/status_style.rs` and `src/status_style_contest.rs`. Each style is one
+constant. Remove the styles that you do
 not keep.
 
 ### Visual cleanup
@@ -660,7 +694,7 @@ These checks ran on a Linux machine (KDE Plasma, Wayland) with GPUI at the pinne
   A request with the MagicDNS host name got status 200. A request with another `Host` header got
   status 400, and so did a request for the disabled process list. Glances used 0.1 % CPU at idle.
   A restart of the Mac did not run, so the start at sign-in needs a hands-on check.
-- Each of the nine side styles rendered at 1920 × 1080 in the nested KWin session with its
+- Each of the 29 side styles rendered at 1920 × 1080 in the nested KWin session with its
   wallpaper and live data. The clock stayed on one line, and no list row lost its name. The
   screenshots stay out of Git, because the art belongs to the artist. The `hills` style rendered
   the band arrangement as before.
@@ -696,8 +730,8 @@ These items need a test on real hardware. Windows items come first:
 
 ## Open questions
 
-- Which styles do you keep? The repository has nine drafts for wallpapers by Yolanda, and the
-  `hills` style for the Windows XP "Bliss" placeholder.
+- Which styles do you keep? The repository has nine drafts for wallpapers by Yolanda, twenty
+  drafts for wallpapers by contest winners, and the `hills` style for the Windows XP "Bliss" placeholder.
 - Must the app start at sign-in on the Windows laptop? This version adds no startup entry or
   service.
 
