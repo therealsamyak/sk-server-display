@@ -346,10 +346,6 @@ impl StatusView {
             for panel in &self.panels {
                 panel.update(cx, |panel, cx| panel.set_panel_style(frame.style, cx));
             }
-            if let Some(btop) = &self.btop {
-                btop.view
-                    .update(cx, |btop, cx| btop.set_btop_style(frame.style, cx));
-            }
         }
     }
 

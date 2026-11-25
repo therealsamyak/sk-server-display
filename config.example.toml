@@ -12,6 +12,7 @@ source = "local"
 # source = "glances"
 # url = "http://glances.example.com:61208"
 # fallback_device = "office-server" # Optional Tailscale device name.
+# btop_ssh = "operator@glances.example.com" # Optional btop terminal action.
 
 # A presence-only card uses the device name in Tailscale, separate from its label.
 # [[host]]

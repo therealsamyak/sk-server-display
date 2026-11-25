@@ -21,6 +21,7 @@ use crate::{
         TailnetHostCollector, TailscaleCollector, TailscaleStatusReader,
     },
     metrics::status_collector::StatusCollector,
+    platform::StatusTerminal,
 };
 
 /// Poll interval of host metrics from this machine and from Glances.
@@ -64,6 +65,9 @@ pub enum HostConfig {
         name: String,
         url: String,
         fallback_device: Option<String>,
+        /// SSH target for the btop terminal action. Only hosts where btop
+        /// is installed should set this.
+        btop_ssh: Option<String>,
     },
     Tailscale {
         name: String,
@@ -159,6 +163,8 @@ pub struct StatusFeedSpec {
     pub source: &'static str,
     pub collector: StatusCollector,
     pub poll_interval: Duration,
+    /// Terminal target for the host's btop action.
+    pub btop: Option<StatusTerminal>,
 }
 
 /// Builds the status feeds in display order.
@@ -192,6 +198,7 @@ pub fn build_status_feeds(config: &StatusConfig) -> anyhow::Result<Vec<StatusFee
                 agent: agent(SERVICE_POLL_INTERVAL),
             }),
             poll_interval: SERVICE_POLL_INTERVAL,
+            btop: None,
         });
     }
     if let Some(scrutiny) = &config.scrutiny {
@@ -203,6 +210,7 @@ pub fn build_status_feeds(config: &StatusConfig) -> anyhow::Result<Vec<StatusFee
                 agent: agent(DISK_POLL_INTERVAL),
             }),
             poll_interval: DISK_POLL_INTERVAL,
+            btop: None,
         });
     }
     if config.tailscale.show_devices {
@@ -211,6 +219,7 @@ pub fn build_status_feeds(config: &StatusConfig) -> anyhow::Result<Vec<StatusFee
             source: "Tailscale",
             collector: StatusCollector::Tailscale(TailscaleCollector { reader: tailscale }),
             poll_interval: TAILNET_POLL_INTERVAL,
+            btop: None,
         });
     }
     Ok(feeds)
@@ -233,6 +242,7 @@ fn host_feed_spec(
         HostConfig::Glances {
             url,
             fallback_device,
+            btop_ssh,
             ..
         } => Ok(StatusFeedSpec {
             title: title.into(),
@@ -247,6 +257,11 @@ fn host_feed_spec(
                 }),
             }),
             poll_interval: HOST_POLL_INTERVAL,
+            btop: btop_ssh
+                .as_deref()
+                .map(StatusTerminal::ssh_btop)
+                .transpose()
+                .with_context(|| format!("invalid btop target for {title}"))?,
         }),
         HostConfig::Tailscale { device, .. } => Ok(StatusFeedSpec {
             title: title.into(),
@@ -256,6 +271,7 @@ fn host_feed_spec(
                 name: device.clone(),
             }),
             poll_interval: TAILNET_POLL_INTERVAL,
+            btop: None,
         }),
     }
 }
@@ -281,6 +297,7 @@ fn local_feed_spec(title: String) -> StatusFeedSpec {
         source: "local",
         collector: StatusCollector::Local(LocalCollector::default()),
         poll_interval: HOST_POLL_INTERVAL,
+        btop: None,
     }
 }
 

@@ -61,7 +61,6 @@ impl StatusView {
             && self.update_dialog.is_none()
             && self.preview.is_none()
             && self.details.is_none()
-            && self.btop.is_none()
             && self.carousel.read(cx).state.playing_playlist().is_some()
         {
             self.swipe = Some(SlideshowSwipe::Pressed(position));

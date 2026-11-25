@@ -1,17 +1,8 @@
-# Wallpapers
+List of artwork I use for my own personal configuration.
 
-These are personal favorites. I use them in my own setup. The image files are not committed to GitHub.
-
-## Landscape
-
-| Style ID | Artist | Image link |
+| Style ID | Artist | Artwork link |
 | --- | --- | --- |
 | `hills` | Charles O'Rear | [Bliss](https://en.wikipedia.org/wiki/Bliss_(photograph)) |
-
-## Yolanda
-
-| Style ID | Artist | Image link |
-| --- | --- | --- |
 | `yolanda-kokomi` | Yolanda | [Kokomi among jellyfish](https://www.pixiv.net/en/artworks/101664845) |
 | `yolanda-nilou` | Yolanda | [Nilou in a gold mandala](https://www.pixiv.net/en/artworks/102143351) |
 | `yolanda-raiden` | Yolanda | [Raiden Shogun and Ei](https://www.pixiv.net/en/artworks/115029674) |
@@ -21,11 +12,6 @@ These are personal favorites. I use them in my own setup. The image files are no
 | `yolanda-aglaea` | Yolanda | [Aglaea in a cathedral](https://www.pixiv.net/en/artworks/126929805) |
 | `yolanda-evernight` | Yolanda | [Evernight among letters](https://www.pixiv.net/en/artworks/136562527) |
 | `yolanda-yaoguang` | Yolanda | [Yaoguang with peacock feathers](https://www.pixiv.net/en/artworks/141114001) |
-
-## HoYoverse event artists
-
-| Style ID | Artist | Image link |
-| --- | --- | --- |
 | `furina-balloon` | シオザワホウショウ | [Furina in a balloon over Fontaine](https://www.pixiv.net/en/artworks/115029794) |
 | `rosaria-ruins` | シオザワホウショウ | [Rosaria in flooded ruins](https://www.pixiv.net/en/artworks/115029756) |
 | `lumine-cathedral` | といぺー / といれっとぺーぱー | [Lumine in a sunlit cathedral](https://www.pixiv.net/en/artworks/104137242) |

@@ -1,4 +1,3 @@
-mod status_btop;
 mod status_format;
 mod status_graph;
 mod status_panel;

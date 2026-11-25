@@ -153,9 +153,9 @@ impl StatusView {
                 card.role(Role::Button)
                     .aria_label(format!("Expand {}", feed.spec.title))
                     .cursor_pointer()
-                    .on_click(cx.listener(move |view, _, window, cx| {
+                    .on_click(cx.listener(move |view, _, _, cx| {
                         if !view.swipe_consumed && !view.swipe_in_motion() {
-                            view.open_feed_details(index, window, cx)
+                            view.open_feed_details(index, cx)
                         }
                     }))
             })

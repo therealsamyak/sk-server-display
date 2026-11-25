@@ -26,9 +26,8 @@ use crate::{
 };
 
 use super::{
-    status_btop::{BtopWindowClosed, BtopWindowView},
     status_format::status_clock_text_valid_for,
-    status_panel::{FeedBtopRequested, FeedDetailsClosed, FeedPanelView},
+    status_panel::{FeedDetailsClosed, FeedPanelView},
     status_redraw::StatusRedrawTimer,
     status_theme::{Scale, StatusLayout, StatusTheme},
     status_window::StatusDisplayApp,
@@ -98,7 +97,6 @@ pub struct StatusView {
     preview: Option<WallpaperPreview>,
     preview_error: Option<String>,
     details: Option<FeedDetailsSession>,
-    btop: Option<BtopSession>,
     pointer_pressed: bool,
     swipe: Option<SlideshowSwipe>,
     incoming_panels: Option<IncomingPanels>,
@@ -117,12 +115,6 @@ pub struct StatusView {
 struct FeedDetailsSession {
     index: usize,
     panel: Entity<FeedPanelView>,
-    _close: Subscription,
-    _btop: Subscription,
-}
-
-struct BtopSession {
-    view: Entity<BtopWindowView>,
     _close: Subscription,
 }
 
@@ -193,7 +185,6 @@ impl StatusView {
             preview: None,
             preview_error: None,
             details: None,
-            btop: None,
             pointer_pressed: false,
             swipe: None,
             incoming_panels: None,
@@ -217,49 +208,14 @@ impl StatusView {
         );
     }
 
-    fn open_feed_details(&mut self, index: usize, window: &mut Window, cx: &mut Context<Self>) {
+    fn open_feed_details(&mut self, index: usize, cx: &mut Context<Self>) {
         let board = self.board.clone();
         let panel =
             cx.new(|cx| FeedPanelView::new_expanded_panel(board, index, self.wallpaper.style, cx));
         let close = cx.subscribe(&panel, |view, _, _: &FeedDetailsClosed, cx| {
             view.close_feed_details(cx);
         });
-        let btop = cx.subscribe_in(
-            &panel,
-            window,
-            move |view, _, _: &FeedBtopRequested, window, cx| {
-                view.open_btop_window(index, window, cx);
-            },
-        );
-        self.details = Some(FeedDetailsSession {
-            index,
-            panel,
-            _close: close,
-            _btop: btop,
-        });
-        cx.notify();
-    }
-
-    /// Opens the btop window of a host, or brings an open one to that host.
-    fn open_btop_window(&mut self, index: usize, window: &mut Window, cx: &mut Context<Self>) {
-        if self
-            .btop
-            .as_ref()
-            .is_some_and(|btop| btop.view.read(cx).btop_feed_index() == index)
-        {
-            return;
-        }
-        let board = self.board.clone();
-        let style = self.wallpaper.style;
-        let view = cx.new(|cx| BtopWindowView::new_btop_window(board, index, style, window, cx));
-        let close = cx.subscribe(&view, |view, _, _: &BtopWindowClosed, cx| {
-            view.btop = None;
-            cx.notify();
-        });
-        self.btop = Some(BtopSession {
-            view,
-            _close: close,
-        });
+        self.details = Some(FeedDetailsSession { index, panel, _close: close });
         cx.notify();
     }
 
@@ -289,9 +245,6 @@ impl StatusView {
             self.cancel_preview(window, cx);
         } else if self.picker.is_some() {
             self.close_picker(window, cx);
-        } else if self.btop.is_some() {
-            self.btop = None;
-            cx.notify();
         } else if self.details.is_some() {
             self.close_feed_details(cx);
         } else if window.is_fullscreen() {
@@ -537,12 +490,6 @@ impl Render for StatusView {
                         ),
                 )
             })
-            .children(
-                self.btop
-                    .as_ref()
-                    .filter(|_| !modal && self.preview.is_none())
-                    .map(|btop| btop.view.clone()),
-            )
             .children(
                 self.picker
                     .as_ref()
