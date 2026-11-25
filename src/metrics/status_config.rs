@@ -9,7 +9,7 @@ use std::{
 };
 
 use anyhow::{Context as _, ensure};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use ureq::http::Uri;
 
 use crate::{
@@ -34,7 +34,7 @@ pub const SERVICE_POLL_INTERVAL: Duration = Duration::from_secs(30);
 pub const DISK_POLL_INTERVAL: Duration = Duration::from_secs(300);
 
 /// Status display configuration file contents.
-#[derive(Debug, Default, Deserialize, PartialEq)]
+#[derive(Debug, Default, Deserialize, Serialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct StatusConfig {
     /// Folder with one wallpaper file for each status style, named after
@@ -55,7 +55,7 @@ pub struct StatusConfig {
 }
 
 /// One named host card with an explicit data source.
-#[derive(Debug, Deserialize, PartialEq)]
+#[derive(Debug, Deserialize, Serialize, PartialEq)]
 #[serde(tag = "source", rename_all = "kebab-case", deny_unknown_fields)]
 pub enum HostConfig {
     Local {
@@ -74,7 +74,7 @@ pub enum HostConfig {
 }
 
 /// Uptime Kuma public status page.
-#[derive(Debug, Deserialize, PartialEq)]
+#[derive(Debug, Deserialize, Serialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct KumaConfig {
     /// Uptime Kuma URL, such as `http://server.example.ts.net:3001`.
@@ -84,7 +84,7 @@ pub struct KumaConfig {
 }
 
 /// Scrutiny web server.
-#[derive(Debug, Deserialize, PartialEq)]
+#[derive(Debug, Deserialize, Serialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct ScrutinyConfig {
     /// Scrutiny URL, such as `http://server.example.ts.net:8080`.
@@ -92,7 +92,7 @@ pub struct ScrutinyConfig {
 }
 
 /// Tailscale device list.
-#[derive(Debug, Deserialize, PartialEq)]
+#[derive(Debug, Deserialize, Serialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct TailscaleConfig {
     #[serde(default)]

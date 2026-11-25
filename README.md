@@ -152,6 +152,29 @@ style. See [wallpaper filenames, artists, and sources](WALLPAPERS.md).
 Keep images, configuration, and state outside Git. For the preset catalog or other third-party
 art, retain the artist and source credit with the local copy.
 
+## Move a profile to another device
+
+Exit the app before copying a profile so the export includes your latest saved edits. The
+export copies your source settings, images, layouts, Favorites, and slideshows. Copy the whole
+exported folder to the other device.
+
+Use the executable from a terminal. On Windows, use `server-status-display.exe`.
+
+```sh
+server-status-display --export-profile ./display-backup
+server-status-display --import-profile ./display-backup --config ./restored-display/config.toml
+server-status-display --config ./restored-display/config.toml
+```
+
+For a specific source profile, add `--config /path/to/config.toml` to the export command. To
+restore to the default location on a new device, omit `--config` from the import command.
+Each transfer needs a new destination directory. It leaves existing profiles intact.
+
+The folder contains your server addresses and artwork. Keep it private. Import profiles you
+trust. Review the configuration before opening it on the new device. Set up any device-specific
+Tailscale executable paths and SSH aliases there. The export contains no SSH keys, known-host
+records, or credentials from other apps.
+
 ## Keep the display awake
 
 While the fullscreen window is visible on AC power, the app requests that the OS keep the

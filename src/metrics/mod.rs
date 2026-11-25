@@ -8,7 +8,10 @@ mod status_model;
 
 pub(crate) use status_board::{StatusBoard, StatusFeedUpdated};
 pub(crate) use status_collector::StatusCollector;
-pub(crate) use status_config::{build_status_feeds, load_status_config, status_state_path};
+pub(crate) use status_config::{
+    StatusConfig, build_status_feeds, default_status_config_path, load_status_config,
+    status_state_path,
+};
 pub(crate) use status_feed::{HOST_HISTORY_SAMPLES, HostHistory, StatusFeed};
 pub(crate) use status_freshness::FeedFreshness;
 pub(crate) use status_model::{

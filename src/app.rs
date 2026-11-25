@@ -3,8 +3,11 @@
 use std::path::PathBuf;
 
 use crate::{
-    metrics::{build_status_feeds, load_status_config, status_state_path},
+    metrics::{
+        build_status_feeds, default_status_config_path, load_status_config, status_state_path,
+    },
     platform::DisplaySelector,
+    profile::{export_profile, import_profile},
     wallpaper::find_style_wallpapers,
     wallpaper::{StatusCarousel, StatusPlayback},
 };
@@ -33,6 +36,14 @@ struct StatusDisplayArgs {
     /// Open as a normal window instead of fullscreen.
     #[arg(long)]
     windowed: bool,
+
+    /// Copy hosts, artwork, and slideshow settings to a new profile directory.
+    #[arg(long, value_name = "DIRECTORY", conflicts_with = "import_profile")]
+    export_profile: Option<PathBuf>,
+
+    /// Restore a portable directory to a new profile. Use --config to set its location.
+    #[arg(long, value_name = "DIRECTORY")]
+    import_profile: Option<PathBuf>,
 }
 
 /// Global that keeps the status display controller alive for the whole run.
@@ -48,6 +59,14 @@ pub(super) fn run_status_display() {
     let local_offset = UtcOffset::current_local_offset().unwrap_or(UtcOffset::UTC);
     let args = StatusDisplayArgs::parse();
     env_logger_init();
+
+    if args.export_profile.is_some() || args.import_profile.is_some() {
+        if let Err(error) = transfer_profile(&args) {
+            log::error!("{error:#}");
+            std::process::exit(2);
+        }
+        return;
+    }
 
     let (config, feeds) = match load_status_config(args.config.as_deref())
         .and_then(|config| build_status_feeds(&config).map(|feeds| (config, feeds)))
@@ -95,6 +114,25 @@ pub(super) fn run_status_display() {
         let app = StatusDisplayApp::start_status_display(board, carousel, settings, cx);
         cx.set_global(StatusDisplayRoot(app));
     });
+}
+
+fn transfer_profile(args: &StatusDisplayArgs) -> anyhow::Result<()> {
+    use anyhow::Context as _;
+
+    if let Some(destination) = &args.export_profile {
+        export_profile(args.config.as_deref(), destination)?;
+        println!("Exported profile to {}", destination.display());
+    }
+    if let Some(source) = &args.import_profile {
+        let config = args
+            .config
+            .clone()
+            .or_else(default_status_config_path)
+            .context("set the new configuration path with --config")?;
+        import_profile(source, &config)?;
+        println!("Imported profile to {}", config.display());
+    }
+    Ok(())
 }
 
 fn env_logger_init() {

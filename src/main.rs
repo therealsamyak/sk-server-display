@@ -6,6 +6,7 @@ mod app;
 mod dashboard;
 mod metrics;
 mod platform;
+mod profile;
 mod status_fonts;
 mod status_startup;
 mod wallpaper;

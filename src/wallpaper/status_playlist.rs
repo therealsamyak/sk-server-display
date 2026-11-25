@@ -143,7 +143,16 @@ impl StatusPlayback {
             Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(Self::default()),
             Err(error) => return Err(error).context("cannot read slideshow state"),
         };
-        let state: Self = toml::from_str(&text).context("invalid slideshow state")?;
+        let mut state: Self = toml::from_str(&text).context("invalid slideshow state")?;
+        let absolute = std::path::absolute(path).context("cannot resolve slideshow state path")?;
+        let directory = absolute
+            .parent()
+            .context("slideshow state has no parent directory")?;
+        for import in &mut state.imports {
+            if import.path.is_relative() {
+                import.path = directory.join(&import.path);
+            }
+        }
         state.validate_playback()?;
         Ok(state)
     }
@@ -151,11 +160,30 @@ impl StatusPlayback {
     /// Save valid slideshow state in one atomic file replacement.
     pub fn save_status_playback(&self, path: &Path) -> anyhow::Result<()> {
         self.validate_playback()?;
-        let contents = toml::to_string_pretty(self).context("cannot serialize slideshow state")?;
         let directory = path
             .parent()
             .filter(|path| !path.as_os_str().is_empty())
             .unwrap_or_else(|| Path::new("."));
+        let mut state = self.clone();
+        let absolute = std::path::absolute(path).context("cannot resolve slideshow state path")?;
+        let profile_directory = absolute
+            .parent()
+            .context("slideshow state has no parent directory")?;
+        for import in &mut state.imports {
+            if let Ok(relative) = import.path.strip_prefix(profile_directory) {
+                let components = relative
+                    .components()
+                    .map(|part| {
+                        part.as_os_str()
+                            .to_str()
+                            .context("wallpaper path is not valid UTF-8")
+                    })
+                    .collect::<anyhow::Result<Vec<_>>>()?;
+                import.path = PathBuf::from(components.join("/"));
+            }
+        }
+        let contents =
+            toml::to_string_pretty(&state).context("cannot serialize slideshow state")?;
         std::fs::create_dir_all(directory).context("cannot create slideshow state folder")?;
         let mut file = tempfile::NamedTempFile::new_in(directory)
             .context("cannot create temporary slideshow state file")?;
