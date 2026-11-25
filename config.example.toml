@@ -1,54 +1,33 @@
-# Server status display configuration.
-#
-# Copy this file to the default location and edit the URLs:
-#   Windows: %APPDATA%\server-status-display\config.toml
-#   macOS:   ~/Library/Application Support/server-status-display/config.toml
-#   Linux:   ~/.config/server-status-display/config.toml
-# Or start the app with --config <path>.
-#
-# Use full Tailscale MagicDNS names. Do not commit your real file.
+# Optional preset image folder, relative to this file. See WALLPAPERS.md.
+# preset_wallpapers = "wallpapers"
 
-# Wallpaper folder: one JPEG or PNG file for each style, named after the
-# style, such as "cyrene-bow.png" or "hills.jpg". See "Styles" in README.md.
-# A relative path starts from the folder of this file. A style without a
-# file shows its solid background color, and slideshows skip it.
-# The app keeps favorites, slideshows, and the style on screen in
-# status-display-state.toml next to this file.
-wallpapers = "wallpapers"
-
-# Host cards for the left column, in order. Each card reads one source:
-# - glances_url: CPU, memory, disk, network, and uptime from Glances
-#   (glances -w) on that host. While Glances does not answer, for example
-#   when the host sleeps, the card shows the Tailscale presence instead.
-# - this_machine = true: the same metrics from the machine that runs the
-#   display.
-# - neither: a status card with the online state of the device with this
-#   name, from Tailscale. Use the first label of its MagicDNS name. Use this
-#   for laptops, phones, and tablets.
-# Without [[host]] blocks, the display shows one card for this machine.
+# An empty configuration also shows local metrics. Rename this card as needed.
 [[host]]
-name = "server"
-glances_url = "http://server.example.ts.net:61208"
-# Optional. Opens btop over SSH from the expanded host card.
-# btop_ssh = "operator@server.example.ts.net"
+name = "This machine"
+source = "local"
 
-[[host]]
-name = "desk"
-glances_url = "http://desk.example.ts.net:61208"
+# Add one block per remote host. Replace the example URL with your Glances v4 URL.
+# [[host]]
+# name = "Office server"
+# source = "glances"
+# url = "http://glances.example.com:61208"
+# fallback_device = "office-server" # Optional Tailscale device name.
+# btop_ssh = "operator@glances.example.com" # Optional btop terminal action.
 
-[[host]]
-name = "laptop"
+# A presence-only card uses the device name in Tailscale, separate from its label.
+# [[host]]
+# name = "Travel laptop"
+# source = "tailscale"
+# device = "laptop"
 
-# A public Uptime Kuma status page. The app reads it without sign-in.
-[uptime_kuma]
-url = "http://server.example.ts.net:3001"
-status_page = "home"
+# The device list is independent of individual cards.
+# [tailscale]
+# show_devices = true
+# command = "tailscale"
 
-# Scrutiny SMART disk health.
-[scrutiny]
-url = "http://server.example.ts.net:8080"
+# [uptime_kuma]
+# url = "https://status.example.com"
+# status_page = "home"
 
-# Tailnet devices from `tailscale status --json`.
-[tailscale]
-enabled = true
-command = "tailscale"
+# [scrutiny]
+# url = "https://disks.example.com"
