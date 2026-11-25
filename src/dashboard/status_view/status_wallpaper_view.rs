@@ -2,9 +2,13 @@
 
 use std::{sync::Arc, time::Instant};
 
-use gpui::{AppContext as _, Context, Entity, RenderImage, Size, Subscription, Task, Window};
+use gpui::{
+    AppContext as _, Context, Entity, IntoElement, RenderImage, Size, Subscription, Task, Window,
+    div, prelude::*,
+};
 
-use super::StatusView;
+use super::{StatusView, status_view_layout::SCREEN_PADDING};
+use crate::dashboard::status_theme::Scale;
 use crate::wallpaper::{
     ImportedWallpaper, PlaylistChoice, StatusPicker, StatusPickerEvent, StatusPlaybackMode,
     StatusStyle, WallpaperId, load_status_wallpaper, plain_status_style,
@@ -51,6 +55,33 @@ impl Default for StatusWallpaper {
 }
 
 impl StatusView {
+    /// Tap area in the left or right window margin. A tap shows the previous
+    /// or next slideshow wallpaper and restarts the slide timer.
+    pub(super) fn slideshow_edge(
+        &self,
+        s: Scale,
+        forward: bool,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement {
+        div()
+            .id(if forward {
+                "slideshow-next-edge"
+            } else {
+                "slideshow-previous-edge"
+            })
+            .absolute()
+            .top_0()
+            .bottom_0()
+            .when(forward, |edge| edge.right_0())
+            .when(!forward, |edge| edge.left_0())
+            .w(s(SCREEN_PADDING))
+            .on_click(cx.listener(move |view, _, _, cx| {
+                view.carousel
+                    .update(cx, |carousel, _| carousel.step_slideshow(forward));
+                cx.notify();
+            }))
+    }
+
     pub(super) fn update_slideshow(&mut self, cx: &mut Context<Self>) {
         if self.picker.is_some() || self.details.is_some() || self.pointer_pressed {
             return;
@@ -161,6 +192,10 @@ impl StatusView {
             self.wallpaper.style = frame.style;
             for panel in &self.panels {
                 panel.update(cx, |panel, cx| panel.set_panel_style(frame.style, cx));
+            }
+            if let Some(btop) = &self.btop {
+                btop.view
+                    .update(cx, |btop, cx| btop.set_btop_style(frame.style, cx));
             }
         }
     }

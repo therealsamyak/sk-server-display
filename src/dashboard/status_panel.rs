@@ -32,7 +32,7 @@ use crate::{
 };
 use gpui::{
     AnyElement, ClickEvent, Context, Div, Entity, EventEmitter, FontWeight, Hsla, IntoElement,
-    Render, Role, Subscription, WeakEntity, Window, div, prelude::*, px, relative,
+    Render, Role, Subscription, WeakEntity, Window, div, prelude::*, relative,
 };
 
 /// Feed panel view: the status panel of one feed.
@@ -40,7 +40,6 @@ pub struct FeedPanelView {
     board: Entity<StatusBoard>,
     index: usize,
     detail: bool,
-    terminal_error: Option<String>,
     style: StatusStyle,
     /// Devices with their own host card. The tailnet panel leaves them out.
     carded: Vec<String>,
@@ -65,7 +64,6 @@ impl FeedPanelView {
             board,
             index,
             detail: false,
-            terminal_error: None,
             style: plain_status_style(),
             carded,
             redraw: StatusRedrawTimer::default(),
@@ -98,6 +96,11 @@ pub struct FeedDetailsClosed;
 
 impl EventEmitter<FeedDetailsClosed> for FeedPanelView {}
 
+/// The user asked for the btop window of the expanded host card.
+pub struct FeedBtopRequested;
+
+impl EventEmitter<FeedBtopRequested> for FeedPanelView {}
+
 impl Render for FeedPanelView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let layout = StatusLayout::from_status_window(window);
@@ -117,7 +120,6 @@ impl Render for FeedPanelView {
                 redraw: &self.redraw,
                 now: OffsetDateTime::now_utc(),
                 close_details,
-                terminal_error: self.terminal_error.as_deref(),
             };
             let compact =
                 self.detail || matches!(self.style.arrangement, StyleArrangement::Sides { .. });
@@ -139,6 +141,10 @@ impl Render for FeedPanelView {
 /// Line height of panel text, as a part of the text size.
 pub const PANEL_LINE_HEIGHT: f32 = 1.25;
 
+/// Height of the card title row. Header buttons match it, so a button
+/// does not make the row taller than its title text.
+const TITLE_ROW_HEIGHT: f32 = 17. * PANEL_LINE_HEIGHT;
+
 /// Height of the collapsed Services header, including the inline history strip.
 const SERVICE_SUMMARY_HEIGHT: f32 = 56.;
 
@@ -146,7 +152,7 @@ const SERVICE_SUMMARY_HEIGHT: f32 = 56.;
 pub fn expanded_panel_height(feed: &StatusFeed, layout: StatusLayout) -> f32 {
     let height = match (&feed.spec.collector, feed.latest_reading()) {
         (StatusCollector::Kuma(_), Some(FeedData::Services(services))) => {
-            list_panel_height(services.len()) + 32.
+            list_panel_height(services.len())
         }
         (StatusCollector::Kuma(_), _) => 144.,
         _ => 368.,
@@ -198,7 +204,6 @@ struct FeedView<'a> {
     redraw: &'a StatusRedrawTimer,
     now: OffsetDateTime,
     close_details: Option<WeakEntity<FeedPanelView>>,
-    terminal_error: Option<&'a str>,
 }
 
 impl FeedView<'_> {
@@ -316,8 +321,8 @@ fn feed_panel(
                 .children(
                     view.close_details
                         .clone()
-                        .zip(view.feed.spec.btop.clone())
-                        .map(|(panel, target)| {
+                        .filter(|_| matches!(view.reading(), Some(FeedData::Host(_))))
+                        .map(|panel| {
                             detail_button(
                                 s,
                                 theme,
@@ -325,12 +330,9 @@ fn feed_panel(
                                 "open-btop",
                                 "btop",
                                 move |_, _, cx| {
-                                    let result = target.launch_btop();
-                                    if let Err(error) = panel.update(cx, |this, cx| {
-                                        this.terminal_error =
-                                            result.err().map(|error| error.to_string());
-                                        cx.notify();
-                                    }) {
+                                    if let Err(error) =
+                                        panel.update(cx, |_, cx| cx.emit(FeedBtopRequested))
+                                    {
                                         log::debug!("feed details already closed: {error:#}");
                                     }
                                 },
@@ -342,7 +344,8 @@ fn feed_panel(
                         .id("collapse-feed-card")
                         .role(Role::Button)
                         .flex_none()
-                        .size(px(44.).max(s(32.)))
+                        .h(s(TITLE_ROW_HEIGHT))
+                        .px(s(8.))
                         .flex()
                         .items_center()
                         .justify_center()
@@ -358,12 +361,6 @@ fn feed_panel(
                         .child("Done")
                 })),
         )
-        .children(view.terminal_error.map(|error| {
-            div()
-                .text_size(s(13.))
-                .text_color(theme.warn())
-                .child(error.to_owned())
-        }))
         .child(body)
 }
 
@@ -379,14 +376,14 @@ fn detail_button(
         .id(id)
         .role(Role::Button)
         .flex_none()
-        .h(px(44.).max(s(32.)))
+        .h(s(TITLE_ROW_HEIGHT))
         .px(s(8.))
         .flex()
         .items_center()
         .rounded(s(radius))
         .border_1()
         .border_color(theme.panel_border())
-        .text_size(s(14.))
+        .text_size(s(13.))
         .cursor_pointer()
         .hover(move |button| button.bg(theme.track()))
         .on_click(on_click)
@@ -968,7 +965,8 @@ fn presence_note(
 /// Tailscale path to a device, such as `direct` or `relay lax`.
 fn tailnet_connection_text(view: &FeedView, device: &TailnetDevice) -> String {
     match &device.connection {
-        TailnetConnection::ThisMachine => "this machine".to_string(),
+        // The display machine needs no path text.
+        TailnetConnection::ThisMachine => "-".to_string(),
         TailnetConnection::Direct => "direct".to_string(),
         TailnetConnection::Relay(relay) => format!("relay {relay}"),
         TailnetConnection::Idle => "idle".to_string(),

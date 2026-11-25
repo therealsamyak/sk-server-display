@@ -22,18 +22,21 @@ use crate::{
     platform::{StatusPower, status_update::finish_app_update},
     status_fonts::STATUS_MONO_FONT_FAMILY,
     status_startup::{StartupMilestone, log_startup_milestone},
-    wallpaper::{StatusCarousel, StyleArrangement},
+    wallpaper::{StatusCarousel, StyleAnchor, StyleArrangement},
 };
 
 use super::{
+    status_btop::{BtopWindowClosed, BtopWindowView},
     status_format::status_clock_text_valid_for,
-    status_panel::{FeedDetailsClosed, FeedPanelView},
+    status_panel::{FeedBtopRequested, FeedDetailsClosed, FeedPanelView},
     status_redraw::StatusRedrawTimer,
     status_theme::{Scale, StatusLayout, StatusTheme},
     status_window::StatusDisplayApp,
 };
 use status_update_view::StatusUpdateDialog;
-use status_view_layout::{alert_row, area_shade, control_button, feed_alert, status_clock};
+use status_view_layout::{
+    SCREEN_PADDING, alert_row, area_shade, control_button, feed_alert, status_clock,
+};
 use status_wallpaper_view::{PickerSession, StatusWallpaper, WallpaperPreview};
 
 actions!(
@@ -96,6 +99,7 @@ pub struct StatusView {
     preview: Option<WallpaperPreview>,
     preview_error: Option<String>,
     details: Option<FeedDetailsSession>,
+    btop: Option<BtopSession>,
     pointer_pressed: bool,
     controls_latched: bool,
     power: StatusPower,
@@ -110,6 +114,12 @@ pub struct StatusView {
 struct FeedDetailsSession {
     index: usize,
     panel: Entity<FeedPanelView>,
+    _close: Subscription,
+    _btop: Subscription,
+}
+
+struct BtopSession {
+    view: Entity<BtopWindowView>,
     _close: Subscription,
 }
 
@@ -178,6 +188,7 @@ impl StatusView {
             preview: None,
             preview_error: None,
             details: None,
+            btop: None,
             pointer_pressed: false,
             controls_latched: false,
             power: StatusPower::default(),
@@ -198,16 +209,47 @@ impl StatusView {
         );
     }
 
-    fn open_feed_details(&mut self, index: usize, cx: &mut Context<Self>) {
+    fn open_feed_details(&mut self, index: usize, window: &mut Window, cx: &mut Context<Self>) {
         let board = self.board.clone();
         let panel =
             cx.new(|cx| FeedPanelView::new_expanded_panel(board, index, self.wallpaper.style, cx));
         let close = cx.subscribe(&panel, |view, _, _: &FeedDetailsClosed, cx| {
             view.close_feed_details(cx);
         });
+        let btop = cx.subscribe_in(
+            &panel,
+            window,
+            move |view, _, _: &FeedBtopRequested, window, cx| {
+                view.open_btop_window(index, window, cx);
+            },
+        );
         self.details = Some(FeedDetailsSession {
             index,
             panel,
+            _close: close,
+            _btop: btop,
+        });
+        cx.notify();
+    }
+
+    /// Opens the btop window of a host, or brings an open one to that host.
+    fn open_btop_window(&mut self, index: usize, window: &mut Window, cx: &mut Context<Self>) {
+        if self
+            .btop
+            .as_ref()
+            .is_some_and(|btop| btop.view.read(cx).btop_feed_index() == index)
+        {
+            return;
+        }
+        let board = self.board.clone();
+        let style = self.wallpaper.style;
+        let view = cx.new(|cx| BtopWindowView::new_btop_window(board, index, style, window, cx));
+        let close = cx.subscribe(&view, |view, _, _: &BtopWindowClosed, cx| {
+            view.btop = None;
+            cx.notify();
+        });
+        self.btop = Some(BtopSession {
+            view,
             _close: close,
         });
         cx.notify();
@@ -239,6 +281,9 @@ impl StatusView {
             self.cancel_preview(window, cx);
         } else if self.picker.is_some() {
             self.close_picker(window, cx);
+        } else if self.btop.is_some() {
+            self.btop = None;
+            cx.notify();
         } else if self.details.is_some() {
             self.close_feed_details(cx);
         } else if window.is_fullscreen() {
@@ -325,6 +370,12 @@ impl Render for StatusView {
             StyleArrangement::Sides { left, .. } if left.clock.is_none()
         );
         let clock = status_clock(s, style, now, offset, clock_end);
+        // The top bar takes the top corner that the clock leaves free.
+        let controls_at_start = matches!(
+            style.arrangement,
+            StyleArrangement::Sides { left, right }
+                if left.clock.is_none() && right.clock == Some(StyleAnchor::Top)
+        );
 
         let is_fullscreen = window.is_fullscreen();
         let controls_left = self
@@ -332,6 +383,9 @@ impl Render for StatusView {
             .and_then(|at| CONTROLS_VISIBLE_DURATION.checked_sub(at.elapsed()));
         let modal = self.picker.is_some() || self.update_dialog.is_some();
         let show_window_controls = !modal && self.details.is_none();
+        let slideshow_taps = !modal
+            && self.preview.is_none()
+            && self.carousel.read(cx).state.playing_playlist().is_some();
         if show_window_controls && let Some(left) = controls_left {
             self.redraw.redraw_after(left);
         }
@@ -491,14 +545,19 @@ impl Render for StatusView {
             .child(div().absolute().inset_0().bg(theme.scrim()))
             .children(shades)
             .child(content)
+            .when(slideshow_taps, |root| {
+                root.child(self.slideshow_edge(s, false, cx))
+                    .child(self.slideshow_edge(s, true, cx))
+            })
             .when(!modal, |root| {
                 root.child(
                     div()
                         .absolute()
-                        .top(s(8.))
-                        .right(s(8.))
-                        .left(s(8.))
+                        .top(s(SCREEN_PADDING))
+                        .right(s(SCREEN_PADDING))
+                        .left(s(SCREEN_PADDING))
                         .flex()
+                        .when(controls_at_start, |bar| bar.flex_row_reverse())
                         .justify_end()
                         .items_center()
                         .gap(s(8.))
@@ -526,6 +585,12 @@ impl Render for StatusView {
                         ),
                 )
             })
+            .children(
+                self.btop
+                    .as_ref()
+                    .filter(|_| !modal && self.preview.is_none())
+                    .map(|btop| btop.view.clone()),
+            )
             .children(
                 self.picker
                     .as_ref()

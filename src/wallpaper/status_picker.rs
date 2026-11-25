@@ -13,7 +13,7 @@ use std::{
 use gpui::{
     App, AppContext as _, Context, Div, ElementId, Entity, EventEmitter, FocusHandle, FontWeight,
     KeyDownEvent, ObjectFit, Render, RenderImage, Role, ScrollHandle, SharedString, Size, Stateful,
-    StyledImage as _, Window, div, img, point, prelude::*, px, rgb, rgba,
+    StyledImage as _, Window, div, img, prelude::*, px, rgb, rgba,
 };
 
 use crate::{
@@ -110,9 +110,7 @@ pub struct StatusPicker {
     focus: FocusHandle,
     name: Entity<PickerInput>,
     interval: [Entity<PickerInput>; 3],
-    gallery_scroll: ScrollHandle,
     list_scroll: ScrollHandle,
-    navigation_scroll: ScrollHandle,
     validation: Option<&'static str>,
     save_error: Option<String>,
 }
@@ -131,6 +129,11 @@ impl StatusPicker {
     ) -> Self {
         let focus = cx.focus_handle();
         focus.focus(window, cx);
+        let page = if presets.is_some() {
+            PickerPage::Presets
+        } else {
+            PickerPage::Styles
+        };
         let mut picker = Self {
             active,
             presets,
@@ -138,16 +141,14 @@ impl StatusPicker {
             import: None,
             thumbnails: HashMap::new(),
             settings,
-            page: PickerPage::Styles,
+            page,
             playlist: PlaylistChoice::Favorites,
             name_form: None,
             focus,
             name: cx.new(|cx| PickerInput::new_picker_input("Slideshow name", "Name", false, cx)),
             interval: INTERVAL_FIELDS
                 .map(|(label, _)| cx.new(|cx| PickerInput::new_picker_input(label, "0", true, cx))),
-            gallery_scroll: ScrollHandle::new(),
             list_scroll: ScrollHandle::new(),
-            navigation_scroll: ScrollHandle::new(),
             validation: None,
             save_error: None,
         };
@@ -442,12 +443,15 @@ impl StatusPicker {
         self.save(None, cx);
     }
 
+    /// Moves a slideshow entry to another position in the play order (drag to reorder).
     fn move_style(&mut self, index: usize, destination: usize, cx: &mut Context<Self>) {
         if let Some(playlist) = self.selected_playlist_mut()
+            && index != destination
             && index < playlist.styles.len()
             && destination < playlist.styles.len()
         {
-            playlist.styles.swap(index, destination);
+            let style = playlist.styles.remove(index);
+            playlist.styles.insert(destination, style);
             self.save(None, cx);
         }
     }
@@ -534,7 +538,6 @@ impl StatusPicker {
                     .flex_1()
                     .min_h_0()
                     .overflow_y_scroll()
-                    .track_scroll(&self.gallery_scroll)
                     .p_5()
                     .child(div().grid().grid_cols(columns).gap_3().children(
                         entries.map(|style| {
@@ -542,21 +545,10 @@ impl StatusPicker {
                         }),
                     )),
             )
-            .child(picker_scroll_controls(
-                "wallpaper gallery",
-                &self.gallery_scroll,
-            ))
     }
 
-    fn style_card(
-        &self,
-        style: WallpaperId,
-        in_list: bool,
-        adding: bool,
-        cx: &mut Context<Self>,
-    ) -> Stateful<Div> {
-        let title = self.wallpaper_title(style);
-        let available = self.preview_available(style);
+    /// Wallpaper thumbnail at 16:9, or a status line while it is missing or loading.
+    fn wallpaper_artwork(&self, style: WallpaperId) -> Div {
         let thumbnail = self.thumbnails.get(&style);
         let swatch = match style {
             WallpaperId::Preset(preset) => status_style_by_name(preset).palette,
@@ -573,7 +565,7 @@ impl StatusPicker {
             .w_full()
             .overflow_hidden()
             .bg(swatch);
-        let artwork = match thumbnail {
+        match thumbnail {
             Some(WallpaperThumbnail::Ready(image)) => {
                 artwork.child(img(image.clone()).size_full().object_fit(ObjectFit::Cover))
             }
@@ -587,7 +579,19 @@ impl StatusPicker {
                 artwork.child(artwork_status("Solid background"))
             }
             None => artwork.child(artwork_status("Missing wallpaper")),
-        };
+        }
+    }
+
+    fn style_card(
+        &self,
+        style: WallpaperId,
+        in_list: bool,
+        adding: bool,
+        cx: &mut Context<Self>,
+    ) -> Stateful<Div> {
+        let title = self.wallpaper_title(style);
+        let available = self.preview_available(style);
+        let artwork = self.wallpaper_artwork(style);
         let (list_label, list_action) = match (adding, in_list) {
             (true, true) => ("Remove", "Remove from slideshow"),
             (true, false) => ("Add", "Add to slideshow"),
@@ -688,7 +692,6 @@ impl StatusPicker {
                 .gap_2()
                 .p_3()
                 .overflow_y_scroll()
-                .track_scroll(&self.navigation_scroll)
                 .children(
                     std::iter::once((PlaylistChoice::Favorites, &self.settings.favorites))
                         .chain(self.settings.slideshows.iter().map(|playlist| {
@@ -723,7 +726,7 @@ impl StatusPicker {
                 Some(self.name_editor(form, cx))
             } else {
                 self.selected_playlist()
-                    .map(|playlist| self.playlist_editor(playlist, cx))
+                    .map(|playlist| self.playlist_editor(playlist, if compact { 2 } else { 4 }, cx))
             });
 
         div()
@@ -750,25 +753,9 @@ impl StatusPicker {
                                 })),
                         ),
                     )
-                    .child(navigation)
-                    .child(picker_scroll_controls(
-                        "slideshow list",
-                        &self.navigation_scroll,
-                    )),
+                    .child(navigation),
             )
-            .child(
-                div()
-                    .flex()
-                    .flex_col()
-                    .flex_1()
-                    .min_w_0()
-                    .min_h_0()
-                    .child(editor)
-                    .child(picker_scroll_controls(
-                        "slideshow editor",
-                        &self.list_scroll,
-                    )),
-            )
+            .child(editor)
     }
 
     fn name_editor(&self, form: NameForm, cx: &mut Context<Self>) -> Div {
@@ -814,7 +801,12 @@ impl StatusPicker {
             )
     }
 
-    fn playlist_editor(&self, playlist: &StatusPlaylist, cx: &mut Context<Self>) -> Div {
+    fn playlist_editor(
+        &self,
+        playlist: &StatusPlaylist,
+        columns: u16,
+        cx: &mut Context<Self>,
+    ) -> Div {
         let can_play = playlist
             .styles
             .iter()
@@ -910,7 +902,24 @@ impl StatusPicker {
                             .items_center()
                             .justify_between()
                             .gap_2()
-                            .child(div().font_weight(FontWeight::SEMIBOLD).child("Play order"))
+                            .child(
+                                div()
+                                    .flex()
+                                    .items_center()
+                                    .gap_2()
+                                    .min_w_0()
+                                    .child(
+                                        div().font_weight(FontWeight::SEMIBOLD).child("Play order"),
+                                    )
+                                    .when(playlist.styles.len() > 1, |heading| {
+                                        heading.child(
+                                            div()
+                                                .truncate()
+                                                .text_color(rgb(PICKER_MUTED))
+                                                .child("Drag to reorder"),
+                                        )
+                                    }),
+                            )
                             .child(
                                 button(
                                     "add-slideshow-styles",
@@ -931,9 +940,15 @@ impl StatusPicker {
                                 .child("Add wallpapers to start this slideshow."),
                         )
                     })
-                    .children(playlist.styles.iter().enumerate().map(|(index, &style)| {
-                        self.playlist_row(index, style, playlist.styles.len(), cx)
-                    })),
+                    .child(
+                        div().grid().grid_cols(columns).gap_3().children(
+                            playlist
+                                .styles
+                                .iter()
+                                .enumerate()
+                                .map(|(index, &style)| self.playlist_tile(index, style, cx)),
+                        ),
+                    ),
             )
     }
 
@@ -978,71 +993,117 @@ impl StatusPicker {
             )
     }
 
-    fn playlist_row(
+    fn playlist_tile(
         &self,
         index: usize,
         style: WallpaperId,
-        count: usize,
         cx: &mut Context<Self>,
     ) -> Stateful<Div> {
         let title = self.wallpaper_title(style);
+        let dragged = DraggedPlaylistTile {
+            index,
+            title: title.clone(),
+            image: match self.thumbnails.get(&style) {
+                Some(WallpaperThumbnail::Ready(image)) => Some(image.clone()),
+                _ => None,
+            },
+        };
         div()
             .id(SharedString::from(style.wallpaper_key().into_owned()))
+            .relative()
             .flex()
-            .flex_wrap()
-            .items_center()
-            .justify_between()
-            .gap_2()
-            .px_3()
-            .py_1()
-            .rounded_md()
+            .flex_col()
+            .min_w_0()
+            .overflow_hidden()
+            .rounded_lg()
+            .border_1()
+            .border_color(rgb(PICKER_BORDER))
             .bg(rgb(PICKER_SURFACE))
-            .child(
-                div()
-                    .min_w_0()
-                    .flex()
-                    .flex_col()
-                    .child(div().truncate().child(title.clone()))
-                    .when(!self.preview_available(style), |name| {
-                        name.child(
-                            div()
-                                .text_xs()
-                                .text_color(rgb(PICKER_MUTED))
-                                .child("Wallpaper unavailable"),
-                        )
-                    }),
+            .cursor_grab()
+            .on_drag(dragged, |tile, _, _, cx| cx.new(|_| tile.clone()))
+            .drag_over::<DraggedPlaylistTile>(|style, _, _, _| {
+                style.border_color(rgb(PICKER_FOCUS)).bg(rgb(PICKER_HOVER))
+            })
+            .on_drop(
+                cx.listener(move |picker, tile: &DraggedPlaylistTile, _, cx| {
+                    picker.move_style(tile.index, index, cx);
+                }),
             )
+            .child(self.wallpaper_artwork(style))
             .child(
                 div()
                     .flex()
-                    .flex_wrap()
+                    .items_center()
                     .gap_2()
+                    .px_2()
+                    .py_1()
+                    .text_sm()
                     .child(
-                        button("move-up", "Up", enabled_tone(index > 0))
-                            .aria_label(format!("Move {title} up"))
-                            .when(index > 0, |button| {
-                                button.on_click(cx.listener(move |picker, _, _, cx| {
-                                    picker.move_style(index, index - 1, cx);
-                                }))
-                            }),
+                        div()
+                            .flex_none()
+                            .text_color(rgb(PICKER_MUTED))
+                            .child((index + 1).to_string()),
                     )
-                    .child(
-                        button("move-down", "Down", enabled_tone(index + 1 < count))
-                            .aria_label(format!("Move {title} down"))
-                            .when(index + 1 < count, |button| {
-                                button.on_click(cx.listener(move |picker, _, _, cx| {
-                                    picker.move_style(index, index + 1, cx);
-                                }))
-                            }),
-                    )
-                    .child(
-                        button("remove-from-slideshow", "Remove", ButtonTone::Normal)
-                            .aria_label(format!("Remove {title}"))
-                            .on_click(
-                                cx.listener(move |picker, _, _, cx| picker.remove_style(index, cx)),
-                            ),
-                    ),
+                    .child(div().min_w_0().truncate().child(title.clone())),
             )
+            .child(
+                div()
+                    .id("remove-from-slideshow")
+                    .role(Role::Button)
+                    .aria_label(format!("Remove {title}"))
+                    .absolute()
+                    .top_1()
+                    .right_1()
+                    .size(px(32.))
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .rounded_full()
+                    .border_1()
+                    .border_color(rgb(PICKER_BORDER))
+                    .bg(rgb(PICKER_BG))
+                    .text_color(rgb(PICKER_TEXT))
+                    .cursor_pointer()
+                    .hover(|button| button.bg(rgb(PICKER_HOVER)))
+                    .on_click(cx.listener(move |picker, _, _, cx| picker.remove_style(index, cx)))
+                    .child("×"),
+            )
+    }
+}
+
+/// Slideshow tile being dragged to reorder the play order, also shown as the drag preview.
+#[derive(Clone)]
+struct DraggedPlaylistTile {
+    index: usize,
+    title: String,
+    image: Option<Arc<RenderImage>>,
+}
+
+impl Render for DraggedPlaylistTile {
+    fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
+        let preview = div()
+            .w(px(160.))
+            .aspect_ratio(16. / 9.)
+            .overflow_hidden()
+            .rounded_md()
+            .border_2()
+            .border_color(rgb(PICKER_FOCUS))
+            .bg(rgb(PICKER_SELECTED))
+            .opacity(0.9);
+        match &self.image {
+            Some(image) => {
+                preview.child(img(image.clone()).size_full().object_fit(ObjectFit::Cover))
+            }
+            None => preview
+                .flex()
+                .items_center()
+                .justify_center()
+                .px_2()
+                .text_color(rgb(PICKER_TEXT))
+                .font_family(STATUS_SANS_FONT_FAMILY)
+                .text_sm()
+                .child(div().truncate().child(self.title.clone())),
+        }
     }
 }
 
@@ -1114,18 +1175,18 @@ impl Render for StatusPicker {
                                         .flex()
                                         .flex_wrap()
                                         .gap_2()
-                                        .child(
-                                            button(
-                                                "styles-tab",
-                                                "Wallpapers",
-                                                selected_tone(self.page == PickerPage::Styles),
+                                        .when(self.presets.is_some(), |tabs| {
+                                            tabs.child(
+                                                button(
+                                                    "presets-tab",
+                                                    "Presets",
+                                                    selected_tone(self.page == PickerPage::Presets),
+                                                )
+                                                .on_click(cx.listener(|picker, _, window, cx| {
+                                                    picker.set_page(PickerPage::Presets, window, cx)
+                                                })),
                                             )
-                                            .on_click(
-                                                cx.listener(|picker, _, window, cx| {
-                                                    picker.set_page(PickerPage::Styles, window, cx);
-                                                }),
-                                            ),
-                                        )
+                                        })
                                         .child(
                                             button(
                                                 "slideshows-tab",
@@ -1145,18 +1206,18 @@ impl Render for StatusPicker {
                                                 }),
                                             ),
                                         )
-                                        .when(self.presets.is_some(), |tabs| {
-                                            tabs.child(
-                                                button(
-                                                    "presets-tab",
-                                                    "Presets",
-                                                    selected_tone(self.page == PickerPage::Presets),
-                                                )
-                                                .on_click(cx.listener(|picker, _, window, cx| {
-                                                    picker.set_page(PickerPage::Presets, window, cx)
-                                                })),
+                                        .child(
+                                            button(
+                                                "styles-tab",
+                                                "Wallpapers",
+                                                selected_tone(self.page == PickerPage::Styles),
                                             )
-                                        }),
+                                            .on_click(
+                                                cx.listener(|picker, _, window, cx| {
+                                                    picker.set_page(PickerPage::Styles, window, cx);
+                                                }),
+                                            ),
+                                        ),
                                 )
                             })
                             .when(self.page == PickerPage::Import, |header| {
@@ -1213,35 +1274,6 @@ impl Render for StatusPicker {
                     }),
             )
     }
-}
-
-fn picker_scroll_controls(label: &'static str, scroll: &ScrollHandle) -> Stateful<Div> {
-    div()
-        .id(label)
-        .flex()
-        .flex_none()
-        .justify_end()
-        .gap_2()
-        .px_3()
-        .py_2()
-        .border_t_1()
-        .border_color(rgb(PICKER_BORDER))
-        .children(
-            [("Scroll up", 1.), ("Scroll down", -1.)]
-                .into_iter()
-                .map(|(direction, sign)| {
-                    let scroll = scroll.clone();
-                    button(direction, direction, ButtonTone::Normal)
-                        .aria_label(format!("{direction} in {label}"))
-                        .on_click(move |_, window, _| {
-                            let offset = scroll.offset();
-                            let step = (scroll.bounds().size.height * 0.8).max(px(1.));
-                            let y = (offset.y + step * sign).clamp(-scroll.max_offset().y, px(0.));
-                            scroll.set_offset(point(offset.x, y));
-                            window.refresh();
-                        })
-                }),
-        )
 }
 
 fn artwork_status(label: &'static str) -> Div {

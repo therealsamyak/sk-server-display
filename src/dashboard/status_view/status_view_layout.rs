@@ -146,7 +146,9 @@ impl StatusView {
                 card.role(Role::Button)
                     .aria_label(format!("Expand {}", feed.spec.title))
                     .cursor_pointer()
-                    .on_click(cx.listener(move |view, _, _, cx| view.open_feed_details(index, cx)))
+                    .on_click(cx.listener(move |view, _, window, cx| {
+                        view.open_feed_details(index, window, cx)
+                    }))
             })
             .child(panel.clone().cached(StyleRefinement::default().size_full()))
             .into_any_element()
@@ -418,7 +420,7 @@ type SideColumn = (Option<(StyleAnchor, Div)>, Vec<AnyElement>, f32);
 const OTHERS_COLUMN_GROW: f32 = 1.15;
 
 /// Padding at the window edges, in design pixels.
-const SCREEN_PADDING: f32 = 32.;
+pub(super) const SCREEN_PADDING: f32 = 32.;
 
 /// Width of the shade fade beyond a side area, in design pixels.
 const SHADE_FADE: f32 = 200.;

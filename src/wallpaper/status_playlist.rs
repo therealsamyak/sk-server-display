@@ -47,6 +47,23 @@ impl StatusPlaylist {
             .copied()
             .find(|style| available(*style))
     }
+
+    /// Select the previous available slide before the current one, with wraparound.
+    pub fn previous_slide(
+        &self,
+        current: Option<WallpaperId>,
+        available: impl Fn(WallpaperId) -> bool,
+    ) -> Option<WallpaperId> {
+        let end = current
+            .and_then(|style| self.styles.iter().position(|item| *item == style))
+            .unwrap_or(self.styles.len());
+        self.styles[..end]
+            .iter()
+            .rev()
+            .chain(self.styles[end..].iter().rev())
+            .copied()
+            .find(|style| available(*style))
+    }
 }
 
 /// Favorites and the user-created slideshows.
@@ -338,6 +355,24 @@ impl StatusCarousel {
             .next_slide(current, |style| self.available(style))
     }
 
+    /// Show the next or previous slideshow wallpaper and restart its slide timer.
+    pub fn step_slideshow(&mut self, forward: bool) {
+        let Some(list) = self.state.playing_playlist() else {
+            return;
+        };
+        let current = Some(self.current);
+        let available = |style| self.available(style);
+        let step = if forward {
+            list.next_slide(current, available)
+        } else {
+            list.previous_slide(current, available)
+        };
+        if let Some(step) = step {
+            self.current = step;
+        }
+        self.last_switch = Instant::now();
+    }
+
     /// Exclude bad art from later rotation and return the next usable slide.
     pub fn skip_failed_wallpaper(&mut self, style: WallpaperId) {
         self.failed.insert(style);
@@ -384,6 +419,14 @@ mod tests {
             Some(Preset(CyreneBow))
         );
         assert_eq!(list.next_slide(None, |_| false), None);
+        assert_eq!(
+            list.previous_slide(Some(Preset(CyreneBow)), available),
+            Some(Preset(YolandaKokomi))
+        );
+        assert_eq!(
+            list.previous_slide(Some(Preset(YolandaKokomi)), available),
+            Some(Preset(CyreneBow))
+        );
     }
 
     #[test]
