@@ -40,7 +40,7 @@ The app reads these optional sources:
 
 The app makes read-only requests only. It stores no credentials.
 
-Set one `[[host]]` block for each card. Use `source = "glances"` with a `url`, `source = "tailscale"` with a `device`, or `source = "local"` for the machine that runs the display. Add `btop_ssh` only on hosts where btop is installed. Then enable Uptime Kuma, Scrutiny, or the Tailscale device list as needed.
+Set one `[[host]]` block for each card. Use `source = "glances"` with a `url`, `source = "tailscale"` with a `device`, or `source = "local"` for the machine that runs the display. Set `show_btop = true` on Glances hosts that should show the in-app btop window. Then enable Uptime Kuma, Scrutiny, or the Tailscale device list as needed.
 
 Configuration paths:
 

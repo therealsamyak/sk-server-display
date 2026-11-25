@@ -1,4 +1,4 @@
-//! Horizontal slideshow gestures and their release motion.
+//! Horizontal slideshow gestures and timed transitions.
 
 use std::{
     sync::Arc,
@@ -23,7 +23,7 @@ use crate::{
 const SWIPE_SLOP: Pixels = px(12.);
 const SWIPE_SETTLE_TIME: Duration = Duration::from_millis(220);
 
-/// A pending drag, or a slide moving to its destination after release.
+/// A pending drag or a slide moving horizontally.
 pub(super) enum SlideshowSwipe {
     Pressed(Point<Pixels>),
     Dragging {
@@ -34,6 +34,8 @@ pub(super) enum SlideshowSwipe {
         from: Pixels,
         to: Pixels,
         neighbor: WallpaperId,
+        forward: bool,
+        automatic: bool,
         start: Instant,
     },
 }
@@ -45,12 +47,70 @@ pub(super) struct IncomingPanels {
 }
 
 impl StatusView {
-    /// Whether a horizontal gesture is moving the slideshow.
+    /// Whether a slide is moving horizontally.
     pub(super) fn swipe_in_motion(&self) -> bool {
         matches!(
             self.swipe,
             Some(SlideshowSwipe::Dragging { .. } | SlideshowSwipe::Settling { .. })
         )
+    }
+
+    /// Whether the timer started the current transition.
+    pub(super) fn automatic_slide_in_motion(&self) -> bool {
+        matches!(
+            self.swipe,
+            Some(SlideshowSwipe::Settling {
+                automatic: true,
+                ..
+            })
+        )
+    }
+
+    /// Advance after the slide interval once the next wallpaper is ready.
+    pub(super) fn update_slideshow(&mut self, window: &Window, cx: &mut Context<Self>) {
+        if self.picker.is_some()
+            || self.details.is_some()
+            || self.btop.is_some()
+            || self.update_dialog.is_some()
+            || self.pointer_pressed
+            || self.swipe_in_motion()
+        {
+            return;
+        }
+        let carousel = self.carousel.read(cx);
+        let Some(list) = carousel.state.playing_playlist() else {
+            return;
+        };
+        let interval = list.slide_duration();
+        let wait = interval.saturating_sub(carousel.last_switch.elapsed());
+        if !wait.is_zero() {
+            self.redraw.redraw_after(wait);
+            return;
+        }
+        if carousel.current != self.wallpaper.shown {
+            return;
+        }
+        let Some(neighbor) = carousel
+            .adjacent_slide(true)
+            .filter(|id| *id != carousel.current)
+        else {
+            self.carousel
+                .update(cx, |carousel, _| carousel.last_switch = Instant::now());
+            self.redraw.redraw_after(interval);
+            return;
+        };
+        if !self.slideshow_image_ready(neighbor, window) {
+            return;
+        }
+        self.swipe = Some(SlideshowSwipe::Settling {
+            from: px(0.),
+            to: -window.viewport_size().width,
+            neighbor,
+            forward: true,
+            automatic: true,
+            start: Instant::now(),
+        });
+        window.request_animation_frame();
     }
 
     /// Track a press while a slideshow wallpaper can take gestures.
@@ -61,6 +121,7 @@ impl StatusView {
             && self.update_dialog.is_none()
             && self.preview.is_none()
             && self.details.is_none()
+            && self.btop.is_none()
             && self.carousel.read(cx).state.playing_playlist().is_some()
         {
             self.swipe = Some(SlideshowSwipe::Pressed(position));
@@ -132,6 +193,8 @@ impl StatusView {
                 width
             },
             neighbor,
+            forward,
+            automatic: false,
             start: Instant::now(),
         });
     }
@@ -147,7 +210,7 @@ impl StatusView {
         else {
             return;
         };
-        if neighbor != WallpaperId::PLAIN && self.wallpaper.warm_image(neighbor, window).is_none() {
+        if !self.slideshow_image_ready(neighbor, window) {
             self.swipe = None;
             return;
         }
@@ -184,9 +247,11 @@ impl StatusView {
             return None;
         }
         let id = carousel.adjacent_slide(forward)?;
-        (id != carousel.current
-            && (id == WallpaperId::PLAIN || self.wallpaper.warm_image(id, window).is_some()))
-        .then_some(id)
+        (id != carousel.current && self.slideshow_image_ready(id, window)).then_some(id)
+    }
+
+    fn slideshow_image_ready(&self, id: WallpaperId, window: &Window) -> bool {
+        id == WallpaperId::PLAIN || self.wallpaper.warm_image(id, window).is_some()
     }
 
     /// Prepare the destination colors and views once per neighboring preset.
@@ -232,11 +297,13 @@ impl StatusView {
                 from,
                 to,
                 neighbor,
+                forward,
                 start,
+                ..
             }) => {
                 let t = (start.elapsed().as_secs_f32() / SWIPE_SETTLE_TIME.as_secs_f32()).min(1.);
                 let progress = 1. - (1. - t).powi(3);
-                Some((from + (to - from) * progress, from < px(0.), neighbor))
+                Some((from + (to - from) * progress, forward, neighbor))
             }
             _ => None,
         }

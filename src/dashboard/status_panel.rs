@@ -40,7 +40,6 @@ pub struct FeedPanelView {
     board: Entity<StatusBoard>,
     index: usize,
     detail: bool,
-    terminal_error: Option<String>,
     style: StatusStyle,
     /// Devices with their own host card. The tailnet panel leaves them out.
     carded: Vec<String>,
@@ -65,7 +64,6 @@ impl FeedPanelView {
             board,
             index,
             detail: false,
-            terminal_error: None,
             style: plain_status_style(),
             carded,
             redraw: StatusRedrawTimer::default(),
@@ -98,6 +96,11 @@ pub struct FeedDetailsClosed;
 
 impl EventEmitter<FeedDetailsClosed> for FeedPanelView {}
 
+/// The user asked for the btop window of the expanded host card.
+pub struct FeedBtopRequested;
+
+impl EventEmitter<FeedBtopRequested> for FeedPanelView {}
+
 impl Render for FeedPanelView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let layout = StatusLayout::from_status_window(window);
@@ -117,7 +120,6 @@ impl Render for FeedPanelView {
                 redraw: &self.redraw,
                 now: OffsetDateTime::now_utc(),
                 close_details,
-                terminal_error: self.terminal_error.as_deref(),
             };
             let compact =
                 self.detail || matches!(self.style.arrangement, StyleArrangement::Sides { .. });
@@ -202,7 +204,6 @@ struct FeedView<'a> {
     redraw: &'a StatusRedrawTimer,
     now: OffsetDateTime,
     close_details: Option<WeakEntity<FeedPanelView>>,
-    terminal_error: Option<&'a str>,
 }
 
 impl FeedView<'_> {
@@ -320,8 +321,11 @@ fn feed_panel(
                 .children(
                     view.close_details
                         .clone()
-                        .zip(view.feed.spec.btop.clone())
-                        .map(|(panel, target)| {
+                        .filter(|_| {
+                            view.feed.spec.show_btop
+                                && matches!(view.reading(), Some(FeedData::Host(_)))
+                        })
+                        .map(|panel| {
                             detail_button(
                                 s,
                                 theme,
@@ -329,12 +333,9 @@ fn feed_panel(
                                 "open-btop",
                                 "btop",
                                 move |_, _, cx| {
-                                    let result = target.launch_btop();
-                                    if let Err(error) = panel.update(cx, |this, cx| {
-                                        this.terminal_error =
-                                            result.err().map(|error| error.to_string());
-                                        cx.notify();
-                                    }) {
+                                    if let Err(error) =
+                                        panel.update(cx, |_, cx| cx.emit(FeedBtopRequested))
+                                    {
                                         log::debug!("feed details already closed: {error:#}");
                                     }
                                 },
@@ -363,12 +364,6 @@ fn feed_panel(
                         .child("Done")
                 })),
         )
-        .children(view.terminal_error.map(|error| {
-            div()
-                .text_size(s(13.))
-                .text_color(theme.warn())
-                .child(error.to_owned())
-        }))
         .child(body)
 }
 

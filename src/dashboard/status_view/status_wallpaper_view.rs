@@ -1,6 +1,6 @@
 //! Wallpaper loading and preview for the status window.
 
-use std::{collections::HashMap, path::PathBuf, sync::Arc, time::Instant};
+use std::{collections::HashMap, path::PathBuf, sync::Arc};
 
 use gpui::{
     AppContext as _, Context, Entity, IntoElement, RenderImage, Size, Subscription, Task, Window,
@@ -103,33 +103,6 @@ impl StatusView {
                     .update(cx, |carousel, _| carousel.step_slideshow(forward));
                 cx.notify();
             }))
-    }
-
-    pub(super) fn update_slideshow(&mut self, cx: &mut Context<Self>) {
-        if self.picker.is_some()
-            || self.details.is_some()
-            || self.pointer_pressed
-            || self.swipe_in_motion()
-        {
-            return;
-        }
-        let carousel = self.carousel.read(cx);
-        let Some(list) = carousel.state.playing_playlist() else {
-            return;
-        };
-        let wait = list
-            .slide_duration()
-            .saturating_sub(carousel.last_switch.elapsed());
-        if !wait.is_zero() {
-            self.redraw.redraw_after(wait);
-            return;
-        }
-        self.carousel.update(cx, |carousel, _| {
-            if let Some(next) = carousel.next_available_slide(Some(carousel.current)) {
-                carousel.current = next;
-            }
-            carousel.last_switch = Instant::now();
-        });
     }
 
     /// Decode the active playlist in the background, starting with both neighbors.
@@ -345,6 +318,10 @@ impl StatusView {
             self.wallpaper.style = frame.style;
             for panel in &self.panels {
                 panel.update(cx, |panel, cx| panel.set_panel_style(frame.style, cx));
+            }
+            if let Some(btop) = &self.btop {
+                btop.view
+                    .update(cx, |btop, cx| btop.set_btop_style(frame.style, cx));
             }
         }
     }
