@@ -1,5 +1,5 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24">
-  <!-- Server status display app icon, hinted for 24 and 48 px. Same drawing as server-status-display.svg. -->
+  <!-- Server status display app icon, hinted for 24 and 48 px. Same drawing as the root favicon.svg. -->
   <defs>
     <linearGradient id="tile" x1="0" y1="0" x2="0" y2="24" gradientUnits="userSpaceOnUse">
       <stop offset="0" stop-color="#1b2430"/>
