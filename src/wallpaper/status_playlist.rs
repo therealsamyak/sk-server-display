@@ -355,19 +355,24 @@ impl StatusCarousel {
             .next_slide(current, |style| self.available(style))
     }
 
-    /// Show the next or previous slideshow wallpaper and restart its slide timer.
-    pub fn step_slideshow(&mut self, forward: bool) {
-        let Some(list) = self.state.playing_playlist() else {
-            return;
-        };
+    /// The slideshow wallpaper that a step forward or back shows, with wraparound.
+    pub fn adjacent_slide(&self, forward: bool) -> Option<WallpaperId> {
+        let list = self.state.playing_playlist()?;
         let current = Some(self.current);
         let available = |style| self.available(style);
-        let step = if forward {
+        if forward {
             list.next_slide(current, available)
         } else {
             list.previous_slide(current, available)
-        };
-        if let Some(step) = step {
+        }
+    }
+
+    /// Show the next or previous slideshow wallpaper and restart its slide timer.
+    pub fn step_slideshow(&mut self, forward: bool) {
+        if self.state.playing_playlist().is_none() {
+            return;
+        }
+        if let Some(step) = self.adjacent_slide(forward) {
             self.current = step;
         }
         self.last_switch = Instant::now();
@@ -494,7 +499,7 @@ mod tests {
         assert_eq!(restarted.wallpaper_path(imported), Some(path.as_path()));
         let style = restarted.wallpaper_style(imported);
         assert!(
-            matches!(style.arrangement, StyleArrangement::Sides { left, right } if left.clock.is_none() && right.clock.is_some())
+            matches!(style.arrangement, StyleArrangement::Sides { left, right } if left.groups.is_empty() && left.clock.is_some() && right.groups.len() == 2 && right.clock.is_none())
         );
         assert!(style.palette.panel.1 >= 0.99);
     }

@@ -16,11 +16,11 @@ use crate::{
         status_theme::{HOST_CARD_HEIGHT, PANEL_GAP, Scale, StatusLayout, StatusTheme},
     },
     metrics::{FeedFreshness, StatusCollector, StatusFeed},
-    wallpaper::{PanelGroup, StatusStyle, StyleAnchor, StyleArea},
+    wallpaper::{PanelGroup, StatusStyle, StyleAnchor, StyleArea, StyleArrangement},
 };
 
 /// Alert for a feed that is stale or offline. Live feeds give none.
-pub(super) fn feed_alert(
+fn feed_alert(
     s: Scale,
     theme: StatusTheme,
     feed: &StatusFeed,
@@ -115,7 +115,14 @@ pub(super) fn control_button(
         .text_color(theme.muted())
         .cursor_pointer()
         .hover(move |style| style.text_color(theme.text()))
-        .on_click(on_click)
+        .on_click(move |event, window, cx| {
+            if let ClickEvent::Mouse(event) = event
+                && (event.up.position.x - event.down.position.x).abs() >= px(12.)
+            {
+                return;
+            }
+            on_click(event, window, cx);
+        })
         .child(label)
 }
 
@@ -147,7 +154,9 @@ impl StatusView {
                     .aria_label(format!("Expand {}", feed.spec.title))
                     .cursor_pointer()
                     .on_click(cx.listener(move |view, _, window, cx| {
-                        view.open_feed_details(index, window, cx)
+                        if !view.swipe_consumed && !view.swipe_in_motion() {
+                            view.open_feed_details(index, window, cx)
+                        }
                     }))
             })
             .child(panel.clone().cached(StyleRefinement::default().size_full()))
@@ -225,14 +234,78 @@ impl StatusView {
             .into_any_element()
     }
 
+    /// Render the clock and live feed cards in the wallpaper's layout.
+    pub(super) fn dashboard_content(
+        &self,
+        layout: StatusLayout,
+        now: OffsetDateTime,
+        style: StatusStyle,
+        panels: &[Entity<FeedPanelView>],
+        cx: &Context<Self>,
+    ) -> Div {
+        let scale = move |value| layout.scale(value);
+        let s: Scale = &scale;
+        let theme = StatusTheme(style.palette);
+        let mut alerts: Vec<AnyElement> = Vec::new();
+        if self.preview.is_none() && self.carousel.read(cx).playback_art_unavailable() {
+            alerts.push(
+                alert_row(
+                    s,
+                    theme,
+                    theme.warn(),
+                    "Wallpaper unavailable".into(),
+                    "Open Wallpaper to check the image or choose another.".into(),
+                )
+                .into_any_element(),
+            );
+        }
+        let board = self.board.read(cx);
+        for feed in board.status_feeds() {
+            if let Some(change) = board.next_freshness_change(feed) {
+                self.redraw.redraw_after(change);
+            }
+            if let Some(alert) =
+                feed_alert(s, theme, feed, board.feed_freshness(feed), &self.redraw)
+            {
+                alerts.push(alert.into_any_element());
+            }
+        }
+
+        let clock = status_clock(s, style, now, self.settings.local_offset, false);
+        let notices = div().w_full().flex().flex_col().gap(s(8.)).children(alerts);
+        match style.arrangement {
+            StyleArrangement::Band => {
+                self.band_content(s, layout, clock, notices.w(relative(0.5)), panels, cx)
+            }
+            StyleArrangement::Sides { left, right } => div()
+                .size_full()
+                .relative()
+                .children(
+                    [(left, false), (right, true)]
+                        .into_iter()
+                        .filter(|(area, _)| area.width > 0.)
+                        .map(|(area, is_right)| area_shade(s, theme, layout, area, is_right)),
+                )
+                .child(self.sides_content(
+                    s,
+                    layout,
+                    clock.child(notices),
+                    [left, right],
+                    panels,
+                    cx,
+                )),
+        }
+    }
+
     /// Band arrangement: the clock and the notices at the top, all panels in
     /// a band at the bottom.
-    pub(super) fn band_content(
+    fn band_content(
         &self,
         s: Scale,
         layout: StatusLayout,
         clock: Div,
         notices: Div,
+        panel_views: &[Entity<FeedPanelView>],
         cx: &Context<Self>,
     ) -> Div {
         let board = self.board.read(cx);
@@ -256,7 +329,7 @@ impl StatusView {
         let mut host_panels = Vec::new();
         let mut service_panels = Vec::new();
         let mut side_panels = Vec::new();
-        for (index, (feed, panel)) in board.status_feeds().iter().zip(&self.panels).enumerate() {
+        for (index, (feed, panel)) in board.status_feeds().iter().zip(panel_views).enumerate() {
             let style = match feed.spec.collector {
                 StatusCollector::TailnetHost(_) => status_card_style(),
                 _ => panel_style(),
@@ -320,18 +393,19 @@ impl StatusView {
 
     /// Side arrangement: one column area at each edge, the middle free for
     /// the art. `clock` holds the clock and the notices.
-    pub(super) fn sides_content(
+    fn sides_content(
         &self,
         s: Scale,
         layout: StatusLayout,
         clock: Div,
         [left, right]: [StyleArea; 2],
+        panel_views: &[Entity<FeedPanelView>],
         cx: &Context<Self>,
     ) -> Div {
         let board = self.board.read(cx);
         let mut hosts = Vec::new();
         let mut others = Vec::new();
-        for (index, (feed, panel)) in board.status_feeds().iter().zip(&self.panels).enumerate() {
+        for (index, (feed, panel)) in board.status_feeds().iter().zip(panel_views).enumerate() {
             let height = s(side_panel_height(feed, &self.carded));
             let style = StyleRefinement::default().flex_none().w_full().h(height);
             let panel = if feed.spec.collector.has_expandable_panel() {
@@ -473,7 +547,7 @@ fn side_column(
 }
 
 /// Shade behind one side area. It fades out toward the middle of the screen.
-pub(super) fn area_shade(
+fn area_shade(
     s: Scale,
     theme: StatusTheme,
     layout: StatusLayout,
@@ -497,7 +571,7 @@ pub(super) fn area_shade(
 }
 
 /// Clock and date. `at_end` aligns them to the right edge.
-pub(super) fn status_clock(
+fn status_clock(
     s: Scale,
     style: StatusStyle,
     now: OffsetDateTime,

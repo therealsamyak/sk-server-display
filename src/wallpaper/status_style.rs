@@ -246,6 +246,36 @@ pub enum StyleArrangement {
     Sides { left: StyleArea, right: StyleArea },
 }
 
+/// Assign the clock and two widget groups to the three corners below or beside the toolbar.
+const fn corner_arrangement(
+    clock: StyleAnchor,
+    left_group: PanelGroup,
+    [left_width, right_width]: [f32; 2],
+) -> StyleArrangement {
+    let (left_groups, right_groups): (&[_], &[_]) = match left_group {
+        PanelGroup::Hosts => (&[PanelGroup::Hosts], &[PanelGroup::Others]),
+        PanelGroup::Others => (&[PanelGroup::Others], &[PanelGroup::Hosts]),
+    };
+    let left_panels = match clock {
+        StyleAnchor::Top => StyleAnchor::Bottom,
+        StyleAnchor::Bottom => StyleAnchor::Top,
+    };
+    StyleArrangement::Sides {
+        left: StyleArea {
+            width: left_width,
+            clock: Some(clock),
+            groups: left_groups,
+            panels: left_panels,
+        },
+        right: StyleArea {
+            width: right_width,
+            clock: None,
+            groups: right_groups,
+            panels: StyleAnchor::Bottom,
+        },
+    }
+}
+
 /// One status style: palette, type, and arrangement.
 #[derive(Clone, Copy, Debug)]
 pub struct StatusStyle {
@@ -371,24 +401,11 @@ const PLAIN: StatusStyle = StatusStyle {
         scrim: StyleTone(0, 0.),
         ..HILLS.palette
     },
-    arrangement: StyleArrangement::Sides {
-        left: StyleArea {
-            width: 0.30,
-            clock: Some(StyleAnchor::Top),
-            groups: &[PanelGroup::Hosts],
-            panels: StyleAnchor::Bottom,
-        },
-        right: StyleArea {
-            width: 0.30,
-            clock: None,
-            groups: &[PanelGroup::Others],
-            panels: StyleAnchor::Bottom,
-        },
-    },
+    arrangement: corner_arrangement(StyleAnchor::Top, PanelGroup::Hosts, [0.30, 0.30]),
     ..HILLS
 };
 
-/// Landscape preset with a panel band.
+/// Landscape palette with muted panels.
 const HILLS: StatusStyle = StatusStyle {
     palette: StylePalette {
         background: solid(0x10151c),
@@ -410,7 +427,7 @@ const HILLS: StatusStyle = StatusStyle {
         date: solid(0xffffff),
     },
     kind: SANS_TYPE,
-    arrangement: StyleArrangement::Band,
+    arrangement: corner_arrangement(StyleAnchor::Top, PanelGroup::Hosts, [0.25, 0.27]),
 };
 
 /// Kokomi among jellyfish: navy glass rails at both dark edges.
@@ -439,20 +456,7 @@ const YOLANDA_KOKOMI: StatusStyle = StatusStyle {
         radius: 12.0,
         ..SANS_TYPE
     },
-    arrangement: StyleArrangement::Sides {
-        left: StyleArea {
-            width: 0.25,
-            clock: Some(StyleAnchor::Top),
-            groups: &[PanelGroup::Hosts],
-            panels: StyleAnchor::Bottom,
-        },
-        right: StyleArea {
-            width: 0.25,
-            clock: None,
-            groups: &[PanelGroup::Others],
-            panels: StyleAnchor::Top,
-        },
-    },
+    arrangement: corner_arrangement(StyleAnchor::Top, PanelGroup::Hosts, [0.25, 0.25]),
 };
 
 /// Nilou in a gold mandala: serif gold type and thin gold frames.
@@ -484,20 +488,7 @@ const YOLANDA_NILOU: StatusStyle = StatusStyle {
         title_semibold: false,
         radius: 2.0,
     },
-    arrangement: StyleArrangement::Sides {
-        left: StyleArea {
-            width: 0.24,
-            clock: None,
-            groups: &[PanelGroup::Others],
-            panels: StyleAnchor::Bottom,
-        },
-        right: StyleArea {
-            width: 0.24,
-            clock: Some(StyleAnchor::Top),
-            groups: &[PanelGroup::Hosts],
-            panels: StyleAnchor::Bottom,
-        },
-    },
+    arrangement: corner_arrangement(StyleAnchor::Top, PanelGroup::Others, [0.24, 0.24]),
 };
 
 /// Raiden Shogun and Ei: the clock and the hosts over the dark starfield,
@@ -528,20 +519,7 @@ const YOLANDA_RAIDEN: StatusStyle = StatusStyle {
         radius: 6.0,
         ..SANS_TYPE
     },
-    arrangement: StyleArrangement::Sides {
-        left: StyleArea {
-            width: 0.23,
-            clock: Some(StyleAnchor::Top),
-            groups: &[PanelGroup::Hosts],
-            panels: StyleAnchor::Bottom,
-        },
-        right: StyleArea {
-            width: 0.24,
-            clock: None,
-            groups: &[PanelGroup::Others],
-            panels: StyleAnchor::Bottom,
-        },
-    },
+    arrangement: corner_arrangement(StyleAnchor::Top, PanelGroup::Hosts, [0.23, 0.24]),
 };
 
 /// Acheron and Black Swan: black, white, and one red. Mono type, as the
@@ -574,20 +552,7 @@ const YOLANDA_ACHERON: StatusStyle = StatusStyle {
         title_semibold: true,
         radius: 0.0,
     },
-    arrangement: StyleArrangement::Sides {
-        left: StyleArea {
-            width: 0.25,
-            clock: Some(StyleAnchor::Top),
-            groups: &[PanelGroup::Hosts],
-            panels: StyleAnchor::Bottom,
-        },
-        right: StyleArea {
-            width: 0.25,
-            clock: None,
-            groups: &[PanelGroup::Others],
-            panels: StyleAnchor::Bottom,
-        },
-    },
+    arrangement: corner_arrangement(StyleAnchor::Top, PanelGroup::Hosts, [0.25, 0.25]),
 };
 
 /// Nahida in a flower ring: a light style. Pale cards over the flowers at
@@ -618,15 +583,7 @@ const YOLANDA_NAHIDA: StatusStyle = StatusStyle {
         radius: 16.0,
         ..SANS_TYPE
     },
-    arrangement: StyleArrangement::Sides {
-        left: StyleArea {
-            width: 0.44,
-            clock: Some(StyleAnchor::Bottom),
-            groups: &[PanelGroup::Hosts, PanelGroup::Others],
-            panels: StyleAnchor::Top,
-        },
-        right: NO_AREA,
-    },
+    arrangement: corner_arrangement(StyleAnchor::Bottom, PanelGroup::Others, [0.27, 0.25]),
 };
 
 /// Fugue as a fox spirit at night: warm cards over the dark tails at the
@@ -657,15 +614,7 @@ const YOLANDA_FUGUE: StatusStyle = StatusStyle {
         radius: 10.0,
         ..SANS_TYPE
     },
-    arrangement: StyleArrangement::Sides {
-        left: StyleArea {
-            width: 0.44,
-            clock: Some(StyleAnchor::Top),
-            groups: &[PanelGroup::Hosts, PanelGroup::Others],
-            panels: StyleAnchor::Bottom,
-        },
-        right: NO_AREA,
-    },
+    arrangement: corner_arrangement(StyleAnchor::Top, PanelGroup::Hosts, [0.25, 0.27]),
 };
 
 /// Aglaea in a cathedral: the gold window stays free in the middle. Serif
@@ -698,20 +647,7 @@ const YOLANDA_AGLAEA: StatusStyle = StatusStyle {
         title_semibold: false,
         radius: 4.0,
     },
-    arrangement: StyleArrangement::Sides {
-        left: StyleArea {
-            width: 0.24,
-            clock: Some(StyleAnchor::Top),
-            groups: &[PanelGroup::Hosts],
-            panels: StyleAnchor::Bottom,
-        },
-        right: StyleArea {
-            width: 0.24,
-            clock: None,
-            groups: &[PanelGroup::Others],
-            panels: StyleAnchor::Bottom,
-        },
-    },
+    arrangement: corner_arrangement(StyleAnchor::Top, PanelGroup::Hosts, [0.24, 0.24]),
 };
 
 /// Evernight among letters: pale paper cards and dark red type, as the
@@ -744,20 +680,7 @@ const YOLANDA_EVERNIGHT: StatusStyle = StatusStyle {
         title_semibold: false,
         radius: 2.0,
     },
-    arrangement: StyleArrangement::Sides {
-        left: StyleArea {
-            width: 0.24,
-            clock: Some(StyleAnchor::Top),
-            groups: &[PanelGroup::Hosts],
-            panels: StyleAnchor::Bottom,
-        },
-        right: StyleArea {
-            width: 0.24,
-            clock: None,
-            groups: &[PanelGroup::Others],
-            panels: StyleAnchor::Top,
-        },
-    },
+    arrangement: corner_arrangement(StyleAnchor::Top, PanelGroup::Hosts, [0.24, 0.24]),
 };
 
 /// Yaoguang with peacock feathers: teal glass and gold type at the left.
@@ -786,15 +709,7 @@ const YOLANDA_YAOGUANG: StatusStyle = StatusStyle {
         clock_size: 112.0,
         ..SANS_TYPE
     },
-    arrangement: StyleArrangement::Sides {
-        left: StyleArea {
-            width: 0.44,
-            clock: Some(StyleAnchor::Top),
-            groups: &[PanelGroup::Hosts, PanelGroup::Others],
-            panels: StyleAnchor::Bottom,
-        },
-        right: NO_AREA,
-    },
+    arrangement: corner_arrangement(StyleAnchor::Top, PanelGroup::Hosts, [0.25, 0.27]),
 };
 
 #[cfg(test)]
@@ -818,12 +733,21 @@ mod tests {
     }
 
     #[test]
-    fn side_styles_place_each_panel_group_and_the_clock_once() {
+    fn presets_reserve_the_top_right_for_the_toolbar() {
         for name in ALL_STATUS_STYLES {
             let StyleArrangement::Sides { left, right } = status_style_by_name(name).arrangement
             else {
-                continue;
+                panic!("{name:?} needs a corner layout");
             };
+            assert!(left.width > 0. && right.width > 0., "{name:?}");
+            assert!(
+                left.clock.is_some_and(|clock| clock != left.panels),
+                "{name:?}"
+            );
+            assert_eq!(right.clock, None, "{name:?}");
+            assert_eq!(right.panels, StyleAnchor::Bottom, "{name:?}");
+            assert_eq!(left.groups.len(), 1, "{name:?}");
+            assert_eq!(right.groups.len(), 1, "{name:?}");
             let areas = [left, right];
             for group in [PanelGroup::Hosts, PanelGroup::Others] {
                 let count = areas

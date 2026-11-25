@@ -1,6 +1,6 @@
 //! Wallpaper loading and preview for the status window.
 
-use std::{sync::Arc, time::Instant};
+use std::{collections::HashMap, path::PathBuf, sync::Arc, time::Instant};
 
 use gpui::{
     AppContext as _, Context, Entity, IntoElement, RenderImage, Size, Subscription, Task, Window,
@@ -15,12 +15,20 @@ use crate::wallpaper::{
 };
 
 pub(super) struct StatusWallpaper {
-    shown: WallpaperId,
+    pub(super) shown: WallpaperId,
     pub(super) style: StatusStyle,
     pub(super) image: Option<Arc<RenderImage>>,
     requested: Option<(WallpaperId, Size<u32>)>,
     ready: Option<WallpaperFrame>,
     task: Option<Task<()>>,
+    slideshow: Option<SlideshowImages>,
+}
+
+struct SlideshowImages {
+    target: Size<u32>,
+    paths: HashMap<WallpaperId, PathBuf>,
+    images: HashMap<WallpaperId, Arc<RenderImage>>,
+    _loader: Task<()>,
 }
 
 pub(super) struct PickerSession {
@@ -50,7 +58,19 @@ impl Default for StatusWallpaper {
             requested: None,
             ready: None,
             task: None,
+            slideshow: None,
         }
+    }
+}
+
+impl StatusWallpaper {
+    /// A decoded slideshow image for the current window size.
+    pub(super) fn warm_image(&self, id: WallpaperId, window: &Window) -> Option<Arc<RenderImage>> {
+        let slideshow = self.slideshow.as_ref()?;
+        if slideshow.target != wallpaper_target(window) {
+            return None;
+        }
+        slideshow.images.get(&id).cloned()
     }
 }
 
@@ -76,6 +96,9 @@ impl StatusView {
             .when(!forward, |edge| edge.left_0())
             .w(s(SCREEN_PADDING))
             .on_click(cx.listener(move |view, _, _, cx| {
+                if view.swipe_consumed || view.swipe_in_motion() {
+                    return;
+                }
                 view.carousel
                     .update(cx, |carousel, _| carousel.step_slideshow(forward));
                 cx.notify();
@@ -83,7 +106,11 @@ impl StatusView {
     }
 
     pub(super) fn update_slideshow(&mut self, cx: &mut Context<Self>) {
-        if self.picker.is_some() || self.details.is_some() || self.pointer_pressed {
+        if self.picker.is_some()
+            || self.details.is_some()
+            || self.pointer_pressed
+            || self.swipe_in_motion()
+        {
             return;
         }
         let carousel = self.carousel.read(cx);
@@ -105,6 +132,112 @@ impl StatusView {
         });
     }
 
+    /// Decode the active playlist in the background, starting with both neighbors.
+    pub(super) fn warm_slideshow(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.picker.is_some() || self.wallpaper.task.is_some() {
+            return;
+        }
+        let carousel = self.carousel.read(cx);
+        let target = wallpaper_target(window);
+        let entries = carousel
+            .state
+            .playing_playlist()
+            .into_iter()
+            .flat_map(|playlist| &playlist.styles)
+            .filter_map(|&id| Some((id, carousel.wallpaper_path(id)?)));
+        if self.wallpaper.slideshow.as_ref().is_some_and(|cache| {
+            cache.target == target
+                && cache.paths.len() == entries.clone().count()
+                && entries
+                    .clone()
+                    .all(|(id, path)| cache.paths.get(&id).map(PathBuf::as_path) == Some(path))
+        }) {
+            return;
+        }
+        let paths: HashMap<_, _> = entries.map(|(id, path)| (id, path.to_owned())).collect();
+        let mut images = HashMap::new();
+        if let Some(cache) = self.wallpaper.slideshow.take() {
+            for (id, image) in cache.images {
+                if cache.target == target && paths.get(&id) == cache.paths.get(&id) {
+                    images.insert(id, image);
+                } else if self
+                    .wallpaper
+                    .image
+                    .as_ref()
+                    .is_none_or(|shown| !Arc::ptr_eq(shown, &image))
+                    && let Err(error) = window.drop_image(image)
+                {
+                    log::debug!("cannot release cached wallpaper: {error:#}");
+                }
+            }
+        }
+        if paths.is_empty() {
+            return;
+        }
+        if self.wallpaper.ready.is_none()
+            && let Some((id, size)) = self.wallpaper.requested
+            && size == target
+            && id == self.wallpaper.shown
+            && paths.contains_key(&id)
+            && let Some(image) = &self.wallpaper.image
+        {
+            images.insert(id, image.clone());
+        }
+
+        let mut queue: Vec<_> = paths
+            .iter()
+            .filter(|(id, _)| !images.contains_key(id))
+            .map(|(&id, path)| (id, path.clone()))
+            .collect();
+        let next = carousel.adjacent_slide(true);
+        let previous = carousel.adjacent_slide(false);
+        queue.sort_by_key(|(id, _)| {
+            if Some(*id) == next {
+                0
+            } else if Some(*id) == previous {
+                1
+            } else {
+                2
+            }
+        });
+        let loader = cx.spawn_in(window, async move |view, window| {
+            for (id, path) in queue {
+                let result = window
+                    .background_spawn(async move { load_status_wallpaper(&path, target) })
+                    .await;
+                if view
+                    .update_in(window, |view, _, cx| {
+                        match result {
+                            Ok(image) => {
+                                if let Some(cache) = view.wallpaper.slideshow.as_mut() {
+                                    cache.images.entry(id).or_insert(image);
+                                }
+                            }
+                            Err(error) => {
+                                log::warn!(
+                                    "cannot preload wallpaper for {}: {error:#}",
+                                    id.wallpaper_key()
+                                );
+                                view.carousel
+                                    .update(cx, |carousel, _| carousel.skip_failed_wallpaper(id));
+                            }
+                        }
+                        cx.notify();
+                    })
+                    .is_err()
+                {
+                    break;
+                }
+            }
+        });
+        self.wallpaper.slideshow = Some(SlideshowImages {
+            target,
+            paths,
+            images,
+            _loader: loader,
+        });
+    }
+
     // Commit the image and the layout together. A ready image waits for the
     // current tap to end before it can move the cards.
     pub(super) fn update_wallpaper(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -115,12 +248,7 @@ impl StatusView {
             .map(|preview| preview.id)
             .or_else(|| self.picker.as_ref().map(|picker| picker.original_style))
             .unwrap_or(carousel.current);
-        let logical = window.viewport_size();
-        let scale = window.scale_factor();
-        let target = Size::new(
-            (f32::from(logical.width) * scale).ceil() as u32,
-            (f32::from(logical.height) * scale).ceil() as u32,
-        );
+        let target = wallpaper_target(window);
         if self.wallpaper.requested != Some((id, target)) {
             self.wallpaper.requested = Some((id, target));
             self.wallpaper.task = None;
@@ -136,7 +264,20 @@ impl StatusView {
             let path = draft
                 .map(|draft| draft.path.as_path())
                 .or_else(|| carousel.wallpaper_path(id));
-            if let Some(path) = path.map(ToOwned::to_owned) {
+            let cached = self.wallpaper.slideshow.as_ref().and_then(|cache| {
+                (draft.is_none()
+                    && cache.target == target
+                    && path == cache.paths.get(&id).map(PathBuf::as_path))
+                .then(|| cache.images.get(&id).cloned())
+                .flatten()
+            });
+            if let Some(image) = cached {
+                self.wallpaper.ready = Some(WallpaperFrame {
+                    id,
+                    style,
+                    image: Some(image),
+                });
+            } else if let Some(path) = path.map(ToOwned::to_owned) {
                 let load = cx.background_spawn(async move { load_status_wallpaper(&path, target) });
                 self.wallpaper.task = Some(cx.spawn_in(window, async move |this, cx| {
                     let result = load.await;
@@ -180,10 +321,22 @@ impl StatusView {
             }
         }
         if !self.pointer_pressed
+            && !self.swipe_in_motion()
             && self.details.is_none()
             && let Some(frame) = self.wallpaper.ready.take()
         {
             if let Some(old) = std::mem::replace(&mut self.wallpaper.image, frame.image)
+                && self
+                    .wallpaper
+                    .image
+                    .as_ref()
+                    .is_none_or(|shown| !Arc::ptr_eq(shown, &old))
+                && self.wallpaper.slideshow.as_ref().is_none_or(|cache| {
+                    !cache
+                        .images
+                        .get(&self.wallpaper.shown)
+                        .is_some_and(|cached| Arc::ptr_eq(cached, &old))
+                })
                 && let Err(error) = window.drop_image(old)
             {
                 log::debug!("cannot release previous wallpaper: {error:#}");
@@ -344,4 +497,14 @@ impl StatusView {
             && self.wallpaper.ready.is_none()
             && self.preview_error.is_none()
     }
+}
+
+/// Size in device pixels at which the wallpaper is decoded for this window.
+fn wallpaper_target(window: &Window) -> Size<u32> {
+    let logical = window.viewport_size();
+    let scale = window.scale_factor();
+    Size::new(
+        (f32::from(logical.width) * scale).ceil() as u32,
+        (f32::from(logical.height) * scale).ceil() as u32,
+    )
 }

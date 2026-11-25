@@ -9,21 +9,13 @@ use crate::status_fonts::{
     STATUS_MONO_FONT_FAMILY, STATUS_SANS_FONT_FAMILY, STATUS_SERIF_FONT_FAMILY,
 };
 use crate::wallpaper::status_style::{
-    PanelGroup, StatusStyle, StyleAnchor, StyleArea, StyleArrangement, StylePalette, StyleTone,
-    StyleType,
+    PanelGroup, StatusStyle, StyleAnchor, StylePalette, StyleTone, StyleType, corner_arrangement,
 };
 
 /// Opaque tone from a hex color.
 const fn hex(value: u32) -> StyleTone {
     StyleTone(value, 1.0)
 }
-
-const NO_AREA: StyleArea = StyleArea {
-    width: 0.0,
-    clock: None,
-    groups: &[],
-    panels: StyleAnchor::Top,
-};
 
 /// Furina in a balloon over misty Fontaine: pale mist cards at the right, teal
 /// type, and the red of the balloon for upload.
@@ -55,15 +47,7 @@ pub const FURINA_BALLOON: StatusStyle = StatusStyle {
         title_semibold: false,
         radius: 4.0,
     },
-    arrangement: StyleArrangement::Sides {
-        left: NO_AREA,
-        right: StyleArea {
-            width: 0.44,
-            clock: Some(StyleAnchor::Top),
-            groups: &[PanelGroup::Others, PanelGroup::Hosts],
-            panels: StyleAnchor::Bottom,
-        },
-    },
+    arrangement: corner_arrangement(StyleAnchor::Top, PanelGroup::Hosts, [0.25, 0.27]),
 };
 
 /// Rosaria in flooded ruins: slate glass at both dark edges, the blue glow of
@@ -96,20 +80,7 @@ pub const ROSARIA_RUINS: StatusStyle = StatusStyle {
         title_semibold: true,
         radius: 4.0,
     },
-    arrangement: StyleArrangement::Sides {
-        left: StyleArea {
-            width: 0.24,
-            clock: Some(StyleAnchor::Top),
-            groups: &[PanelGroup::Hosts],
-            panels: StyleAnchor::Bottom,
-        },
-        right: StyleArea {
-            width: 0.24,
-            clock: None,
-            groups: &[PanelGroup::Others],
-            panels: StyleAnchor::Bottom,
-        },
-    },
+    arrangement: corner_arrangement(StyleAnchor::Top, PanelGroup::Hosts, [0.24, 0.24]),
 };
 
 /// Lumine in a sunlit cathedral: warm umber glass between the pillars, gold
@@ -142,20 +113,7 @@ pub const LUMINE_CATHEDRAL: StatusStyle = StatusStyle {
         title_semibold: false,
         radius: 2.0,
     },
-    arrangement: StyleArrangement::Sides {
-        left: StyleArea {
-            width: 0.24,
-            clock: Some(StyleAnchor::Top),
-            groups: &[PanelGroup::Hosts],
-            panels: StyleAnchor::Bottom,
-        },
-        right: StyleArea {
-            width: 0.24,
-            clock: None,
-            groups: &[PanelGroup::Others],
-            panels: StyleAnchor::Bottom,
-        },
-    },
+    arrangement: corner_arrangement(StyleAnchor::Top, PanelGroup::Hosts, [0.24, 0.24]),
 };
 
 /// Ayaka in a moonlit room: ink glass in the dark at both edges, blue from the
@@ -188,20 +146,7 @@ pub const AYAKA_MOONLIT: StatusStyle = StatusStyle {
         title_semibold: false,
         radius: 4.0,
     },
-    arrangement: StyleArrangement::Sides {
-        left: StyleArea {
-            width: 0.24,
-            clock: Some(StyleAnchor::Top),
-            groups: &[PanelGroup::Hosts],
-            panels: StyleAnchor::Bottom,
-        },
-        right: StyleArea {
-            width: 0.25,
-            clock: None,
-            groups: &[PanelGroup::Others],
-            panels: StyleAnchor::Bottom,
-        },
-    },
+    arrangement: corner_arrangement(StyleAnchor::Top, PanelGroup::Hosts, [0.24, 0.25]),
 };
 
 /// Keqing in a wedding dress: lilac cards over the bright sky at the left, violet
@@ -234,15 +179,7 @@ pub const KEQING_WEDDING: StatusStyle = StatusStyle {
         title_semibold: true,
         radius: 14.0,
     },
-    arrangement: StyleArrangement::Sides {
-        left: StyleArea {
-            width: 0.44,
-            clock: Some(StyleAnchor::Top),
-            groups: &[PanelGroup::Hosts, PanelGroup::Others],
-            panels: StyleAnchor::Bottom,
-        },
-        right: NO_AREA,
-    },
+    arrangement: corner_arrangement(StyleAnchor::Top, PanelGroup::Hosts, [0.25, 0.27]),
 };
 
 /// Bronya on a snowy field: ice cards over the blurred army at the right, navy
@@ -275,15 +212,7 @@ pub const BRONYA_SNOW: StatusStyle = StatusStyle {
         title_semibold: true,
         radius: 6.0,
     },
-    arrangement: StyleArrangement::Sides {
-        left: NO_AREA,
-        right: StyleArea {
-            width: 0.44,
-            clock: Some(StyleAnchor::Top),
-            groups: &[PanelGroup::Others, PanelGroup::Hosts],
-            panels: StyleAnchor::Bottom,
-        },
-    },
+    arrangement: corner_arrangement(StyleAnchor::Top, PanelGroup::Hosts, [0.25, 0.27]),
 };
 
 /// Fu Xuan among constellations: violet glass over the starfield at both
@@ -316,20 +245,7 @@ pub const FU_XUAN_STARS: StatusStyle = StatusStyle {
         title_semibold: false,
         radius: 10.0,
     },
-    arrangement: StyleArrangement::Sides {
-        left: StyleArea {
-            width: 0.25,
-            clock: Some(StyleAnchor::Top),
-            groups: &[PanelGroup::Hosts],
-            panels: StyleAnchor::Bottom,
-        },
-        right: StyleArea {
-            width: 0.25,
-            clock: None,
-            groups: &[PanelGroup::Others],
-            panels: StyleAnchor::Bottom,
-        },
-    },
+    arrangement: corner_arrangement(StyleAnchor::Top, PanelGroup::Hosts, [0.25, 0.25]),
 };
 
 /// Nahida in the Sumeru forest: moss glass over the trees at the left, dendro
@@ -362,15 +278,7 @@ pub const NAHIDA_FOREST: StatusStyle = StatusStyle {
         title_semibold: true,
         radius: 16.0,
     },
-    arrangement: StyleArrangement::Sides {
-        left: StyleArea {
-            width: 0.44,
-            clock: Some(StyleAnchor::Top),
-            groups: &[PanelGroup::Hosts, PanelGroup::Others],
-            panels: StyleAnchor::Bottom,
-        },
-        right: NO_AREA,
-    },
+    arrangement: corner_arrangement(StyleAnchor::Top, PanelGroup::Hosts, [0.25, 0.27]),
 };
 
 /// Focalors in blue blossoms: pale water cards at the right, deep blue serif
@@ -403,15 +311,7 @@ pub const FOCALORS_BLOSSOM: StatusStyle = StatusStyle {
         title_semibold: false,
         radius: 12.0,
     },
-    arrangement: StyleArrangement::Sides {
-        left: NO_AREA,
-        right: StyleArea {
-            width: 0.44,
-            clock: Some(StyleAnchor::Top),
-            groups: &[PanelGroup::Others, PanelGroup::Hosts],
-            panels: StyleAnchor::Bottom,
-        },
-    },
+    arrangement: corner_arrangement(StyleAnchor::Top, PanelGroup::Hosts, [0.25, 0.27]),
 };
 
 /// Kirara on a delivery ride: cream cards over the town at the left, dusk navy
@@ -444,15 +344,7 @@ pub const KIRARA_DELIVERY: StatusStyle = StatusStyle {
         title_semibold: true,
         radius: 16.0,
     },
-    arrangement: StyleArrangement::Sides {
-        left: StyleArea {
-            width: 0.44,
-            clock: Some(StyleAnchor::Top),
-            groups: &[PanelGroup::Hosts, PanelGroup::Others],
-            panels: StyleAnchor::Bottom,
-        },
-        right: NO_AREA,
-    },
+    arrangement: corner_arrangement(StyleAnchor::Top, PanelGroup::Hosts, [0.25, 0.27]),
 };
 
 /// Furina in an open sky: navy glass over the sky at the left, white type, and
@@ -485,15 +377,7 @@ pub const FURINA_SKY: StatusStyle = StatusStyle {
         title_semibold: false,
         radius: 12.0,
     },
-    arrangement: StyleArrangement::Sides {
-        left: StyleArea {
-            width: 0.44,
-            clock: Some(StyleAnchor::Bottom),
-            groups: &[PanelGroup::Hosts, PanelGroup::Others],
-            panels: StyleAnchor::Top,
-        },
-        right: NO_AREA,
-    },
+    arrangement: corner_arrangement(StyleAnchor::Bottom, PanelGroup::Hosts, [0.25, 0.27]),
 };
 
 /// Ruan Mei by a plum window: blush cards in the light at the left, plum
@@ -526,20 +410,7 @@ pub const RUAN_MEI_BLOSSOM: StatusStyle = StatusStyle {
         title_semibold: false,
         radius: 10.0,
     },
-    arrangement: StyleArrangement::Sides {
-        left: StyleArea {
-            width: 0.24,
-            clock: Some(StyleAnchor::Top),
-            groups: &[PanelGroup::Hosts],
-            panels: StyleAnchor::Bottom,
-        },
-        right: StyleArea {
-            width: 0.24,
-            clock: None,
-            groups: &[PanelGroup::Others],
-            panels: StyleAnchor::Bottom,
-        },
-    },
+    arrangement: corner_arrangement(StyleAnchor::Top, PanelGroup::Hosts, [0.24, 0.24]),
 };
 
 /// Mavuika on a desert ride: sand cards under the sky at the right, ember
@@ -572,15 +443,7 @@ pub const MAVUIKA_RIDE: StatusStyle = StatusStyle {
         title_semibold: true,
         radius: 8.0,
     },
-    arrangement: StyleArrangement::Sides {
-        left: NO_AREA,
-        right: StyleArea {
-            width: 0.44,
-            clock: Some(StyleAnchor::Top),
-            groups: &[PanelGroup::Others, PanelGroup::Hosts],
-            panels: StyleAnchor::Bottom,
-        },
-    },
+    arrangement: corner_arrangement(StyleAnchor::Top, PanelGroup::Hosts, [0.25, 0.27]),
 };
 
 /// Castorice in a violet garden: dusk glass over the trunks at the left, lilac
@@ -613,15 +476,7 @@ pub const CASTORICE_GARDEN: StatusStyle = StatusStyle {
         title_semibold: false,
         radius: 14.0,
     },
-    arrangement: StyleArrangement::Sides {
-        left: StyleArea {
-            width: 0.44,
-            clock: Some(StyleAnchor::Top),
-            groups: &[PanelGroup::Hosts, PanelGroup::Others],
-            panels: StyleAnchor::Bottom,
-        },
-        right: NO_AREA,
-    },
+    arrangement: corner_arrangement(StyleAnchor::Top, PanelGroup::Hosts, [0.25, 0.27]),
 };
 
 /// Yae Miko in a misty forest: paper cards in the mist at the left, ink type, and
@@ -654,15 +509,7 @@ pub const YAE_MIST: StatusStyle = StatusStyle {
         title_semibold: false,
         radius: 2.0,
     },
-    arrangement: StyleArrangement::Sides {
-        left: StyleArea {
-            width: 0.44,
-            clock: Some(StyleAnchor::Top),
-            groups: &[PanelGroup::Hosts, PanelGroup::Others],
-            panels: StyleAnchor::Bottom,
-        },
-        right: NO_AREA,
-    },
+    arrangement: corner_arrangement(StyleAnchor::Top, PanelGroup::Hosts, [0.25, 0.27]),
 };
 
 /// Shenhe and Ganyu under lanterns: amber glass at both warm edges, lantern
@@ -695,20 +542,7 @@ pub const SHENHE_LANTERNS: StatusStyle = StatusStyle {
         title_semibold: false,
         radius: 8.0,
     },
-    arrangement: StyleArrangement::Sides {
-        left: StyleArea {
-            width: 0.23,
-            clock: Some(StyleAnchor::Top),
-            groups: &[PanelGroup::Hosts],
-            panels: StyleAnchor::Bottom,
-        },
-        right: StyleArea {
-            width: 0.23,
-            clock: None,
-            groups: &[PanelGroup::Others],
-            panels: StyleAnchor::Bottom,
-        },
-    },
+    arrangement: corner_arrangement(StyleAnchor::Top, PanelGroup::Hosts, [0.23, 0.23]),
 };
 
 /// Furina sinking in deep water: teal glass at both edges, caustic aqua.
@@ -740,20 +574,7 @@ pub const FURINA_DEEP: StatusStyle = StatusStyle {
         title_semibold: true,
         radius: 12.0,
     },
-    arrangement: StyleArrangement::Sides {
-        left: StyleArea {
-            width: 0.23,
-            clock: Some(StyleAnchor::Top),
-            groups: &[PanelGroup::Hosts],
-            panels: StyleAnchor::Bottom,
-        },
-        right: StyleArea {
-            width: 0.26,
-            clock: None,
-            groups: &[PanelGroup::Others],
-            panels: StyleAnchor::Bottom,
-        },
-    },
+    arrangement: corner_arrangement(StyleAnchor::Top, PanelGroup::Hosts, [0.23, 0.26]),
 };
 
 /// Kafka in a ruined city: graphite glass over the debris at both edges, steel
@@ -786,20 +607,7 @@ pub const KAFKA_RUINS: StatusStyle = StatusStyle {
         title_semibold: true,
         radius: 0.0,
     },
-    arrangement: StyleArrangement::Sides {
-        left: StyleArea {
-            width: 0.24,
-            clock: Some(StyleAnchor::Top),
-            groups: &[PanelGroup::Hosts],
-            panels: StyleAnchor::Bottom,
-        },
-        right: StyleArea {
-            width: 0.25,
-            clock: None,
-            groups: &[PanelGroup::Others],
-            panels: StyleAnchor::Bottom,
-        },
-    },
+    arrangement: corner_arrangement(StyleAnchor::Top, PanelGroup::Hosts, [0.24, 0.25]),
 };
 
 /// March 7th and Stelle at a snowy shrine: cocoa glass at both edges, lantern
@@ -832,20 +640,7 @@ pub const MARCH_SHRINE: StatusStyle = StatusStyle {
         title_semibold: false,
         radius: 10.0,
     },
-    arrangement: StyleArrangement::Sides {
-        left: StyleArea {
-            width: 0.24,
-            clock: Some(StyleAnchor::Top),
-            groups: &[PanelGroup::Hosts],
-            panels: StyleAnchor::Bottom,
-        },
-        right: StyleArea {
-            width: 0.24,
-            clock: None,
-            groups: &[PanelGroup::Others],
-            panels: StyleAnchor::Bottom,
-        },
-    },
+    arrangement: corner_arrangement(StyleAnchor::Top, PanelGroup::Hosts, [0.24, 0.24]),
 };
 
 /// Acheron in red rain: ash glass at the left, gray type, and one blood red.
@@ -877,15 +672,7 @@ pub const ACHERON_RAIN: StatusStyle = StatusStyle {
         title_semibold: true,
         radius: 0.0,
     },
-    arrangement: StyleArrangement::Sides {
-        left: StyleArea {
-            width: 0.44,
-            clock: Some(StyleAnchor::Top),
-            groups: &[PanelGroup::Hosts, PanelGroup::Others],
-            panels: StyleAnchor::Bottom,
-        },
-        right: NO_AREA,
-    },
+    arrangement: corner_arrangement(StyleAnchor::Top, PanelGroup::Hosts, [0.25, 0.27]),
 };
 
 /// Odette on a starry floor (2026): navy glass over the dark sky at the left,
@@ -918,15 +705,7 @@ pub const ODETTE_STARS: StatusStyle = StatusStyle {
         title_semibold: false,
         radius: 12.0,
     },
-    arrangement: StyleArrangement::Sides {
-        left: StyleArea {
-            width: 0.42,
-            clock: Some(StyleAnchor::Top),
-            groups: &[PanelGroup::Hosts, PanelGroup::Others],
-            panels: StyleAnchor::Bottom,
-        },
-        right: NO_AREA,
-    },
+    arrangement: corner_arrangement(StyleAnchor::Top, PanelGroup::Hosts, [0.25, 0.27]),
 };
 
 /// Yaoguang among theater masks (2026): indigo glass over the masks at the right,
@@ -959,15 +738,7 @@ pub const YAOGUANG_MASKS: StatusStyle = StatusStyle {
         title_semibold: true,
         radius: 0.0,
     },
-    arrangement: StyleArrangement::Sides {
-        left: NO_AREA,
-        right: StyleArea {
-            width: 0.42,
-            clock: Some(StyleAnchor::Top),
-            groups: &[PanelGroup::Others, PanelGroup::Hosts],
-            panels: StyleAnchor::Bottom,
-        },
-    },
+    arrangement: corner_arrangement(StyleAnchor::Top, PanelGroup::Hosts, [0.25, 0.27]),
 };
 
 /// Jingliu before the full moon: navy glass over the clouds at both edges, moon
@@ -1000,20 +771,7 @@ pub const JINGLIU_MOON: StatusStyle = StatusStyle {
         title_semibold: false,
         radius: 8.0,
     },
-    arrangement: StyleArrangement::Sides {
-        left: StyleArea {
-            width: 0.24,
-            clock: Some(StyleAnchor::Top),
-            groups: &[PanelGroup::Hosts],
-            panels: StyleAnchor::Bottom,
-        },
-        right: StyleArea {
-            width: 0.24,
-            clock: None,
-            groups: &[PanelGroup::Others],
-            panels: StyleAnchor::Bottom,
-        },
-    },
+    arrangement: corner_arrangement(StyleAnchor::Top, PanelGroup::Hosts, [0.24, 0.24]),
 };
 
 /// Lumine and Aether among constellations: night blue glass at both edges, star
@@ -1046,20 +804,7 @@ pub const LUMINE_STARS: StatusStyle = StatusStyle {
         title_semibold: false,
         radius: 10.0,
     },
-    arrangement: StyleArrangement::Sides {
-        left: StyleArea {
-            width: 0.24,
-            clock: Some(StyleAnchor::Top),
-            groups: &[PanelGroup::Hosts],
-            panels: StyleAnchor::Bottom,
-        },
-        right: StyleArea {
-            width: 0.24,
-            clock: None,
-            groups: &[PanelGroup::Others],
-            panels: StyleAnchor::Bottom,
-        },
-    },
+    arrangement: corner_arrangement(StyleAnchor::Top, PanelGroup::Hosts, [0.24, 0.24]),
 };
 
 /// March 7th under meteors: plum glass over the pink sky at the right, rose and
@@ -1092,15 +837,7 @@ pub const MARCH_METEOR: StatusStyle = StatusStyle {
         title_semibold: true,
         radius: 14.0,
     },
-    arrangement: StyleArrangement::Sides {
-        left: NO_AREA,
-        right: StyleArea {
-            width: 0.42,
-            clock: Some(StyleAnchor::Top),
-            groups: &[PanelGroup::Others, PanelGroup::Hosts],
-            panels: StyleAnchor::Bottom,
-        },
-    },
+    arrangement: corner_arrangement(StyleAnchor::Top, PanelGroup::Hosts, [0.25, 0.27]),
 };
 
 /// Fu Xuan among dark orbits: dusk glass over space at both edges, orchid type,
@@ -1133,20 +870,7 @@ pub const FU_XUAN_ORBIT: StatusStyle = StatusStyle {
         title_semibold: false,
         radius: 8.0,
     },
-    arrangement: StyleArrangement::Sides {
-        left: StyleArea {
-            width: 0.24,
-            clock: Some(StyleAnchor::Top),
-            groups: &[PanelGroup::Hosts],
-            panels: StyleAnchor::Bottom,
-        },
-        right: StyleArea {
-            width: 0.22,
-            clock: None,
-            groups: &[PanelGroup::Others],
-            panels: StyleAnchor::Bottom,
-        },
-    },
+    arrangement: corner_arrangement(StyleAnchor::Top, PanelGroup::Hosts, [0.24, 0.22]),
 };
 
 /// Firefly in a night meadow: moss glass over the dark grass at both edges, and
@@ -1179,20 +903,7 @@ pub const FIREFLY_MEADOW: StatusStyle = StatusStyle {
         title_semibold: true,
         radius: 12.0,
     },
-    arrangement: StyleArrangement::Sides {
-        left: StyleArea {
-            width: 0.24,
-            clock: Some(StyleAnchor::Top),
-            groups: &[PanelGroup::Hosts],
-            panels: StyleAnchor::Bottom,
-        },
-        right: StyleArea {
-            width: 0.25,
-            clock: None,
-            groups: &[PanelGroup::Others],
-            panels: StyleAnchor::Bottom,
-        },
-    },
+    arrangement: corner_arrangement(StyleAnchor::Top, PanelGroup::Hosts, [0.24, 0.25]),
 };
 
 /// Mualani under a Natlan sky: sky cards at the left, deep sea type, and surf
@@ -1225,15 +936,7 @@ pub const MUALANI_SKY: StatusStyle = StatusStyle {
         title_semibold: true,
         radius: 16.0,
     },
-    arrangement: StyleArrangement::Sides {
-        left: StyleArea {
-            width: 0.44,
-            clock: Some(StyleAnchor::Top),
-            groups: &[PanelGroup::Hosts, PanelGroup::Others],
-            panels: StyleAnchor::Bottom,
-        },
-        right: NO_AREA,
-    },
+    arrangement: corner_arrangement(StyleAnchor::Top, PanelGroup::Hosts, [0.25, 0.27]),
 };
 
 /// Ayaka in frost and butterflies: ice cards over the pale right, indigo type,
@@ -1266,15 +969,7 @@ pub const AYAKA_FROST: StatusStyle = StatusStyle {
         title_semibold: false,
         radius: 12.0,
     },
-    arrangement: StyleArrangement::Sides {
-        left: NO_AREA,
-        right: StyleArea {
-            width: 0.44,
-            clock: Some(StyleAnchor::Top),
-            groups: &[PanelGroup::Others, PanelGroup::Hosts],
-            panels: StyleAnchor::Bottom,
-        },
-    },
+    arrangement: corner_arrangement(StyleAnchor::Top, PanelGroup::Hosts, [0.25, 0.27]),
 };
 
 /// Robin with a gift in the snow: navy glass over the pines at the left, snow
@@ -1307,15 +1002,7 @@ pub const ROBIN_SNOW: StatusStyle = StatusStyle {
         title_semibold: true,
         radius: 10.0,
     },
-    arrangement: StyleArrangement::Sides {
-        left: StyleArea {
-            width: 0.42,
-            clock: Some(StyleAnchor::Top),
-            groups: &[PanelGroup::Hosts, PanelGroup::Others],
-            panels: StyleAnchor::Bottom,
-        },
-        right: NO_AREA,
-    },
+    arrangement: corner_arrangement(StyleAnchor::Top, PanelGroup::Hosts, [0.25, 0.27]),
 };
 
 /// March 7th and Stelle at the fireworks: warm night glass at both edges,
@@ -1348,20 +1035,7 @@ pub const MARCH_FIREWORKS: StatusStyle = StatusStyle {
         title_semibold: true,
         radius: 10.0,
     },
-    arrangement: StyleArrangement::Sides {
-        left: StyleArea {
-            width: 0.24,
-            clock: Some(StyleAnchor::Top),
-            groups: &[PanelGroup::Hosts],
-            panels: StyleAnchor::Bottom,
-        },
-        right: StyleArea {
-            width: 0.22,
-            clock: None,
-            groups: &[PanelGroup::Others],
-            panels: StyleAnchor::Bottom,
-        },
-    },
+    arrangement: corner_arrangement(StyleAnchor::Top, PanelGroup::Hosts, [0.24, 0.22]),
 };
 
 /// Firefly at a city sunrise: amber cards over the towers at the right, leaf
@@ -1394,15 +1068,7 @@ pub const FIREFLY_SUNRISE: StatusStyle = StatusStyle {
         title_semibold: false,
         radius: 8.0,
     },
-    arrangement: StyleArrangement::Sides {
-        left: NO_AREA,
-        right: StyleArea {
-            width: 0.42,
-            clock: Some(StyleAnchor::Top),
-            groups: &[PanelGroup::Others, PanelGroup::Hosts],
-            panels: StyleAnchor::Bottom,
-        },
-    },
+    arrangement: corner_arrangement(StyleAnchor::Top, PanelGroup::Hosts, [0.25, 0.27]),
 };
 
 /// Firefly at violet dusk: lilac glass at both edges, window gold, and sea
@@ -1435,20 +1101,7 @@ pub const FIREFLY_DUSK: StatusStyle = StatusStyle {
         title_semibold: true,
         radius: 14.0,
     },
-    arrangement: StyleArrangement::Sides {
-        left: StyleArea {
-            width: 0.23,
-            clock: Some(StyleAnchor::Top),
-            groups: &[PanelGroup::Hosts],
-            panels: StyleAnchor::Bottom,
-        },
-        right: StyleArea {
-            width: 0.24,
-            clock: None,
-            groups: &[PanelGroup::Others],
-            panels: StyleAnchor::Bottom,
-        },
-    },
+    arrangement: corner_arrangement(StyleAnchor::Top, PanelGroup::Hosts, [0.23, 0.24]),
 };
 
 /// Castorice among white butterflies: slate glass at both edges, wing white,
@@ -1481,20 +1134,7 @@ pub const CASTORICE_BUTTERFLIES: StatusStyle = StatusStyle {
         title_semibold: false,
         radius: 12.0,
     },
-    arrangement: StyleArrangement::Sides {
-        left: StyleArea {
-            width: 0.24,
-            clock: Some(StyleAnchor::Top),
-            groups: &[PanelGroup::Hosts],
-            panels: StyleAnchor::Bottom,
-        },
-        right: StyleArea {
-            width: 0.24,
-            clock: None,
-            groups: &[PanelGroup::Others],
-            panels: StyleAnchor::Bottom,
-        },
-    },
+    arrangement: corner_arrangement(StyleAnchor::Top, PanelGroup::Hosts, [0.24, 0.24]),
 };
 
 /// Castorice in moonlit ruins: flat violet glass over the sky at the left, moon
@@ -1527,13 +1167,5 @@ pub const CASTORICE_RUINS: StatusStyle = StatusStyle {
         title_semibold: true,
         radius: 0.0,
     },
-    arrangement: StyleArrangement::Sides {
-        left: StyleArea {
-            width: 0.44,
-            clock: Some(StyleAnchor::Top),
-            groups: &[PanelGroup::Hosts, PanelGroup::Others],
-            panels: StyleAnchor::Bottom,
-        },
-        right: NO_AREA,
-    },
+    arrangement: corner_arrangement(StyleAnchor::Top, PanelGroup::Hosts, [0.25, 0.27]),
 };

@@ -11,21 +11,13 @@ use crate::status_fonts::{
     STATUS_MONO_FONT_FAMILY, STATUS_SANS_FONT_FAMILY, STATUS_SERIF_FONT_FAMILY,
 };
 use crate::wallpaper::status_style::{
-    PanelGroup, StatusStyle, StyleAnchor, StyleArea, StyleArrangement, StylePalette, StyleTone,
-    StyleType,
+    PanelGroup, StatusStyle, StyleAnchor, StylePalette, StyleTone, StyleType, corner_arrangement,
 };
 
 /// Opaque tone from a hex color.
 const fn hex(value: u32) -> StyleTone {
     StyleTone(value, 1.0)
 }
-
-const NO_AREA: StyleArea = StyleArea {
-    width: 0.0,
-    clock: None,
-    groups: &[],
-    panels: StyleAnchor::Top,
-};
 
 /// The Trailblazers walk across a star chart: navy glass at both edges, chart
 /// white type, and the pink of the rabbit ears for upload.
@@ -57,20 +49,7 @@ pub const TRAILBLAZERS_ORBIT: StatusStyle = StatusStyle {
         title_semibold: true,
         radius: 4.0,
     },
-    arrangement: StyleArrangement::Sides {
-        left: StyleArea {
-            width: 0.24,
-            clock: Some(StyleAnchor::Top),
-            groups: &[PanelGroup::Hosts],
-            panels: StyleAnchor::Bottom,
-        },
-        right: StyleArea {
-            width: 0.24,
-            clock: None,
-            groups: &[PanelGroup::Others],
-            panels: StyleAnchor::Bottom,
-        },
-    },
+    arrangement: corner_arrangement(StyleAnchor::Top, PanelGroup::Hosts, [0.24, 0.24]),
 };
 
 /// Cyrene draws a bow of light before a red star: plum glass at both edges
@@ -103,20 +82,7 @@ pub const CYRENE_BOW: StatusStyle = StatusStyle {
         title_semibold: false,
         radius: 4.0,
     },
-    arrangement: StyleArrangement::Sides {
-        left: StyleArea {
-            width: 0.24,
-            clock: Some(StyleAnchor::Top),
-            groups: &[PanelGroup::Hosts],
-            panels: StyleAnchor::Bottom,
-        },
-        right: StyleArea {
-            width: 0.24,
-            clock: None,
-            groups: &[PanelGroup::Others],
-            panels: StyleAnchor::Bottom,
-        },
-    },
+    arrangement: corner_arrangement(StyleAnchor::Top, PanelGroup::Hosts, [0.24, 0.24]),
 };
 
 /// Pearl paints a stream of water for March 7th and Stelle: teal glass at the
@@ -149,15 +115,7 @@ pub const PEARL_WATER: StatusStyle = StatusStyle {
         title_semibold: false,
         radius: 4.0,
     },
-    arrangement: StyleArrangement::Sides {
-        left: StyleArea {
-            width: 0.44,
-            clock: Some(StyleAnchor::Top),
-            groups: &[PanelGroup::Hosts, PanelGroup::Others],
-            panels: StyleAnchor::Bottom,
-        },
-        right: NO_AREA,
-    },
+    arrangement: corner_arrangement(StyleAnchor::Top, PanelGroup::Hosts, [0.25, 0.27]),
 };
 
 /// Stelle among glass shards with the Stellaron Hunters: navy glass at both
@@ -190,20 +148,7 @@ pub const STELLE_SHARDS: StatusStyle = StatusStyle {
         title_semibold: true,
         radius: 4.0,
     },
-    arrangement: StyleArrangement::Sides {
-        left: StyleArea {
-            width: 0.24,
-            clock: Some(StyleAnchor::Top),
-            groups: &[PanelGroup::Hosts],
-            panels: StyleAnchor::Bottom,
-        },
-        right: StyleArea {
-            width: 0.24,
-            clock: None,
-            groups: &[PanelGroup::Others],
-            panels: StyleAnchor::Bottom,
-        },
-    },
+    arrangement: corner_arrangement(StyleAnchor::Top, PanelGroup::Hosts, [0.24, 0.24]),
 };
 
 /// Sparxie and Sparkle on a rose stage: rose glass at both edges, round
@@ -236,20 +181,7 @@ pub const SPARXIE_STAGE: StatusStyle = StatusStyle {
         title_semibold: true,
         radius: 8.0,
     },
-    arrangement: StyleArrangement::Sides {
-        left: StyleArea {
-            width: 0.24,
-            clock: Some(StyleAnchor::Top),
-            groups: &[PanelGroup::Hosts],
-            panels: StyleAnchor::Bottom,
-        },
-        right: StyleArea {
-            width: 0.24,
-            clock: None,
-            groups: &[PanelGroup::Others],
-            panels: StyleAnchor::Bottom,
-        },
-    },
+    arrangement: corner_arrangement(StyleAnchor::Top, PanelGroup::Hosts, [0.24, 0.24]),
 };
 
 /// Kafka and the Stellaron Hunters over a city of fireworks: dark violet
@@ -282,15 +214,7 @@ pub const KAFKA_CITY: StatusStyle = StatusStyle {
         title_semibold: true,
         radius: 4.0,
     },
-    arrangement: StyleArrangement::Sides {
-        left: NO_AREA,
-        right: StyleArea {
-            width: 0.44,
-            clock: Some(StyleAnchor::Top),
-            groups: &[PanelGroup::Others, PanelGroup::Hosts],
-            panels: StyleAnchor::Bottom,
-        },
-    },
+    arrangement: corner_arrangement(StyleAnchor::Top, PanelGroup::Hosts, [0.25, 0.27]),
 };
 
 /// Aglaea, Cipher, and Tribbie rest in a sunny meadow: pale sky cards at both
@@ -323,20 +247,7 @@ pub const AGLAEA_MEADOW: StatusStyle = StatusStyle {
         title_semibold: false,
         radius: 4.0,
     },
-    arrangement: StyleArrangement::Sides {
-        left: StyleArea {
-            width: 0.24,
-            clock: Some(StyleAnchor::Top),
-            groups: &[PanelGroup::Hosts],
-            panels: StyleAnchor::Bottom,
-        },
-        right: StyleArea {
-            width: 0.24,
-            clock: None,
-            groups: &[PanelGroup::Others],
-            panels: StyleAnchor::Bottom,
-        },
-    },
+    arrangement: corner_arrangement(StyleAnchor::Top, PanelGroup::Hosts, [0.24, 0.24]),
 };
 
 /// Castorice among violet ribbons and butterflies: violet glass at both edges
@@ -369,20 +280,7 @@ pub const CASTORICE_VIOLET: StatusStyle = StatusStyle {
         title_semibold: false,
         radius: 4.0,
     },
-    arrangement: StyleArrangement::Sides {
-        left: StyleArea {
-            width: 0.24,
-            clock: Some(StyleAnchor::Top),
-            groups: &[PanelGroup::Hosts],
-            panels: StyleAnchor::Bottom,
-        },
-        right: StyleArea {
-            width: 0.24,
-            clock: None,
-            groups: &[PanelGroup::Others],
-            panels: StyleAnchor::Bottom,
-        },
-    },
+    arrangement: corner_arrangement(StyleAnchor::Top, PanelGroup::Hosts, [0.24, 0.24]),
 };
 
 /// Cyrene rests her head among flowers in glass jars: blush cards at both
@@ -415,20 +313,7 @@ pub const CYRENE_FLOWERS: StatusStyle = StatusStyle {
         title_semibold: false,
         radius: 4.0,
     },
-    arrangement: StyleArrangement::Sides {
-        left: StyleArea {
-            width: 0.24,
-            clock: Some(StyleAnchor::Top),
-            groups: &[PanelGroup::Hosts],
-            panels: StyleAnchor::Bottom,
-        },
-        right: StyleArea {
-            width: 0.24,
-            clock: None,
-            groups: &[PanelGroup::Others],
-            panels: StyleAnchor::Bottom,
-        },
-    },
+    arrangement: corner_arrangement(StyleAnchor::Top, PanelGroup::Hosts, [0.24, 0.24]),
 };
 
 /// Robin sings above a night city: indigo glass at the right, over the cage,
@@ -461,15 +346,7 @@ pub const ROBIN_CONCERT: StatusStyle = StatusStyle {
         title_semibold: false,
         radius: 4.0,
     },
-    arrangement: StyleArrangement::Sides {
-        left: NO_AREA,
-        right: StyleArea {
-            width: 0.44,
-            clock: Some(StyleAnchor::Top),
-            groups: &[PanelGroup::Others, PanelGroup::Hosts],
-            panels: StyleAnchor::Bottom,
-        },
-    },
+    arrangement: corner_arrangement(StyleAnchor::Top, PanelGroup::Hosts, [0.25, 0.27]),
 };
 
 /// Sparkle with a fox mask among red maple leaves: warm dark glass at the
@@ -502,15 +379,7 @@ pub const SPARKLE_MAPLE: StatusStyle = StatusStyle {
         title_semibold: false,
         radius: 4.0,
     },
-    arrangement: StyleArrangement::Sides {
-        left: StyleArea {
-            width: 0.44,
-            clock: Some(StyleAnchor::Top),
-            groups: &[PanelGroup::Hosts, PanelGroup::Others],
-            panels: StyleAnchor::Bottom,
-        },
-        right: NO_AREA,
-    },
+    arrangement: corner_arrangement(StyleAnchor::Top, PanelGroup::Hosts, [0.25, 0.27]),
 };
 
 /// Acheron with a red blade before a black eclipse: black glass at both
@@ -543,20 +412,7 @@ pub const ACHERON_ECLIPSE: StatusStyle = StatusStyle {
         title_semibold: true,
         radius: 0.0,
     },
-    arrangement: StyleArrangement::Sides {
-        left: StyleArea {
-            width: 0.24,
-            clock: Some(StyleAnchor::Top),
-            groups: &[PanelGroup::Hosts],
-            panels: StyleAnchor::Bottom,
-        },
-        right: StyleArea {
-            width: 0.24,
-            clock: None,
-            groups: &[PanelGroup::Others],
-            panels: StyleAnchor::Bottom,
-        },
-    },
+    arrangement: corner_arrangement(StyleAnchor::Top, PanelGroup::Hosts, [0.24, 0.24]),
 };
 
 /// Silver Wolf and Kafka in a pale morning: lilac cards at the right, over
@@ -589,15 +445,7 @@ pub const HUNTERS_DAYLIGHT: StatusStyle = StatusStyle {
         title_semibold: true,
         radius: 4.0,
     },
-    arrangement: StyleArrangement::Sides {
-        left: NO_AREA,
-        right: StyleArea {
-            width: 0.44,
-            clock: Some(StyleAnchor::Top),
-            groups: &[PanelGroup::Others, PanelGroup::Hosts],
-            panels: StyleAnchor::Bottom,
-        },
-    },
+    arrangement: corner_arrangement(StyleAnchor::Top, PanelGroup::Hosts, [0.25, 0.27]),
 };
 
 /// Lumine and Paimon rest on white linen: paper cards at the right, over the
@@ -630,13 +478,5 @@ pub const LUMINE_LINEN: StatusStyle = StatusStyle {
         title_semibold: false,
         radius: 4.0,
     },
-    arrangement: StyleArrangement::Sides {
-        left: NO_AREA,
-        right: StyleArea {
-            width: 0.44,
-            clock: Some(StyleAnchor::Top),
-            groups: &[PanelGroup::Others, PanelGroup::Hosts],
-            panels: StyleAnchor::Bottom,
-        },
-    },
+    arrangement: corner_arrangement(StyleAnchor::Top, PanelGroup::Hosts, [0.25, 0.27]),
 };

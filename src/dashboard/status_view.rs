@@ -4,6 +4,7 @@
 //! controls. Each feed panel is a cached child view (see `status_panel`), so
 //! a root redraw for the clock reuses the panels as they are.
 
+mod status_slideshow_swipe;
 mod status_update_view;
 mod status_view_layout;
 mod status_wallpaper_view;
@@ -11,9 +12,8 @@ mod status_wallpaper_view;
 use std::time::{Duration, Instant};
 
 use gpui::{
-    AnyElement, App, AppContext as _, ClickEvent, Context, Entity, FocusHandle, IntoElement,
-    KeyBinding, MouseButton, ObjectFit, Render, StyledImage as _, Subscription, WeakEntity, Window,
-    actions, div, img, prelude::*, px, relative,
+    App, AppContext as _, ClickEvent, Context, Entity, FocusHandle, IntoElement, KeyBinding,
+    MouseButton, Render, Subscription, WeakEntity, Window, actions, div, prelude::*, px,
 };
 use time::{OffsetDateTime, UtcOffset};
 
@@ -22,7 +22,7 @@ use crate::{
     platform::{StatusPower, status_update::finish_app_update},
     status_fonts::STATUS_MONO_FONT_FAMILY,
     status_startup::{StartupMilestone, log_startup_milestone},
-    wallpaper::{StatusCarousel, StyleAnchor, StyleArrangement},
+    wallpaper::StatusCarousel,
 };
 
 use super::{
@@ -33,10 +33,9 @@ use super::{
     status_theme::{Scale, StatusLayout, StatusTheme},
     status_window::StatusDisplayApp,
 };
+use status_slideshow_swipe::{IncomingPanels, SlideshowSwipe};
 use status_update_view::StatusUpdateDialog;
-use status_view_layout::{
-    SCREEN_PADDING, alert_row, area_shade, control_button, feed_alert, status_clock,
-};
+use status_view_layout::{SCREEN_PADDING, control_button};
 use status_wallpaper_view::{PickerSession, StatusWallpaper, WallpaperPreview};
 
 actions!(
@@ -101,6 +100,10 @@ pub struct StatusView {
     details: Option<FeedDetailsSession>,
     btop: Option<BtopSession>,
     pointer_pressed: bool,
+    swipe: Option<SlideshowSwipe>,
+    incoming_panels: Option<IncomingPanels>,
+    /// A swipe moved the pointer since the last press, so its release is not a tap.
+    swipe_consumed: bool,
     controls_latched: bool,
     power: StatusPower,
     pointer_moved_at: Option<Instant>,
@@ -144,6 +147,7 @@ impl StatusView {
                     view.update_display_power(window, cx);
                     if !window.is_visible() {
                         view.pointer_pressed = false;
+                        view.swipe = None;
                     }
                     cx.notify();
                 }) {
@@ -153,6 +157,7 @@ impl StatusView {
             cx.observe_window_activation(window, |view, window, cx| {
                 if !window.is_window_active() {
                     view.pointer_pressed = false;
+                    view.swipe = None;
                 }
                 cx.notify();
             }),
@@ -190,6 +195,9 @@ impl StatusView {
             details: None,
             btop: None,
             pointer_pressed: false,
+            swipe: None,
+            incoming_panels: None,
+            swipe_consumed: false,
             controls_latched: false,
             power: StatusPower::default(),
             pointer_moved_at: None,
@@ -330,7 +338,10 @@ impl Render for StatusView {
         }
         self.update_display_power(window, cx);
         self.update_slideshow(cx);
+        self.finish_swipe(window, cx);
         self.update_wallpaper(window, cx);
+        self.warm_slideshow(window, cx);
+        self.prepare_incoming_panels(window, cx);
         let layout = StatusLayout::from_status_window(window);
         let scale = move |value: f32| layout.scale(value);
         let s: Scale = &scale;
@@ -340,43 +351,6 @@ impl Render for StatusView {
 
         let style = self.wallpaper.style;
         let theme = StatusTheme(style.palette);
-        let mut alerts: Vec<AnyElement> = Vec::new();
-        if self.preview.is_none() && self.carousel.read(cx).playback_art_unavailable() {
-            alerts.push(
-                alert_row(
-                    s,
-                    theme,
-                    theme.warn(),
-                    "Wallpaper unavailable".into(),
-                    "Open Wallpaper to check the image or choose another.".into(),
-                )
-                .into_any_element(),
-            );
-        }
-        let board = self.board.read(cx);
-        for feed in board.status_feeds() {
-            if let Some(change) = board.next_freshness_change(feed) {
-                self.redraw.redraw_after(change);
-            }
-            if let Some(alert) =
-                feed_alert(s, theme, feed, board.feed_freshness(feed), &self.redraw)
-            {
-                alerts.push(alert.into_any_element());
-            }
-        }
-
-        let clock_end = matches!(
-            style.arrangement,
-            StyleArrangement::Sides { left, .. } if left.clock.is_none()
-        );
-        let clock = status_clock(s, style, now, offset, clock_end);
-        // The top bar takes the top corner that the clock leaves free.
-        let controls_at_start = matches!(
-            style.arrangement,
-            StyleArrangement::Sides { left, right }
-                if left.clock.is_none() && right.clock == Some(StyleAnchor::Top)
-        );
-
         let is_fullscreen = window.is_fullscreen();
         let controls_left = self
             .pointer_moved_at
@@ -456,33 +430,6 @@ impl Render for StatusView {
                     this.quit(&QuitStatusDisplay, window, cx)
                 }),
             ));
-        let notices = div()
-            .w_full()
-            .flex()
-            .flex_col()
-            .when(clock_end, |column| column.items_end())
-            .gap(s(8.))
-            .children(alerts);
-
-        // Each panel is a cached view laid out at its style. GPUI reuses
-        // its last drawing until the panel is notified.
-        let content = match style.arrangement {
-            StyleArrangement::Band => {
-                self.band_content(s, layout, clock, notices.w(relative(0.5)), cx)
-            }
-            StyleArrangement::Sides { left, right } => {
-                self.sides_content(s, layout, clock.child(notices), [left, right], cx)
-            }
-        };
-        let shades = match style.arrangement {
-            StyleArrangement::Band => Vec::new(),
-            StyleArrangement::Sides { left, right } => [(left, false), (right, true)]
-                .into_iter()
-                .filter(|(area, _)| area.width > 0.)
-                .map(|(area, is_right)| area_shade(s, theme, layout, area, is_right))
-                .collect(),
-        };
-
         let root = div()
             .id("status-root")
             .when(self.picker.is_none() || self.preview.is_some(), |root| {
@@ -494,62 +441,68 @@ impl Render for StatusView {
             .on_action(cx.listener(Self::quit))
             .on_action(cx.listener(Self::refresh))
             .on_action(cx.listener(Self::next_display))
-            .capture_any_mouse_down(cx.listener(|this, event: &gpui::MouseDownEvent, _, _| {
+            .capture_any_mouse_down(cx.listener(|this, event: &gpui::MouseDownEvent, _, cx| {
                 if event.button == MouseButton::Left {
+                    this.begin_swipe(event.position, cx);
                     this.controls_latched = this
                         .pointer_moved_at
                         .is_some_and(|at| at.elapsed() < CONTROLS_VISIBLE_DURATION);
                     this.pointer_pressed = true;
                 }
             }))
-            .capture_any_mouse_up(cx.listener(|this, event: &gpui::MouseUpEvent, _, cx| {
+            .capture_any_mouse_up(cx.listener(|this, event: &gpui::MouseUpEvent, window, cx| {
+                if event.button == MouseButton::Left {
+                    this.end_swipe(window, cx);
+                }
                 if event.button == MouseButton::Left && this.pointer_pressed {
                     this.pointer_pressed = false;
-                    this.pointer_moved_at = Some(Instant::now());
+                    if !this.swipe_consumed {
+                        this.pointer_moved_at = Some(Instant::now());
+                    }
                     cx.notify();
                 }
             }))
             .on_mouse_up_out(
                 MouseButton::Left,
-                cx.listener(|this, _, _, cx| {
+                cx.listener(|this, _, window, cx| {
+                    this.end_swipe(window, cx);
                     if this.pointer_pressed {
                         this.pointer_pressed = false;
                         cx.notify();
                     }
                 }),
             )
-            .on_mouse_move(cx.listener(|this, _, _, cx| {
-                // Draw again only to show hidden controls. The redraw timer
-                // hides them after the last move.
-                let hidden = this
-                    .pointer_moved_at
-                    .is_none_or(|at| at.elapsed() >= CONTROLS_VISIBLE_DURATION);
-                this.pointer_moved_at = Some(Instant::now());
-                if hidden {
-                    cx.notify();
-                }
-            }))
+            .on_mouse_move(
+                cx.listener(|this, event: &gpui::MouseMoveEvent, window, cx| {
+                    if event.dragging() {
+                        this.drag_swipe(event.position, window, cx);
+                    }
+                    if this.swipe_in_motion() {
+                        return;
+                    }
+                    // Draw again only to show hidden controls. The redraw timer
+                    // hides them after the last move.
+                    let hidden = this
+                        .pointer_moved_at
+                        .is_none_or(|at| at.elapsed() >= CONTROLS_VISIBLE_DURATION);
+                    this.pointer_moved_at = Some(Instant::now());
+                    if hidden {
+                        cx.notify();
+                    }
+                }),
+            )
             .relative()
             .size_full()
             .bg(theme.background())
             .font_family(STATUS_MONO_FONT_FAMILY)
             .line_height(relative(1.25))
             .text_color(theme.text())
-            .children(self.wallpaper.image.clone().map(|image| {
-                img(image)
-                    .absolute()
-                    .inset_0()
-                    .size_full()
-                    .object_fit(ObjectFit::Cover)
-            }))
-            .child(div().absolute().inset_0().bg(theme.scrim()))
-            .children(shades)
-            .child(content)
+            .child(self.slideshow_pages(window, layout, now, cx))
             .when(slideshow_taps, |root| {
                 root.child(self.slideshow_edge(s, false, cx))
                     .child(self.slideshow_edge(s, true, cx))
             })
-            .when(!modal, |root| {
+            .when(!modal || self.preview.is_some(), |root| {
                 root.child(
                     div()
                         .absolute()
@@ -557,17 +510,17 @@ impl Render for StatusView {
                         .right(s(SCREEN_PADDING))
                         .left(s(SCREEN_PADDING))
                         .flex()
-                        .when(controls_at_start, |bar| bar.flex_row_reverse())
                         .justify_end()
                         .items_center()
                         .gap(s(8.))
                         .when(
-                            show_window_controls
-                                && if self.pointer_pressed {
-                                    self.controls_latched
-                                } else {
-                                    controls_left.is_some()
-                                },
+                            self.preview.is_some()
+                                || (show_window_controls
+                                    && if self.pointer_pressed || self.swipe_in_motion() {
+                                        self.controls_latched
+                                    } else {
+                                        controls_left.is_some()
+                                    }),
                             |bar| bar.child(controls),
                         )
                         .child(

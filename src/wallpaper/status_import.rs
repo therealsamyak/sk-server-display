@@ -126,8 +126,15 @@ impl PanelPlacement {
                 right: NO_AREA,
             },
             Self::Right => StyleArrangement::Sides {
-                left: NO_AREA,
-                right: SIDE,
+                left: StyleArea {
+                    width: 0.30,
+                    clock: Some(StyleAnchor::Top),
+                    ..NO_AREA
+                },
+                right: StyleArea {
+                    clock: None,
+                    ..SIDE
+                },
             },
             Self::Split => StyleArrangement::Sides {
                 left: StyleArea {
