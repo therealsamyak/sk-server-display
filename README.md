@@ -54,7 +54,7 @@ following redirects. For example, use `curl.exe --noproxy "*" --max-time 5` on W
 | In-app btop | Set `show_btop = true` on a Glances host to reuse its metrics feed. This opens no additional connection. |
 
 Local metrics, the clock, and local wallpaper playback work without a network route. The
-manual **Check for updates** action needs internet access to GitHub. Kuma reports the
+version button checks for updates and needs internet access to GitHub. Kuma reports the
 server's view of its monitors, so public checks may fail during an internet outage even
 while the display can read Kuma over the LAN.
 
@@ -123,7 +123,8 @@ The first build compiles GPUI from source and takes several minutes. Linux also 
 | R | Reload the active configuration and refresh its sources. |
 | Ctrl+Q or Cmd+Q | Quit. |
 
-Move the pointer to show the toolbar. Select **Refresh** to apply edits to the active configuration
+Move the pointer to show the toolbar. It stays open while the pointer is over it.
+Select **Refresh** to apply edits to the active configuration
 in the same window. If the new configuration is invalid, the display keeps the previous settings
 and shows an alert. Select **Wallpaper** to open the picker. The app keeps the display and system
 awake while a fullscreen window is visible on AC power.

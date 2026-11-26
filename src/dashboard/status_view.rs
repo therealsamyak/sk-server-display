@@ -12,8 +12,9 @@ mod status_wallpaper_view;
 use std::time::{Duration, Instant};
 
 use gpui::{
-    App, AppContext as _, ClickEvent, Context, Entity, FocusHandle, IntoElement, KeyBinding,
-    MouseButton, Render, Subscription, WeakEntity, Window, actions, div, prelude::*, px, relative,
+    App, AppContext as _, ClickEvent, Context, Entity, FocusHandle, HoverListenerMode, IntoElement,
+    KeyBinding, MouseButton, Render, Subscription, WeakEntity, Window, actions, div, prelude::*,
+    relative,
 };
 use time::{OffsetDateTime, UtcOffset};
 
@@ -105,6 +106,7 @@ pub struct StatusView {
     /// A swipe moved the pointer since the last press, so its release is not a tap.
     swipe_consumed: bool,
     controls_latched: bool,
+    toolbar_hovered: bool,
     power: StatusPower,
     pointer_moved_at: Option<Instant>,
     first_frame_requested: bool,
@@ -183,6 +185,7 @@ impl StatusView {
             incoming_panels: None,
             swipe_consumed: false,
             controls_latched: false,
+            toolbar_hovered: false,
             power: StatusPower::default(),
             pointer_moved_at: None,
             first_frame_requested: false,
@@ -403,12 +406,24 @@ impl Render for StatusView {
             .pointer_moved_at
             .and_then(|at| CONTROLS_VISIBLE_DURATION.checked_sub(at.elapsed()));
         let modal = self.picker.is_some() || self.update_dialog.is_some();
+        let toolbar_present = !modal || self.preview.is_some();
+        if !toolbar_present {
+            self.toolbar_hovered = false;
+        }
         let show_window_controls =
             !modal && self.details.is_none() && !self.automatic_slide_in_motion();
+        let controls_visible = if self.pointer_pressed || self.swipe_in_motion() {
+            self.controls_latched
+        } else {
+            self.toolbar_hovered || controls_left.is_some()
+        };
         let slideshow_taps = !modal
             && self.preview.is_none()
             && self.carousel.read(cx).state.playing_playlist().is_some();
-        if show_window_controls && let Some(left) = controls_left {
+        if show_window_controls
+            && !self.toolbar_hovered
+            && let Some(left) = controls_left
+        {
             self.redraw.redraw_after(left);
         }
         let controls = div()
@@ -458,17 +473,19 @@ impl Render for StatusView {
                     this.refresh(&RefreshStatus, window, cx)
                 }),
             ))
-            .child(control_button(
-                s,
-                theme,
-                "control-update",
-                if self.update_busy {
-                    "Updating…"
-                } else {
-                    "Check for updates"
-                },
-                cx.listener(|this, _, window, cx| this.check_for_updates(window, cx)),
-            ))
+            .child(
+                control_button(
+                    s,
+                    theme,
+                    "control-update",
+                    concat!("v", env!("CARGO_PKG_VERSION")),
+                    cx.listener(|this, _, window, cx| this.check_for_updates(window, cx)),
+                )
+                .aria_label(concat!(
+                    "Check for updates. Version ",
+                    env!("CARGO_PKG_VERSION")
+                )),
+            )
             .child(control_button(
                 s,
                 theme,
@@ -492,9 +509,10 @@ impl Render for StatusView {
             .capture_any_mouse_down(cx.listener(|this, event: &gpui::MouseDownEvent, _, cx| {
                 if event.button == MouseButton::Left {
                     this.begin_swipe(event.position, cx);
-                    this.controls_latched = this
-                        .pointer_moved_at
-                        .is_some_and(|at| at.elapsed() < CONTROLS_VISIBLE_DURATION);
+                    this.controls_latched = this.toolbar_hovered
+                        || this
+                            .pointer_moved_at
+                            .is_some_and(|at| at.elapsed() < CONTROLS_VISIBLE_DURATION);
                     this.pointer_pressed = true;
                 }
             }))
@@ -550,7 +568,7 @@ impl Render for StatusView {
                 root.child(self.slideshow_edge(s, false, cx))
                     .child(self.slideshow_edge(s, true, cx))
             })
-            .when(!modal || self.preview.is_some(), |root| {
+            .when(toolbar_present, |root| {
                 root.child(
                     div()
                         .absolute()
@@ -559,30 +577,38 @@ impl Render for StatusView {
                         .left(s(SCREEN_PADDING))
                         .flex()
                         .justify_end()
-                        .items_center()
-                        .gap(s(8.))
-                        .when(
-                            self.preview.is_some()
-                                || (show_window_controls
-                                    && if self.pointer_pressed || self.swipe_in_motion() {
-                                        self.controls_latched
-                                    } else {
-                                        controls_left.is_some()
-                                    }),
-                            |bar| bar.child(controls),
-                        )
                         .child(
-                            control_button(
-                                s,
-                                theme,
-                                "open-wallpaper-picker",
-                                "Wallpaper",
-                                cx.listener(|view, _, window, cx| view.open_picker(window, cx)),
-                            )
-                            .min_h(px(44.))
-                            .flex_none()
-                            .flex()
-                            .items_center(),
+                            div()
+                                .id("status-toolbar")
+                                .min_w_0()
+                                .flex()
+                                .items_center()
+                                .gap(s(8.))
+                                .hover_listener_mode(HoverListenerMode::InputModalityIndependent)
+                                .on_hover(cx.listener(|this, hovered: &bool, _, cx| {
+                                    this.toolbar_hovered = *hovered;
+                                    if !hovered {
+                                        this.pointer_moved_at = Some(Instant::now());
+                                    }
+                                    cx.notify();
+                                }))
+                                .when(
+                                    self.preview.is_some()
+                                        || (show_window_controls && controls_visible),
+                                    |bar| bar.child(controls),
+                                )
+                                .child(
+                                    control_button(
+                                        s,
+                                        theme,
+                                        "open-wallpaper-picker",
+                                        "Wallpaper",
+                                        cx.listener(|view, _, window, cx| {
+                                            view.open_picker(window, cx)
+                                        }),
+                                    )
+                                    .flex_none(),
+                                ),
                         ),
                 )
             })
