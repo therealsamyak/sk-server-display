@@ -3,16 +3,75 @@ use std::{cell::RefCell, ffi::c_void, rc::Rc};
 use anyhow::{Context as _, Result, ensure};
 use gpui::{BackgroundExecutor, Window};
 use objc2_core_foundation::{
-    CFRetained, CFRunLoop, CFRunLoopSource, CFString, kCFRunLoopCommonModes,
+    CFBoolean, CFNumber, CFRetained, CFRunLoop, CFRunLoopSource, CFString, CFType,
+    kCFRunLoopCommonModes,
 };
 use objc2_io_kit::{
     IOPMAssertionCreateWithName, IOPMAssertionID, IOPMAssertionRelease, IOPSCopyPowerSourcesInfo,
-    IOPSCreateLimitedPowerNotification, IOPSGetProvidingPowerSourceType, kIOPMAssertionLevelOn,
+    IOPSCopyPowerSourcesList, IOPSCreateLimitedPowerNotification, IOPSGetPowerSourceDescription,
+    IOPSGetProvidingPowerSourceType, kIOPMAssertionLevelOn, kIOPSCurrentCapacityKey,
+    kIOPSInternalBatteryType, kIOPSIsChargingKey, kIOPSIsPresentKey, kIOPSMaxCapacityKey,
+    kIOPSTypeKey,
 };
 
-use super::{IDLE_INHIBITION_REASON, update_idle_inhibition};
+use super::{
+    AC_ONLY_BATTERY_LABEL, BatteryPowerState, IDLE_INHIBITION_REASON, format_battery_status,
+    update_idle_inhibition,
+};
 
 type IdleAssertions = (IdleAssertion, IdleAssertion);
+
+/// Reads the built-in battery from a macOS power-source snapshot.
+pub(super) fn read_battery_status() -> Option<String> {
+    let snapshot = IOPSCopyPowerSourcesInfo()?;
+    // SAFETY: this is the snapshot returned by IOPSCopyPowerSourcesInfo.
+    let sources = unsafe { IOPSCopyPowerSourcesList(Some(&snapshot)) }?;
+    // SAFETY: IOKit documents the returned array as containing CFType objects.
+    let sources = unsafe { sources.cast_unchecked::<CFType>() };
+    let state = mac_power_state(&snapshot);
+    let battery_type = CFString::from_str(kIOPSInternalBatteryType.to_str().ok()?);
+    for source in sources.iter() {
+        // SAFETY: the source is an entry from this snapshot's power-source array.
+        let description = unsafe { IOPSGetPowerSourceDescription(Some(&snapshot), Some(&source)) }?;
+        // SAFETY: IOKit describes power sources with CFString keys and CF objects.
+        let description = unsafe { description.cast_unchecked::<CFString, CFType>() };
+        let lookup =
+            |key: &std::ffi::CStr| description.get(&CFString::from_str(key.to_str().ok()?));
+        let is_internal = lookup(kIOPSTypeKey)
+            .and_then(|kind| kind.downcast::<CFString>().ok())
+            .is_some_and(|kind| *kind == *battery_type);
+        if !is_internal {
+            continue;
+        }
+        let flag = |key| lookup(key).and_then(|value| value.downcast::<CFBoolean>().ok());
+        if flag(kIOPSIsPresentKey).is_some_and(|flag| !flag.as_bool()) {
+            continue;
+        }
+        let capacity = |key| lookup(key)?.downcast::<CFNumber>().ok()?.as_f64();
+        let percent = capacity(kIOPSCurrentCapacityKey)
+            .zip(capacity(kIOPSMaxCapacityKey).filter(|max| *max > 0.0))
+            .map(|(current, max)| current / max * 100.0);
+        let state = if flag(kIOPSIsChargingKey).is_some_and(|flag| flag.as_bool()) {
+            Some(BatteryPowerState::Charging)
+        } else {
+            state
+        };
+        return format_battery_status(percent, state);
+    }
+    matches!(state, Some(BatteryPowerState::PluggedIn)).then(|| AC_ONLY_BATTERY_LABEL.into())
+}
+
+fn mac_power_state(snapshot: &CFType) -> Option<BatteryPowerState> {
+    // SAFETY: the snapshot is the value from IOPSCopyPowerSourcesInfo.
+    let source = unsafe { IOPSGetProvidingPowerSourceType(Some(snapshot)) }?;
+    if *source == *CFString::from_str("AC Power") {
+        Some(BatteryPowerState::PluggedIn)
+    } else if *source == *CFString::from_str("Battery Power") {
+        Some(BatteryPowerState::OnBattery)
+    } else {
+        None
+    }
+}
 
 /// Owns the macOS idle assertions and power source notification.
 pub(super) struct DisplayPowerMonitor {
@@ -54,9 +113,10 @@ unsafe extern "C-unwind" fn on_power_change(context: *mut c_void) {
 
 fn refresh_idle_inhibition(assertions: &RefCell<Option<IdleAssertions>>) {
     let on_ac = IOPSCopyPowerSourcesInfo().is_some_and(|snapshot| {
-        // SAFETY: the snapshot is the value from IOPSCopyPowerSourcesInfo.
-        let source = unsafe { IOPSGetProvidingPowerSourceType(Some(&snapshot)) };
-        source.is_some_and(|source| *source == *CFString::from_str("AC Power"))
+        matches!(
+            mac_power_state(&snapshot),
+            Some(BatteryPowerState::PluggedIn)
+        )
     });
     update_idle_inhibition(&mut assertions.borrow_mut(), on_ac, || {
         Ok((

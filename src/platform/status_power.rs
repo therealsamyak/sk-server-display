@@ -1,6 +1,8 @@
 //! Read local battery status and keep the fullscreen display awake on external power.
 
-use gpui::{BackgroundExecutor, Window};
+use std::time::Duration;
+
+use gpui::{BackgroundExecutor, Context, Task, Window};
 
 #[cfg(target_os = "linux")]
 #[path = "status_power/linux.rs"]
@@ -13,16 +15,93 @@ mod platform;
 mod platform;
 
 const IDLE_INHIBITION_REASON: &str = "Server status display is fullscreen";
+const BATTERY_POLL_INTERVAL: Duration = Duration::from_secs(5);
+const AC_ONLY_BATTERY_LABEL: &str = "100% plugged in";
 
-/// Reads battery percentage and power state from the display machine.
-pub(crate) fn local_battery_text() -> Option<String> {
-    #[cfg(target_os = "windows")]
-    {
-        platform::windows_battery_text()
+/// Maintains the battery label for the computer running the dashboard.
+pub(crate) struct LocalBatteryStatus {
+    text: Option<String>,
+    _poll: Task<()>,
+}
+
+impl LocalBatteryStatus {
+    /// Reads local battery status on the background executor.
+    pub(crate) fn new_local_battery_status(cx: &mut Context<Self>) -> Self {
+        let poll = cx.spawn(async |status, cx| {
+            let executor = cx.background_executor().clone();
+            let mut reader = BatteryReader::default();
+            loop {
+                let (next_reader, text) = executor
+                    .spawn(async move {
+                        let text = reader.read_battery_status().await;
+                        (reader, text)
+                    })
+                    .await;
+                reader = next_reader;
+                if status
+                    .update(cx, |status, cx| {
+                        if status.text != text {
+                            status.text = text;
+                            cx.notify();
+                        }
+                    })
+                    .is_err()
+                {
+                    break;
+                }
+                executor.timer(BATTERY_POLL_INTERVAL).await;
+            }
+        });
+        Self {
+            text: None,
+            _poll: poll,
+        }
     }
-    #[cfg(not(target_os = "windows"))]
-    {
-        None
+
+    /// Returns the most recent local battery label.
+    pub(crate) fn battery_label(&self) -> Option<&str> {
+        self.text.as_deref()
+    }
+}
+
+#[derive(Default)]
+struct BatteryReader {
+    #[cfg(target_os = "linux")]
+    system_bus: Option<zbus::Connection>,
+}
+
+impl BatteryReader {
+    async fn read_battery_status(&mut self) -> Option<String> {
+        #[cfg(target_os = "linux")]
+        {
+            platform::read_battery_status(&mut self.system_bus).await
+        }
+        #[cfg(not(target_os = "linux"))]
+        {
+            platform::read_battery_status()
+        }
+    }
+}
+
+#[derive(Clone, Copy)]
+enum BatteryPowerState {
+    Charging,
+    PluggedIn,
+    OnBattery,
+}
+
+fn format_battery_status(percent: Option<f64>, state: Option<BatteryPowerState>) -> Option<String> {
+    let percent = percent.filter(|value| (0.0..=100.0).contains(value));
+    let state = state.map(|state| match state {
+        BatteryPowerState::Charging => "charging",
+        BatteryPowerState::PluggedIn => "plugged in",
+        BatteryPowerState::OnBattery => "on battery",
+    });
+    match (percent, state) {
+        (Some(percent), Some(state)) => Some(format!("{percent:.0}% {state}")),
+        (Some(percent), None) => Some(format!("{percent:.0}%")),
+        (None, Some(state)) => Some(state.into()),
+        (None, None) => None,
     }
 }
 
@@ -33,20 +112,15 @@ fn format_windows_battery(ac_line: u8, flags: u8, percent: u8) -> Option<String>
     const UNKNOWN_FLAGS: u8 = 255;
     let battery_known = flags != UNKNOWN_FLAGS;
     if battery_known && flags & NO_BATTERY != 0 {
-        return (ac_line == 1).then(|| "100% plugged in".into());
+        return (ac_line == 1).then(|| AC_ONLY_BATTERY_LABEL.into());
     }
     let state = match ac_line {
-        _ if battery_known && flags & CHARGING != 0 => Some("charging"),
-        1 => Some("plugged in"),
-        0 => Some("on battery"),
+        _ if battery_known && flags & CHARGING != 0 => Some(BatteryPowerState::Charging),
+        1 => Some(BatteryPowerState::PluggedIn),
+        0 => Some(BatteryPowerState::OnBattery),
         _ => None,
     };
-    match (percent, state) {
-        (0..=100, Some(state)) => Some(format!("{percent}% {state}")),
-        (0..=100, None) => Some(format!("{percent}%")),
-        (_, Some(state)) => Some(state.into()),
-        (_, None) => None,
-    }
+    format_battery_status(Some(f64::from(percent)), state)
 }
 
 /// Owns idle inhibition for the visible fullscreen status window.

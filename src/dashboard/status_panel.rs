@@ -5,8 +5,6 @@
 //! result of its feed, or by its redraw timer when its time-based text
 //! changes.
 
-use std::time::Duration;
-
 use time::OffsetDateTime;
 
 use crate::{
@@ -24,13 +22,12 @@ use crate::{
     },
     metrics::FeedFreshness,
     metrics::StatusCollector,
-    metrics::{BatteryPlacement, StatusBoard, StatusFeedUpdated},
     metrics::{
         DiskHealth, DiskState, FeedData, HostMetrics, HostPresence, ServiceHealth, ServiceState,
         TailnetConnection, TailnetDevice,
     },
     metrics::{HostHistory, StatusFeed},
-    platform::local_battery_text,
+    metrics::{StatusBoard, StatusFeedUpdated},
     wallpaper::{StatusStyle, StyleArrangement, plain_status_style},
 };
 use gpui::{
@@ -230,13 +227,6 @@ impl FeedView<'_> {
     fn ago(&self, at: Option<OffsetDateTime>) -> String {
         self.redraw.status_ago_text(self.now, at)
     }
-
-    fn battery_text(&self) -> Option<String> {
-        if cfg!(target_os = "windows") {
-            self.redraw.redraw_after(Duration::from_secs(5));
-        }
-        local_battery_text()
-    }
 }
 
 /// Panel frame: title, one header fact or the freshness state, and body.
@@ -249,22 +239,9 @@ fn feed_panel(
 ) -> Div {
     let theme = StatusTheme(view.style.palette);
     let (padding, gap) = if compact { (12., 8.) } else { (16., 12.) };
-    let show_battery = match view.feed.spec.battery_placement {
-        BatteryPlacement::Hidden => false,
-        BatteryPlacement::HostHeader => true,
-        BatteryPlacement::TailnetSelf => matches!(
-            view.feed.latest_reading(),
-            Some(FeedData::HostPresence(presence)) if presence.device.is_self
-        ),
-    };
-    let mut battery = if show_battery {
-        view.battery_text()
-    } else {
-        None
-    };
     let (state_text, state_color) = match view.freshness {
         FeedFreshness::Waiting => (Some("connecting".to_string()), theme.info()),
-        FeedFreshness::Live => (battery.take().or(header_fact), theme.muted()),
+        FeedFreshness::Live => (header_fact, theme.muted()),
         FeedFreshness::Stale => (
             view.feed
                 .last_success_age()
@@ -339,13 +316,6 @@ fn feed_panel(
                         .truncate()
                         .text_size(s(14.))
                         .text_color(state_color)
-                        .child(text)
-                }))
-                .children(battery.map(|text| {
-                    div()
-                        .flex_none()
-                        .text_size(s(14.))
-                        .text_color(theme.muted())
                         .child(text)
                 }))
                 .children(
@@ -874,31 +844,19 @@ fn tailnet_panel(s: Scale, view: &FeedView, carded: &[String]) -> Div {
         .collect();
     let dim = view.dim();
     let online = devices.iter().filter(|d| d.online).count();
-    let battery = if view.feed.spec.battery_placement == BatteryPlacement::TailnetSelf
-        && devices.iter().any(|device| device.is_self)
-    {
-        view.battery_text()
-    } else {
-        None
-    };
-    let connection_width = if battery.is_some() { 128. } else { 96. };
     let rows = devices.iter().map(|device| {
         let color = match (dim, device.online) {
             (true, _) | (_, false) => theme.faint(),
             (_, true) => theme.ok(),
         };
-        let connection = if device.is_self {
-            battery.clone().unwrap_or_default()
-        } else {
-            tailnet_connection_text(view, device).unwrap_or_default()
-        };
+        let connection = tailnet_connection_text(view, device);
         list_row(
             s,
             color,
             device.name.clone(),
             vec![
                 (device.os.clone(), 64., theme.muted()),
-                (connection, connection_width, theme.muted()),
+                (connection, 96., theme.muted()),
             ],
         )
         .when(!device.online, |row| row.text_color(theme.muted()))
@@ -953,11 +911,7 @@ fn presence_panel(s: Scale, view: &FeedView, compact: bool) -> Div {
                 .child(state),
         );
     // An offline device shows its last-seen age in the body only.
-    let path = if device.online {
-        tailnet_connection_text(view, device)
-    } else {
-        None
-    };
+    let path = (device.online && !device.is_self).then(|| tailnet_connection_text(view, device));
     let Some(error) = metrics_error.as_ref().filter(|_| !compact) else {
         // Keep the state and OS on one line in the collapsed host card.
         let row = state_row.child(div().flex_none().text_color(theme.muted()).child(
@@ -1012,9 +966,9 @@ fn presence_note(
 }
 
 /// Tailscale path to a device, such as `direct` or `relay lax`.
-fn tailnet_connection_text(view: &FeedView, device: &TailnetDevice) -> Option<String> {
-    Some(match &device.connection {
-        TailnetConnection::ThisMachine => return None,
+fn tailnet_connection_text(view: &FeedView, device: &TailnetDevice) -> String {
+    match &device.connection {
+        TailnetConnection::ThisMachine => String::new(),
         TailnetConnection::Direct => "direct".to_string(),
         TailnetConnection::Relay(relay) => format!("relay {relay}"),
         TailnetConnection::Idle => "idle".to_string(),
@@ -1022,5 +976,5 @@ fn tailnet_connection_text(view: &FeedView, device: &TailnetDevice) -> Option<St
             Some(_) => view.ago(device.last_seen),
             None => "offline".to_string(),
         },
-    })
+    }
 }

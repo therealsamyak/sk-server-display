@@ -163,7 +163,7 @@ fn read_system_power_status() -> windows::core::Result<SYSTEM_POWER_STATUS> {
 }
 
 /// Formats Windows battery percentage and power state for the dashboard.
-pub(super) fn windows_battery_text() -> Option<String> {
+pub(super) fn read_battery_status() -> Option<String> {
     match read_system_power_status() {
         Ok(power) => format_windows_battery(
             power.ACLineStatus,

@@ -1,19 +1,74 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, time::Duration};
 
 use anyhow::{Context as _, Result, bail};
 use futures_lite::{StreamExt as _, future};
 use gpui::{BackgroundExecutor, Task, Window};
 use zbus::{
     Connection, Proxy,
+    proxy::{Builder, CacheProperties},
     zvariant::{OwnedObjectPath, Value},
 };
 
-use super::{IDLE_INHIBITION_REASON, update_idle_inhibition};
+use super::{
+    AC_ONLY_BATTERY_LABEL, BatteryPowerState, IDLE_INHIBITION_REASON, format_battery_status,
+    update_idle_inhibition,
+};
 
 const UPOWER: &str = "org.freedesktop.UPower";
+const UPOWER_PATH: &str = "/org/freedesktop/UPower";
 const ON_BATTERY: &str = "OnBattery";
 const PORTAL_IDLE: u32 = 8;
 const PORTAL_SUSPEND: u32 = 4;
+
+/// Reads the system battery from UPower's combined display device.
+pub(super) async fn read_battery_status(system_bus: &mut Option<Connection>) -> Option<String> {
+    match read_upower_battery(system_bus).await {
+        Ok(status) => status,
+        Err(error) => {
+            log::debug!("could not read local battery status: {error}");
+            None
+        }
+    }
+}
+
+async fn read_upower_battery(system_bus: &mut Option<Connection>) -> zbus::Result<Option<String>> {
+    const UPOWER_CHARGING: u32 = 1;
+    let connection = match system_bus {
+        Some(connection) if !connection.is_closed() => connection,
+        _ => system_bus.insert(
+            zbus::connection::Builder::system()?
+                .method_timeout(Duration::from_secs(2))
+                .build()
+                .await?,
+        ),
+    };
+    let power = Builder::<Proxy<'_>>::new(connection)
+        .destination(UPOWER)?
+        .path(UPOWER_PATH)?
+        .interface(UPOWER)?
+        .cache_properties(CacheProperties::No)
+        .build()
+        .await?;
+    let display = Builder::<Proxy<'_>>::new(connection)
+        .destination(UPOWER)?
+        .path("/org/freedesktop/UPower/devices/DisplayDevice")?
+        .interface("org.freedesktop.UPower.Device")?
+        .cache_properties(CacheProperties::No)
+        .build()
+        .await?;
+    let on_battery = power.get_property::<bool>(ON_BATTERY).await?;
+    if !display.get_property::<bool>("IsPresent").await? {
+        return Ok((!on_battery).then(|| AC_ONLY_BATTERY_LABEL.into()));
+    }
+    let percent = display.get_property::<f64>("Percentage").await?;
+    let charging = display.get_property::<u32>("State").await? == UPOWER_CHARGING;
+    let state = match (charging, on_battery) {
+        (true, _) => BatteryPowerState::Charging,
+        (false, true) => BatteryPowerState::OnBattery,
+        (false, false) => BatteryPowerState::PluggedIn,
+    };
+    Ok(format_battery_status(Some(percent), Some(state)))
+}
 
 /// Owns the desktop idle requests and the UPower subscription.
 pub(super) struct DisplayPowerMonitor {
@@ -37,7 +92,7 @@ async fn monitor_power(executor: &BackgroundExecutor) -> Result<()> {
     let system = Connection::system()
         .await
         .context("could not open the system bus")?;
-    let power = Proxy::new(&system, UPOWER, "/org/freedesktop/UPower", UPOWER).await?;
+    let power = Proxy::new(&system, UPOWER, UPOWER_PATH, UPOWER).await?;
     let mut owners = power.receive_owner_changed().await?;
     let mut changes = power.receive_property_changed::<bool>(ON_BATTERY).await;
     let watch_power = async {

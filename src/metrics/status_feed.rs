@@ -132,7 +132,6 @@ mod tests {
     use super::*;
     use crate::metrics::{
         collectors::collector_local::LocalCollector, status_collector::StatusCollector,
-        status_config::BatteryPlacement,
     };
 
     fn host_feed() -> StatusFeed {
@@ -142,7 +141,6 @@ mod tests {
             collector: StatusCollector::Local(LocalCollector::default()),
             poll_interval: Duration::from_secs(2),
             show_btop: false,
-            battery_placement: BatteryPlacement::Hidden,
         })
     }
 

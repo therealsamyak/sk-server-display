@@ -93,10 +93,9 @@ The app makes read-only requests only. It stores no credentials.
 
 Set one `[[host]]` block for each card. Use `source = "glances"` with a `url`, `source = "tailscale"` with a `device`, or `source = "local"` for the machine that runs the display. Set `show_btop = true` on Glances hosts that should show the in-app btop window. Then enable Uptime Kuma, Scrutiny, or the Tailscale device list as needed.
 
-On Windows, the dashboard shows battery percentage and power state for the computer running the app.
-It uses the first local host card by default, or the current Tailscale device if there is no local card.
-Set `battery_host = "This machine"` before the first table to select a host card by its exact `name`.
-The selected card shows local power status even when its data feed is offline.
+The clock shows battery percentage and power state for the computer running the display.
+The app detects this automatically on Windows, macOS, and Linux with UPower.
+It reads local power status even when the network is offline.
 
 Configuration paths:
 

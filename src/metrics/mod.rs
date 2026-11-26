@@ -13,8 +13,8 @@ pub(crate) use status_collector::StatusCollector;
 #[cfg(test)]
 pub(crate) use status_config::build_status_feeds;
 pub(crate) use status_config::{
-    BatteryPlacement, StatusConfig, default_status_config_path, load_status_config,
-    load_status_feed_config, status_state_path,
+    StatusConfig, default_status_config_path, load_status_config, load_status_feed_config,
+    status_state_path,
 };
 pub(crate) use status_feed::{HOST_HISTORY_SAMPLES, HostHistory, StatusFeed};
 pub(crate) use status_freshness::FeedFreshness;

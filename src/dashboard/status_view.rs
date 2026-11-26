@@ -20,7 +20,7 @@ use time::{OffsetDateTime, UtcOffset};
 
 use crate::{
     metrics::{StatusBoard, StatusFeed},
-    platform::{StatusPower, status_update::finish_app_update},
+    platform::{LocalBatteryStatus, StatusPower, status_update::finish_app_update},
     status_fonts::STATUS_MONO_FONT_FAMILY,
     status_startup::{StartupMilestone, log_startup_milestone},
     wallpaper::StatusCarousel,
@@ -107,6 +107,7 @@ pub struct StatusView {
     swipe_consumed: bool,
     controls_latched: bool,
     toolbar_hovered: bool,
+    battery: Entity<LocalBatteryStatus>,
     power: StatusPower,
     pointer_moved_at: Option<Instant>,
     first_frame_requested: bool,
@@ -144,7 +145,9 @@ impl StatusView {
         // The board emits events and does not notify, so the root view draws
         // again only for its own changes and for panel changes.
         let view = cx.weak_entity();
+        let battery = cx.new(LocalBatteryStatus::new_local_battery_status);
         let subscriptions = vec![
+            cx.observe(&battery, |_, _, cx| cx.notify()),
             window.observe_window_visibility(move |_, window, cx| {
                 if let Err(error) = view.update(cx, |view, cx| {
                     view.update_display_power(window, cx);
@@ -186,6 +189,7 @@ impl StatusView {
             swipe_consumed: false,
             controls_latched: false,
             toolbar_hovered: false,
+            battery,
             power: StatusPower::default(),
             pointer_moved_at: None,
             first_frame_requested: false,
