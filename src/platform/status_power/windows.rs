@@ -27,7 +27,7 @@ use windows::{
     core::PWSTR,
 };
 
-use super::{IDLE_INHIBITION_REASON, update_idle_inhibition};
+use super::{IDLE_INHIBITION_REASON, format_windows_battery, update_idle_inhibition};
 
 type WindowInhibitor = Rc<RefCell<Option<IdlePowerRequests>>>;
 
@@ -155,10 +155,30 @@ unsafe extern "system" fn on_power_message(
     unsafe { DefSubclassProc(hwnd, message, wparam, lparam) }
 }
 
-fn refresh_idle_inhibition(inhibitor: &WindowInhibitor) {
+fn read_system_power_status() -> windows::core::Result<SYSTEM_POWER_STATUS> {
     let mut power = SYSTEM_POWER_STATUS::default();
     // SAFETY: `power` is a writable, correctly typed status buffer.
-    let on_ac = unsafe { GetSystemPowerStatus(&mut power) }.is_ok() && power.ACLineStatus == 1;
+    unsafe { GetSystemPowerStatus(&mut power) }?;
+    Ok(power)
+}
+
+/// Formats Windows battery percentage and power state for the dashboard.
+pub(super) fn windows_battery_text() -> Option<String> {
+    match read_system_power_status() {
+        Ok(power) => format_windows_battery(
+            power.ACLineStatus,
+            power.BatteryFlag,
+            power.BatteryLifePercent,
+        ),
+        Err(error) => {
+            log::debug!("could not read local battery status: {error}");
+            None
+        }
+    }
+}
+
+fn refresh_idle_inhibition(inhibitor: &WindowInhibitor) {
+    let on_ac = read_system_power_status().is_ok_and(|power| power.ACLineStatus == 1);
     update_idle_inhibition(
         &mut inhibitor.borrow_mut(),
         on_ac,

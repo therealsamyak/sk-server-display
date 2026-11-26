@@ -49,6 +49,9 @@ pub struct StatusConfig {
     /// Connect directly to metrics URLs with no proxy or redirects.
     #[serde(default)]
     pub direct_metrics_http: bool,
+    /// Name of the host card that shows the display machine's battery status.
+    #[serde(default)]
+    pub battery_host: Option<String>,
     /// Host cards, in column order. Empty: one card for this machine.
     #[serde(default, rename = "host")]
     pub hosts: Vec<HostConfig>,
@@ -171,6 +174,16 @@ pub struct StatusFeedSpec {
     pub poll_interval: Duration,
     /// Whether the host card offers the in-app btop window.
     pub show_btop: bool,
+    /// Where to show the display machine's battery status in this feed.
+    pub battery_placement: BatteryPlacement,
+}
+
+/// Selects the dashboard location for local battery status.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum BatteryPlacement {
+    Hidden,
+    HostHeader,
+    TailnetSelf,
 }
 
 /// Reads the display configuration and validates all configured feeds.
@@ -214,6 +227,31 @@ pub fn build_status_feeds(config: &StatusConfig) -> anyhow::Result<Vec<StatusFee
     if config.hosts.is_empty() {
         feeds.push(local_feed_spec("This machine".into()));
     }
+    let battery_host = if let Some(name) = &config.battery_host {
+        let mut matches = feeds
+            .iter()
+            .enumerate()
+            .filter(|(_, feed)| feed.title == name.trim());
+        let (index, _) = matches
+            .next()
+            .context("battery_host must match a host card name")?;
+        ensure!(
+            matches.next().is_none(),
+            "battery_host must match exactly one host card"
+        );
+        Some(index)
+    } else {
+        feeds
+            .iter()
+            .position(|feed| matches!(feed.collector, StatusCollector::Local(_)))
+    };
+    for (index, feed) in feeds.iter_mut().enumerate() {
+        feed.battery_placement = match battery_host {
+            Some(selected) if selected == index => BatteryPlacement::HostHeader,
+            Some(_) => BatteryPlacement::Hidden,
+            None => BatteryPlacement::TailnetSelf,
+        };
+    }
     if let Some(kuma) = &config.uptime_kuma {
         feeds.push(StatusFeedSpec {
             title: "Services".into(),
@@ -225,6 +263,7 @@ pub fn build_status_feeds(config: &StatusConfig) -> anyhow::Result<Vec<StatusFee
             }),
             poll_interval: SERVICE_POLL_INTERVAL,
             show_btop: false,
+            battery_placement: BatteryPlacement::Hidden,
         });
     }
     if let Some(scrutiny) = &config.scrutiny {
@@ -237,6 +276,7 @@ pub fn build_status_feeds(config: &StatusConfig) -> anyhow::Result<Vec<StatusFee
             }),
             poll_interval: DISK_POLL_INTERVAL,
             show_btop: false,
+            battery_placement: BatteryPlacement::Hidden,
         });
     }
     if config.tailscale.show_devices {
@@ -246,6 +286,11 @@ pub fn build_status_feeds(config: &StatusConfig) -> anyhow::Result<Vec<StatusFee
             collector: StatusCollector::Tailscale(TailscaleCollector { reader: tailscale }),
             poll_interval: TAILNET_POLL_INTERVAL,
             show_btop: false,
+            battery_placement: if battery_host.is_none() {
+                BatteryPlacement::TailnetSelf
+            } else {
+                BatteryPlacement::Hidden
+            },
         });
     }
     Ok(feeds)
@@ -284,6 +329,7 @@ fn host_feed_spec(
             }),
             poll_interval: HOST_POLL_INTERVAL,
             show_btop: *show_btop,
+            battery_placement: BatteryPlacement::Hidden,
         }),
         HostConfig::Tailscale { device, .. } => Ok(StatusFeedSpec {
             title: title.into(),
@@ -294,6 +340,7 @@ fn host_feed_spec(
             }),
             poll_interval: TAILNET_POLL_INTERVAL,
             show_btop: false,
+            battery_placement: BatteryPlacement::Hidden,
         }),
     }
 }
@@ -320,6 +367,7 @@ fn local_feed_spec(title: String) -> StatusFeedSpec {
         collector: StatusCollector::Local(LocalCollector::default()),
         poll_interval: HOST_POLL_INTERVAL,
         show_btop: false,
+        battery_placement: BatteryPlacement::Hidden,
     }
 }
 
@@ -335,6 +383,7 @@ mod tests {
         assert_eq!(feeds.len(), 1);
         assert_eq!(feeds[0].title, "This machine");
         assert_eq!(feeds[0].source, "local");
+        assert_eq!(feeds[0].battery_placement, BatteryPlacement::HostHeader);
     }
 
     #[test]
@@ -396,5 +445,62 @@ mod tests {
             url = "http://127.0.0.1"
         "#;
         assert!(toml::from_str::<StatusConfig>(text).is_err());
+    }
+
+    #[test]
+    fn battery_host_overrides_automatic_placement() {
+        let config: StatusConfig = toml::from_str(
+            r#"
+            battery_host = "Display"
+
+            [[host]]
+            name = "Local metrics"
+            source = "local"
+
+            [[host]]
+            name = "Display"
+            source = "tailscale"
+            device = "display"
+
+            [tailscale]
+            show_devices = true
+            "#,
+        )
+        .unwrap();
+        let feeds = build_status_feeds(&config).unwrap();
+        let placements: Vec<_> = feeds.iter().map(|feed| feed.battery_placement).collect();
+        assert_eq!(
+            placements,
+            [
+                BatteryPlacement::Hidden,
+                BatteryPlacement::HostHeader,
+                BatteryPlacement::Hidden,
+            ]
+        );
+    }
+
+    #[test]
+    fn battery_host_requires_a_unique_card_name() {
+        let config: StatusConfig = toml::from_str(
+            r#"
+            battery_host = "Display"
+
+            [[host]]
+            name = "Display"
+            source = "local"
+
+            [[host]]
+            name = "Display"
+            source = "tailscale"
+            device = "display"
+            "#,
+        )
+        .unwrap();
+        assert!(build_status_feeds(&config).is_err());
+        let missing = StatusConfig {
+            hosts: Vec::new(),
+            ..config
+        };
+        assert!(build_status_feeds(&missing).is_err());
     }
 }

@@ -1,6 +1,9 @@
 # Optional preset image folder, relative to this file. See WALLPAPERS.md.
 # preset_wallpapers = "wallpapers"
 
+# Optional Windows battery indicator placement. Match the name of one host card.
+# battery_host = "This machine"
+
 # An empty configuration also shows local metrics. Rename this card as needed.
 [[host]]
 name = "This machine"

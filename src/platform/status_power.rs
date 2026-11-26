@@ -1,4 +1,4 @@
-//! Keep the display and system awake on external power during display mode.
+//! Read local battery status and keep the fullscreen display awake on external power.
 
 use gpui::{BackgroundExecutor, Window};
 
@@ -13,6 +13,41 @@ mod platform;
 mod platform;
 
 const IDLE_INHIBITION_REASON: &str = "Server status display is fullscreen";
+
+/// Reads battery percentage and power state from the display machine.
+pub(crate) fn local_battery_text() -> Option<String> {
+    #[cfg(target_os = "windows")]
+    {
+        platform::windows_battery_text()
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        None
+    }
+}
+
+#[cfg(any(target_os = "windows", test))]
+fn format_windows_battery(ac_line: u8, flags: u8, percent: u8) -> Option<String> {
+    const CHARGING: u8 = 8;
+    const NO_BATTERY: u8 = 128;
+    const UNKNOWN_FLAGS: u8 = 255;
+    let battery_known = flags != UNKNOWN_FLAGS;
+    if battery_known && flags & NO_BATTERY != 0 {
+        return (ac_line == 1).then(|| "100% plugged in".into());
+    }
+    let state = match ac_line {
+        _ if battery_known && flags & CHARGING != 0 => Some("charging"),
+        1 => Some("plugged in"),
+        0 => Some("on battery"),
+        _ => None,
+    };
+    match (percent, state) {
+        (0..=100, Some(state)) => Some(format!("{percent}% {state}")),
+        (0..=100, None) => Some(format!("{percent}%")),
+        (_, Some(state)) => Some(state.into()),
+        (_, None) => None,
+    }
+}
 
 /// Owns idle inhibition for the visible fullscreen status window.
 #[derive(Default)]
@@ -54,7 +89,27 @@ fn update_idle_inhibition<T>(
 
 #[cfg(test)]
 mod tests {
-    use super::update_idle_inhibition;
+    use super::{format_windows_battery, update_idle_inhibition};
+
+    #[test]
+    fn windows_battery_distinguishes_power_states() {
+        let examples = [
+            ((0, 4, 12), Some("12% on battery")),
+            ((1, 8 | 2, 65), Some("65% charging")),
+            ((1, 0, 80), Some("80% plugged in")),
+            ((1, 128, 255), Some("100% plugged in")),
+            ((0, 128, 255), None),
+            ((1, 255, 255), Some("plugged in")),
+            ((255, 255, 65), Some("65%")),
+            ((255, 255, 255), None),
+        ];
+        for ((ac_line, flags, percent), expected) in examples {
+            assert_eq!(
+                format_windows_battery(ac_line, flags, percent).as_deref(),
+                expected
+            );
+        }
+    }
 
     #[test]
     fn battery_power_does_not_acquire_idle_inhibition() {
