@@ -286,6 +286,23 @@ impl StatusCarousel {
         style == WallpaperId::PLAIN || self.wallpaper_path(style).is_some()
     }
 
+    /// Update the preset gallery while preserving the active slide when available.
+    pub fn replace_wallpaper_presets(
+        &mut self,
+        presets: Option<HashMap<StatusStyleName, PathBuf>>,
+    ) -> bool {
+        if self.presets.as_deref() == presets.as_ref() {
+            return false;
+        }
+        self.presets = presets.map(Arc::new);
+        self.failed
+            .retain(|id| matches!(id, WallpaperId::Imported(_)));
+        if self.current == WallpaperId::PLAIN || !self.available(self.current) {
+            self.select_initial_slide();
+        }
+        true
+    }
+
     /// The real wallpaper path for a style, if decoding has succeeded or is untried.
     pub fn wallpaper_path(&self, style: WallpaperId) -> Option<&Path> {
         if self.failed.contains(&style) {

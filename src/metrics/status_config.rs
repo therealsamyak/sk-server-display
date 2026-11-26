@@ -173,6 +173,15 @@ pub struct StatusFeedSpec {
     pub show_btop: bool,
 }
 
+/// Reads the display configuration and validates all configured feeds.
+pub fn load_status_feed_config(
+    path: Option<&Path>,
+) -> anyhow::Result<(StatusConfig, Vec<StatusFeedSpec>)> {
+    let config = load_status_config(path)?;
+    let feeds = build_status_feeds(&config)?;
+    Ok((config, feeds))
+}
+
 /// Builds the status feeds in display order.
 pub fn build_status_feeds(config: &StatusConfig) -> anyhow::Result<Vec<StatusFeedSpec>> {
     let agent = |interval: Duration| -> ureq::Agent {

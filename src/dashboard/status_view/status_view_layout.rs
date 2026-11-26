@@ -247,6 +247,18 @@ impl StatusView {
         let s: Scale = &scale;
         let theme = StatusTheme(style.palette);
         let mut alerts: Vec<AnyElement> = Vec::new();
+        if self.refresh_failed {
+            alerts.push(
+                alert_row(
+                    s,
+                    theme,
+                    theme.warn(),
+                    "Could not reload configuration".into(),
+                    "Check the configuration file, then select Refresh again.".into(),
+                )
+                .into_any_element(),
+            );
+        }
         if self.preview.is_none() && self.carousel.read(cx).playback_art_unavailable() {
             alerts.push(
                 alert_row(

@@ -3,9 +3,7 @@
 use std::path::PathBuf;
 
 use crate::{
-    metrics::{
-        build_status_feeds, default_status_config_path, load_status_config, status_state_path,
-    },
+    metrics::{default_status_config_path, load_status_feed_config, status_state_path},
     platform::DisplaySelector,
     profile::{export_profile, import_profile},
     wallpaper::find_style_wallpapers,
@@ -75,9 +73,7 @@ pub(super) fn run_status_display() {
         return;
     }
 
-    let (config, feeds) = match load_status_config(args.config.as_deref())
-        .and_then(|config| build_status_feeds(&config).map(|feeds| (config, feeds)))
-    {
+    let (config, feeds) = match load_status_feed_config(args.config.as_deref()) {
         Ok(loaded) => loaded,
         Err(error) => {
             log::error!("{error:#}");
@@ -101,6 +97,7 @@ pub(super) fn run_status_display() {
         selector: args.display,
         start_fullscreen: !args.windowed,
         local_offset,
+        config_path: args.config,
     };
 
     // No AccessKit adapter, as in Zed by default: a screen reader cannot
@@ -118,7 +115,7 @@ pub(super) fn run_status_display() {
         .detach();
         let board = StatusBoard::new_status_board(feeds, cx);
         let carousel = cx.new(|_| carousel);
-        let app = StatusDisplayApp::start_status_display(board, carousel, settings, cx);
+        let app = StatusDisplayApp::start_status_display(board, carousel, config, settings, cx);
         cx.set_global(StatusDisplayRoot(app));
     });
 }

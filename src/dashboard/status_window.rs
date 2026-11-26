@@ -1,7 +1,7 @@
 //! Status window controller: opens the status window on the chosen display
 //! and reopens it when monitors change.
 
-use std::time::Duration;
+use std::{path::PathBuf, time::Duration};
 
 use gpui::{
     App, AppContext as _, Bounds, Context, DisplayEvent, Entity, Subscription, Task,
@@ -13,9 +13,9 @@ use crate::platform::DisplaySelector;
 
 use crate::{
     dashboard::status_view::{StatusView, StatusViewSettings},
-    metrics::StatusBoard,
+    metrics::{StatusBoard, StatusConfig, load_status_feed_config},
     platform::{DisplayChoice, choose_status_display, ordered_status_displays},
-    wallpaper::StatusCarousel,
+    wallpaper::{StatusCarousel, find_style_wallpapers},
 };
 
 /// Wait time after a display event before the window moves. Windows and
@@ -28,18 +28,22 @@ pub struct StatusWindowSettings {
     pub selector: DisplaySelector,
     pub start_fullscreen: bool,
     pub local_offset: UtcOffset,
+    /// Explicit profile path, or the platform default when omitted.
+    pub config_path: Option<PathBuf>,
 }
 
 /// Status display app: owns the status window and its display placement.
 pub struct StatusDisplayApp {
     board: Entity<StatusBoard>,
     carousel: Entity<StatusCarousel>,
+    config: StatusConfig,
     settings: StatusWindowSettings,
     selector: DisplaySelector,
     fullscreen: bool,
     window: Option<WindowHandle<StatusView>>,
     display: Option<DisplayChoice>,
     reconcile_task: Option<Task<()>>,
+    refresh_task: Option<Task<()>>,
     _display_subscription: Subscription,
 }
 
@@ -48,6 +52,7 @@ impl StatusDisplayApp {
     pub fn start_status_display(
         board: Entity<StatusBoard>,
         carousel: Entity<StatusCarousel>,
+        config: StatusConfig,
         settings: StatusWindowSettings,
         cx: &mut App,
     ) -> Entity<Self> {
@@ -70,17 +75,76 @@ impl StatusDisplayApp {
             Self {
                 board,
                 carousel,
+                config,
                 selector: settings.selector,
                 fullscreen: settings.start_fullscreen,
                 settings,
                 window: None,
                 display: None,
                 reconcile_task: None,
+                refresh_task: None,
                 _display_subscription: display_subscription,
             }
         });
         app.update(cx, |app, cx| app.reconcile_status_display(cx));
         app
+    }
+
+    /// Read the active profile and poll its feeds as soon as it is valid.
+    pub fn refresh_status_profile(&mut self, cx: &mut Context<Self>) {
+        if self.refresh_task.is_some() {
+            return;
+        }
+        let path = self.settings.config_path.clone();
+        let load = cx.background_spawn(async move {
+            let (config, feeds) = load_status_feed_config(path.as_deref())?;
+            let presets = config
+                .preset_wallpapers
+                .as_deref()
+                .map(find_style_wallpapers);
+            Ok::<_, anyhow::Error>((config, feeds, presets))
+        });
+        self.refresh_task = Some(cx.spawn(async move |this, cx| {
+            let result = load.await;
+            if let Err(error) = this.update(cx, |app, cx| {
+                app.refresh_task = None;
+                match result {
+                    Ok((config, feeds, presets)) => {
+                        let board = (app.config != config).then(|| {
+                            app.config = config;
+                            app.board = StatusBoard::new_status_board(feeds, cx);
+                            app.board.clone()
+                        });
+                        app.board
+                            .update(cx, |board, cx| board.refresh_all_feeds(cx));
+                        let presets_changed = app.carousel.update(cx, |carousel, _| {
+                            carousel.replace_wallpaper_presets(presets)
+                        });
+                        app.update_status_view(cx, |view, window, cx| {
+                            view.apply_status_profile(board, presets_changed, window, cx);
+                        });
+                    }
+                    Err(error) => {
+                        log::warn!("cannot refresh status configuration: {error:#}");
+                        app.update_status_view(cx, |view, _, cx| view.show_refresh_error(cx));
+                    }
+                }
+            }) {
+                log::debug!("status display closed during refresh: {error:#}");
+            }
+        }));
+    }
+
+    fn update_status_view(
+        &self,
+        cx: &mut Context<Self>,
+        update: impl FnOnce(&mut StatusView, &mut gpui::Window, &mut Context<StatusView>),
+    ) {
+        if let Some(window) = self.window
+            && let Err(error) = window.update(cx, update)
+        {
+            log::debug!("status window closed during refresh: {error:#}");
+        }
     }
 
     /// Moves the status window to the next display in left-to-right order.

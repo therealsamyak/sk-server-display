@@ -47,7 +47,7 @@ actions!(
         ExitFullscreen,
         /// Quits the status display app.
         QuitStatusDisplay,
-        /// Polls every status feed now.
+        /// Reloads the active configuration and polls its feeds.
         RefreshStatus,
         /// Moves the status window to the next display.
         NextStatusDisplay,
@@ -108,6 +108,7 @@ pub struct StatusView {
     power: StatusPower,
     pointer_moved_at: Option<Instant>,
     first_frame_requested: bool,
+    refresh_failed: bool,
     update_busy: bool,
     update_dialog: Option<StatusUpdateDialog>,
     redraw: StatusRedrawTimer,
@@ -162,32 +163,15 @@ impl StatusView {
                 cx.notify();
             }),
         ];
-        let feeds = board.read(cx).status_feeds();
-        let is_host = |feed: &&StatusFeed| feed.spec.collector.is_host_collector();
-        let host_count = feeds.iter().filter(is_host).count();
-        // Up to two hosts get one column each. More hosts share one column.
-        let host_rows = if host_count <= 2 { 1 } else { host_count };
-        // Devices with a host card do not repeat in the tailnet list.
-        let carded: Vec<String> = feeds
-            .iter()
-            .filter_map(|feed| feed.spec.collector.tailnet_device_name().map(str::to_owned))
-            .collect();
-        let panels = (0..feeds.len())
-            .map(|index| {
-                let board = board.clone();
-                let carded = carded.clone();
-                cx.new(|cx| FeedPanelView::new_feed_panel(board, index, carded, cx))
-            })
-            .collect();
-        Self {
+        let mut view = Self {
             board,
             carousel,
             controller,
             settings,
             focus_handle,
-            panels,
-            host_rows,
-            carded,
+            panels: Vec::new(),
+            host_rows: 0,
+            carded: Vec::new(),
             wallpaper: StatusWallpaper::default(),
             picker: None,
             preview: None,
@@ -202,11 +186,41 @@ impl StatusView {
             power: StatusPower::default(),
             pointer_moved_at: None,
             first_frame_requested: false,
+            refresh_failed: false,
             update_busy: false,
             update_dialog: None,
             redraw: StatusRedrawTimer::default(),
             _subscriptions: subscriptions,
-        }
+        };
+        view.rebuild_feed_panels(cx);
+        view
+    }
+
+    fn rebuild_feed_panels(&mut self, cx: &mut Context<Self>) {
+        let feeds = self.board.read(cx).status_feeds();
+        let is_host = |feed: &&StatusFeed| feed.spec.collector.is_host_collector();
+        let host_count = feeds.iter().filter(is_host).count();
+        // Up to two hosts get one column each. More hosts share one column.
+        self.host_rows = if host_count <= 2 { 1 } else { host_count };
+        // Devices with a host card do not repeat in the tailnet list.
+        self.carded = feeds
+            .iter()
+            .filter_map(|feed| feed.spec.collector.tailnet_device_name().map(str::to_owned))
+            .collect();
+        self.panels = (0..feeds.len())
+            .map(|index| {
+                cx.new(|cx| {
+                    let mut panel = FeedPanelView::new_feed_panel(
+                        self.board.clone(),
+                        index,
+                        self.carded.clone(),
+                        cx,
+                    );
+                    panel.set_panel_style(self.wallpaper.style, cx);
+                    panel
+                })
+            })
+            .collect();
     }
 
     fn update_display_power(&mut self, window: &Window, cx: &Context<Self>) {
@@ -304,8 +318,42 @@ impl StatusView {
     }
 
     fn refresh(&mut self, _: &RefreshStatus, _: &mut Window, cx: &mut Context<Self>) {
-        self.board
-            .update(cx, |board, cx| board.refresh_all_feeds(cx));
+        if let Err(error) = self
+            .controller
+            .update(cx, |controller, cx| controller.refresh_status_profile(cx))
+        {
+            log::debug!("status display closed before refresh: {error:#}");
+        }
+    }
+
+    /// Apply a validated profile to the running dashboard.
+    pub fn apply_status_profile(
+        &mut self,
+        board: Option<Entity<StatusBoard>>,
+        presets_changed: bool,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if let Some(board) = board {
+            self.board = board;
+            self.details = None;
+            self.btop = None;
+            self.incoming_panels = None;
+            self.rebuild_feed_panels(cx);
+        }
+        if presets_changed {
+            self.swipe = None;
+            self.incoming_panels = None;
+            self.reload_preset_wallpapers(window, cx);
+        }
+        self.refresh_failed = false;
+        cx.notify();
+    }
+
+    /// Indicate that refreshing the configuration failed.
+    pub fn show_refresh_error(&mut self, cx: &mut Context<Self>) {
+        self.refresh_failed = true;
+        cx.notify();
     }
 
     fn next_display(&mut self, _: &NextStatusDisplay, _: &mut Window, cx: &mut Context<Self>) {

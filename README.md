@@ -120,10 +120,13 @@ The first build compiles GPUI from source and takes several minutes. Linux also 
 | F11 | Enter or leave fullscreen. |
 | Escape | Close the picker or collapse an expanded card. Otherwise, leave fullscreen. |
 | D | Move to the next display. |
-| R | Refresh all configured sources. |
+| R | Reload the active configuration and refresh its sources. |
 | Ctrl+Q or Cmd+Q | Quit. |
 
-Move the pointer to show the toolbar. Select **Wallpaper** to open the picker. The app keeps the display and system awake while a fullscreen window is visible on AC power.
+Move the pointer to show the toolbar. Select **Refresh** to apply edits to the active configuration
+in the same window. If the new configuration is invalid, the display keeps the previous settings
+and shows an alert. Select **Wallpaper** to open the picker. The app keeps the display and system
+awake while a fullscreen window is visible on AC power.
 
 ## License
 

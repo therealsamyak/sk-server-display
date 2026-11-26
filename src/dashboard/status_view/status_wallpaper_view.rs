@@ -75,6 +75,17 @@ impl StatusWallpaper {
 }
 
 impl StatusView {
+    /// Request fresh wallpaper images after the profile's presets change.
+    pub(super) fn reload_preset_wallpapers(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.picker.is_some() {
+            self.close_picker(window, cx);
+        }
+        self.wallpaper.requested = None;
+        self.wallpaper.ready = None;
+        self.wallpaper.task = None;
+        self.warm_slideshow(window, cx);
+    }
+
     /// Tap area in the left or right window margin. A tap shows the previous
     /// or next slideshow wallpaper and restarts the slide timer.
     pub(super) fn slideshow_edge(
