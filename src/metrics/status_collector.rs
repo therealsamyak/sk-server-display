@@ -27,6 +27,11 @@ impl StatusCollector {
         matches!(self, Self::Local(_) | Self::Glances(_) | Self::Kuma(_))
     }
 
+    /// Reports whether the feed offers a btop process view.
+    pub fn shows_host_btop(&self) -> bool {
+        matches!(self, Self::Glances(collector) if collector.show_btop)
+    }
+
     /// `true` for collectors that fill a host card in the host column.
     pub fn is_host_collector(&self) -> bool {
         matches!(

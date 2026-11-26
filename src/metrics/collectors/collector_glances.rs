@@ -17,6 +17,8 @@ use crate::{
 pub struct GlancesCollector {
     pub base_url: String,
     pub agent: ureq::Agent,
+    /// Whether the host offers the btop view and needs process readings.
+    pub show_btop: bool,
     /// Tailscale presence for the card when Glances does not answer.
     pub presence: Option<TailnetHostCollector>,
 }
@@ -127,9 +129,12 @@ impl GlancesCollector {
         let interface = main_network_interface(&interfaces);
         // The top endpoint returns only the busiest processes, not the
         // full process list.
-        let processes: Vec<GlancesProcess> = self
-            .get(&format!("processlist/top/{HOST_PROCESS_LIMIT}"))
-            .unwrap_or_default();
+        let processes: Vec<GlancesProcess> = if self.show_btop {
+            self.get(&format!("processlist/top/{HOST_PROCESS_LIMIT}"))
+                .unwrap_or_default()
+        } else {
+            Vec::new()
+        };
 
         let disk = main_filesystem(&filesystems);
         Ok(HostMetrics {
@@ -225,6 +230,7 @@ mod tests {
             connection: TailnetConnection::Offline,
         };
         let collector = |presence| GlancesCollector {
+            show_btop: false,
             // Port 9 on the loopback address refuses the connection.
             base_url: "http://127.0.0.1:9".into(),
             agent: ureq::Agent::new_with_defaults(),

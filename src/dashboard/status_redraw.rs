@@ -5,7 +5,10 @@
 //! the earliest of these changes while it renders, and this timer notifies
 //! the view at that time. Views with no time-based text never wake up.
 
-use std::{cell::Cell, time::Duration};
+use std::{
+    cell::Cell,
+    time::{Duration, Instant},
+};
 
 use gpui::{Context, Task};
 use time::OffsetDateTime;
@@ -20,7 +23,7 @@ const STATUS_REDRAW_MARGIN: Duration = Duration::from_millis(5);
 #[derive(Default)]
 pub struct StatusRedrawTimer {
     next_in: Cell<Option<Duration>>,
-    task: Option<Task<()>>,
+    task: Option<(Instant, Task<()>)>,
 }
 
 impl StatusRedrawTimer {
@@ -47,16 +50,31 @@ impl StatusRedrawTimer {
         .unwrap_or_else(|| "—".into())
     }
 
-    /// Starts the timer for the earliest redraw request of this render, and
-    /// cancels the timer of the last render. Call it at the end of `render`.
+    /// Schedules the earliest visible change. Keep an existing timer for the
+    /// same deadline when unrelated content redraws.
     pub fn schedule_status_redraw<V: 'static>(&mut self, cx: &mut Context<V>) {
-        self.task = self.next_in.take().map(|delay| {
-            cx.spawn(async move |this, cx| {
+        let now = Instant::now();
+        let deadline = self
+            .next_in
+            .take()
+            .map(|delay| now + delay + STATUS_REDRAW_MARGIN);
+        if let (Some(deadline), Some((previous, _))) = (deadline, &self.task)
+            && *previous > now
+            && deadline
+                .max(*previous)
+                .duration_since(deadline.min(*previous))
+                <= STATUS_REDRAW_MARGIN
+        {
+            return;
+        }
+        self.task = deadline.map(|deadline| {
+            let task = cx.spawn(async move |this, cx| {
                 cx.background_executor()
-                    .timer(delay + STATUS_REDRAW_MARGIN)
+                    .timer(deadline.saturating_duration_since(Instant::now()))
                     .await;
                 this.update(cx, |_, cx| cx.notify()).ok();
-            })
+            });
+            (deadline, task)
         });
     }
 }

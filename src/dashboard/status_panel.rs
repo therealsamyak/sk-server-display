@@ -43,6 +43,7 @@ pub struct FeedPanelView {
     style: StatusStyle,
     /// Devices with their own host card. The tailnet panel leaves them out.
     carded: Vec<String>,
+    last_live_summary: Option<HostSummary>,
     redraw: StatusRedrawTimer,
     _subscription: Subscription,
 }
@@ -55,10 +56,20 @@ impl FeedPanelView {
         carded: Vec<String>,
         cx: &mut Context<Self>,
     ) -> Self {
-        let subscription = cx.subscribe(&board, |this, _, event: &StatusFeedUpdated, cx| {
-            if event.index == this.index {
-                cx.notify();
+        let subscription = cx.subscribe(&board, |this, board, event: &StatusFeedUpdated, cx| {
+            if event.index != this.index {
+                return;
             }
+            let board = board.read(cx);
+            let feed = &board.status_feeds()[this.index];
+            if let Some(shown) = &this.last_live_summary
+                && board.feed_freshness(feed) == FeedFreshness::Live
+                && let Some(FeedData::Host(host)) = feed.latest_reading()
+                && *shown == HostSummary::from_metrics(host)
+            {
+                return;
+            }
+            cx.notify();
         });
         Self {
             board,
@@ -66,6 +77,7 @@ impl FeedPanelView {
             detail: false,
             style: plain_status_style(),
             carded,
+            last_live_summary: None,
             redraw: StatusRedrawTimer::default(),
             _subscription: subscription,
         }
@@ -120,6 +132,14 @@ impl Render for FeedPanelView {
                 redraw: &self.redraw,
                 now: OffsetDateTime::now_utc(),
                 close_details,
+            };
+            self.last_live_summary = match view.reading() {
+                Some(FeedData::Host(host))
+                    if !self.detail && view.freshness == FeedFreshness::Live =>
+                {
+                    Some(HostSummary::from_metrics(host))
+                }
+                _ => None,
             };
             let compact =
                 self.detail || matches!(self.style.arrangement, StyleArrangement::Sides { .. });
@@ -322,7 +342,7 @@ fn feed_panel(
                     view.close_details
                         .clone()
                         .filter(|_| {
-                            view.feed.spec.show_btop
+                            view.feed.spec.collector.shows_host_btop()
                                 && matches!(view.reading(), Some(FeedData::Host(_)))
                         })
                         .map(|panel| {
@@ -529,63 +549,71 @@ fn host_panel(s: Scale, view: &FeedView, panel_height: f32, detail: bool) -> Div
                 .when(!detail, |panel| panel.justify_center().gap_0());
         }
     };
-    let body = if detail {
-        host_body(
+    if detail {
+        let body = host_body(
             theme,
             s,
             host,
             view.feed.host_history(),
             panel_height,
             view.dim(),
-        )
-    } else {
-        host_summary(theme, s, host, view.dim())
-    };
-    feed_panel(
-        s,
-        view,
-        host.uptime_seconds
-            .filter(|_| !detail)
-            .map(|up| format!("up {}", format_status_uptime(up))),
-        body.into_any_element(),
-        !detail,
-    )
+        );
+        return feed_panel(s, view, None, body.into_any_element(), false);
+    }
+    let HostSummary { uptime, values } = HostSummary::from_metrics(host);
+    let body = host_summary(theme, s, values, view.dim());
+    feed_panel(s, view, uptime, body.into_any_element(), true)
 }
 
-fn host_summary(theme: StatusTheme, s: Scale, host: &HostMetrics, dim: bool) -> Div {
-    let percent = |part: Option<u64>, total: Option<u64>| {
-        part.zip(total)
-            .filter(|(_, total)| *total > 0)
-            .map_or("—".into(), |(part, total)| {
-                format!("{:.0}%", part as f64 / total as f64 * 100.)
-            })
-    };
-    let metrics = [
-        (
-            "CPU",
-            host.cpu_percent
-                .map_or("—".into(), |value| format!("{value:.0}%")),
-        ),
-        (
-            "Mem",
-            percent(host.memory_used_bytes, host.memory_total_bytes),
-        ),
-        ("Disk", percent(host.disk_used_bytes, host.disk_total_bytes)),
-    ];
+/// Text shown by the compact host card, independent of its full metric history.
+#[derive(PartialEq, Eq)]
+struct HostSummary {
+    uptime: Option<String>,
+    values: [String; 3],
+}
+
+impl HostSummary {
+    fn from_metrics(host: &HostMetrics) -> Self {
+        let percent = |part: Option<u64>, total: Option<u64>| {
+            part.zip(total).filter(|(_, total)| *total > 0).map_or_else(
+                || "—".into(),
+                |(part, total)| format!("{:.0}%", part as f64 / total as f64 * 100.),
+            )
+        };
+        Self {
+            uptime: host
+                .uptime_seconds
+                .map(|up| format!("up {}", format_status_uptime(up))),
+            values: [
+                host.cpu_percent
+                    .map_or_else(|| "—".into(), |value| format!("{value:.0}%")),
+                percent(host.memory_used_bytes, host.memory_total_bytes),
+                percent(host.disk_used_bytes, host.disk_total_bytes),
+            ],
+        }
+    }
+}
+
+fn host_summary(theme: StatusTheme, s: Scale, values: [String; 3], dim: bool) -> Div {
     div()
         .flex()
         .items_center()
         .justify_between()
         .gap(s(8.))
         .text_size(s(14.))
-        .children(metrics.into_iter().map(|(label, value)| {
-            div()
-                .flex()
-                .items_center()
-                .gap(s(6.))
-                .child(div().text_color(theme.muted()).child(label))
-                .child(div().text_color(value_color(theme, dim)).child(value))
-        }))
+        .children(
+            ["CPU", "Mem", "Disk"]
+                .into_iter()
+                .zip(values)
+                .map(|(label, value)| {
+                    div()
+                        .flex()
+                        .items_center()
+                        .gap(s(6.))
+                        .child(div().text_color(theme.muted()).child(label))
+                        .child(div().text_color(value_color(theme, dim)).child(value))
+                }),
+        )
 }
 
 fn host_body(

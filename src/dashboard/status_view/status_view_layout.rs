@@ -27,6 +27,9 @@ fn feed_alert(
     freshness: FeedFreshness,
     redraw: &StatusRedrawTimer,
 ) -> Option<Div> {
+    if matches!(freshness, FeedFreshness::Waiting | FeedFreshness::Live) {
+        return None;
+    }
     let name = format!("{} ({})", feed.spec.title, feed.spec.source);
     match freshness {
         FeedFreshness::Stale => Some(alert_row(

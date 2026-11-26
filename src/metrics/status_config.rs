@@ -169,8 +169,6 @@ pub struct StatusFeedSpec {
     pub source: &'static str,
     pub collector: StatusCollector,
     pub poll_interval: Duration,
-    /// Whether the host card offers the in-app btop window.
-    pub show_btop: bool,
 }
 
 /// Reads the display configuration and validates all configured feeds.
@@ -224,7 +222,6 @@ pub fn build_status_feeds(config: &StatusConfig) -> anyhow::Result<Vec<StatusFee
                 agent: agent(SERVICE_POLL_INTERVAL),
             }),
             poll_interval: SERVICE_POLL_INTERVAL,
-            show_btop: false,
         });
     }
     if let Some(scrutiny) = &config.scrutiny {
@@ -236,7 +233,6 @@ pub fn build_status_feeds(config: &StatusConfig) -> anyhow::Result<Vec<StatusFee
                 agent: agent(DISK_POLL_INTERVAL),
             }),
             poll_interval: DISK_POLL_INTERVAL,
-            show_btop: false,
         });
     }
     if config.tailscale.show_devices {
@@ -245,7 +241,6 @@ pub fn build_status_feeds(config: &StatusConfig) -> anyhow::Result<Vec<StatusFee
             source: "Tailscale",
             collector: StatusCollector::Tailscale(TailscaleCollector { reader: tailscale }),
             poll_interval: TAILNET_POLL_INTERVAL,
-            show_btop: false,
         });
     }
     Ok(feeds)
@@ -277,13 +272,13 @@ fn host_feed_spec(
                 base_url: source_url(url)
                     .with_context(|| format!("invalid Glances URL for {title}"))?,
                 agent,
+                show_btop: *show_btop,
                 presence: fallback_device.as_ref().map(|name| TailnetHostCollector {
                     reader: tailscale.clone(),
                     name: name.clone(),
                 }),
             }),
             poll_interval: HOST_POLL_INTERVAL,
-            show_btop: *show_btop,
         }),
         HostConfig::Tailscale { device, .. } => Ok(StatusFeedSpec {
             title: title.into(),
@@ -293,7 +288,6 @@ fn host_feed_spec(
                 name: device.clone(),
             }),
             poll_interval: TAILNET_POLL_INTERVAL,
-            show_btop: false,
         }),
     }
 }
@@ -319,7 +313,6 @@ fn local_feed_spec(title: String) -> StatusFeedSpec {
         source: "local",
         collector: StatusCollector::Local(LocalCollector::default()),
         poll_interval: HOST_POLL_INTERVAL,
-        show_btop: false,
     }
 }
 

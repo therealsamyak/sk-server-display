@@ -1,7 +1,10 @@
 use std::{
     io::{BufRead, BufReader, Write},
     net::{TcpListener, TcpStream},
-    sync::atomic::{AtomicBool, Ordering},
+    sync::{
+        Arc,
+        atomic::{AtomicBool, AtomicUsize, Ordering},
+    },
     thread::{self, JoinHandle},
     time::Duration,
 };
@@ -208,4 +211,36 @@ fn lan_host_recovers_after_dropped_connections_without_affecting_other_feeds() {
         panic!("expected a Glances reading after recovery");
     };
     assert_eq!(host.memory_used_bytes, Some(768));
+}
+
+#[test]
+fn glances_requests_processes_only_for_btop_hosts() {
+    let process_requests = Arc::new(AtomicUsize::new(0));
+    let fixture = HttpFixture::start({
+        let process_requests = process_requests.clone();
+        move |path| {
+            if path == "/api/4/processlist/top/16" {
+                process_requests.fetch_add(1, Ordering::Relaxed);
+                return Some(concat!(
+                    "HTTP/1.1 200 OK\r\nConnection: close\r\n\r\n",
+                    r#"[{"pid":42,"name":"example","cpu_percent":3}]"#,
+                ));
+            }
+            Some(metrics_reply(path))
+        }
+    });
+    let mut config = fixture_config(&fixture, &fixture);
+    let feeds = build_status_feeds(&config).unwrap();
+    let first = feeds[1].collector.collect_status_reading().unwrap();
+    assert!(matches!(first, FeedData::Host(host) if host.processes.is_empty()));
+    assert_eq!(process_requests.load(Ordering::Relaxed), 0);
+
+    let HostConfig::Glances { show_btop, .. } = &mut config.hosts[1] else {
+        panic!("expected a Glances fixture");
+    };
+    *show_btop = true;
+    let feeds = build_status_feeds(&config).unwrap();
+    let second = feeds[1].collector.collect_status_reading().unwrap();
+    assert!(matches!(second, FeedData::Host(host) if host.processes[0].pid == 42));
+    assert_eq!(process_requests.load(Ordering::Relaxed), 1);
 }
