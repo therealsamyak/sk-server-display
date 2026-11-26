@@ -1,4 +1,4 @@
-# Replace 192.0.2.10 and the ports with your approved LAN endpoints.
+# Replace both example addresses and ports with your approved LAN endpoints.
 direct_metrics_http = true
 
 [[host]]
@@ -9,7 +9,13 @@ source = "local"
 name = "LAN server"
 source = "glances"
 url = "http://192.0.2.10:61208"
-# btop_ssh = "operator@192.0.2.10"
+# show_btop = true
+
+[[host]]
+name = "LAN workstation"
+source = "glances"
+url = "http://192.0.2.20:61208"
+# show_btop = true
 
 # Remove a block if its service is unavailable on the LAN.
 [uptime_kuma]

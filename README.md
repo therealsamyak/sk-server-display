@@ -30,6 +30,12 @@ Copy [config.lan.example.toml](config.lan.example.toml) to a separate profile di
 the example URLs and status page slug with your approved LAN routes. Remove the blocks for
 unavailable services. Start the app with `--config` and the path to the new file.
 
+Use one Glances host block for each machine that serves metrics on the LAN. The example has
+separate addresses for a server and a workstation. A shared LAN can carry this traffic during
+an internet outage if the display's policy permits the connection and the service listens on
+an address the display can reach. A loopback-only or Tailscale-only listener needs a separate
+approved LAN route.
+
 Set `direct_metrics_http = true` before the first table. Glances, Kuma, and Scrutiny then ignore
 proxy environment variables and reject HTTP redirects. Use each service's final base URL.
 Use an approved, stable LAN IPv4 address when the display has no DNS access. For HTTPS, the
@@ -45,14 +51,16 @@ following redirects. For example, use `curl.exe --noproxy "*" --max-time 5` on W
 | Glances | `GET /api/4/cpu` and `GET /api/4/mem` are required. `load`, `sensors`, `fs`, `uptime`, `percpu`, and `network` under `/api/4/` supply optional readings. |
 | Uptime Kuma | `GET /api/status-page/<slug>` and `GET /api/status-page/heartbeat/<slug>`. Use a status page that the display can read without signing in. |
 | Scrutiny | `GET /api/summary`. The display connects to the web API. |
-| Remote btop | Optional OpenSSH connection to the approved host and SSH port. Use a literal IPv4 address or check that the alias resolves and connects directly under the LAN policy. Verify the host key in OpenSSH. |
+| In-app btop | Set `show_btop = true` on a Glances host to reuse its metrics feed. This opens no additional connection. |
 
-If you enable remote btop, use `ssh -G <destination>` to check the effective hostname, port,
-`ProxyJump`, and `ProxyCommand`. The app runs `btop` with strict host-key checking.
+Local metrics, the clock, and local wallpaper playback work without a network route. The
+manual **Check for updates** action needs internet access to GitHub. Kuma reports the
+server's view of its monitors, so public checks may fail during an internet outage even
+while the display can read Kuma over the LAN.
 
-Local metrics, the clock, and wallpaper playback from local files work without a network route.
-Tailscale presence reads from the local Tailscale client. Leave out Tailscale cards, the device
-list, and Glances `fallback_device` when the network policy blocks Tailscale.
+Tailscale cards and the Tailnet panel are optional. They can show offline or unavailable
+while direct feeds keep updating. Leave out Glances `fallback_device` for LAN hosts when
+you want their cards to reflect only Glances availability.
 
 Use an existing approved LAN route when it serves the required JSON. If the policy permits only
 one server and a required API is reachable only from that server, first verify both paths. Check
@@ -63,9 +71,9 @@ cannot work, a periodically refreshed snapshot is an option when the server can 
 data and delayed readings are acceptable. Keep the snapshot timestamp visible to its consumers.
 
 Run `cargo test --locked status_lan_tests` to exercise the profile with loopback HTTP fixtures.
-The fixtures cover all three APIs, redirects, dropped connections, and recovery. After the
-Windows policy is active, verify the required private routes and optional btop from a temporary
-profile. Check that local metrics and wallpaper playback continue when a configured feed drops.
+The fixtures cover all three APIs, Tailnet failure, redirects, and recovery after one host drops.
+After the Windows policy is active, verify both hosts and the required service routes from a
+temporary profile. Check that local metrics and wallpaper playback continue when a feed drops.
 
 The executable starts fullscreen by default. Pass `--windowed` to start in a window. Pass `--display auto`, `--display primary`, or `--display 2` to select a monitor. The default is `auto`.
 

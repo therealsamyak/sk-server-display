@@ -6,6 +6,7 @@ use std::{
     time::Duration,
 };
 
+use super::status_config::HostConfig;
 use super::{FeedData, FeedFreshness, ServiceState, StatusConfig, StatusFeed, build_status_feeds};
 
 struct HttpFixture {
@@ -60,11 +61,12 @@ impl Drop for HttpFixture {
     }
 }
 
-fn fixture_config(fixture: &HttpFixture) -> StatusConfig {
+fn fixture_config(server: &HttpFixture, workstation: &HttpFixture) -> StatusConfig {
     let text = include_str!("../../config.lan.example.toml")
-        .replace("http://192.0.2.10:61208", &fixture.url)
-        .replace("http://192.0.2.10:3001", &fixture.url)
-        .replace("http://192.0.2.10:8080", &fixture.url);
+        .replace("http://192.0.2.10:61208", &server.url)
+        .replace("http://192.0.2.10:3001", &server.url)
+        .replace("http://192.0.2.10:8080", &server.url)
+        .replace("http://192.0.2.20:61208", &workstation.url);
     toml::from_str(&text).unwrap()
 }
 
@@ -88,30 +90,66 @@ fn metrics_reply(path: &str) -> &'static str {
     }
 }
 
+fn workstation_reply(path: &str) -> &'static str {
+    match path {
+        "/api/4/mem" => "HTTP/1.1 200 OK\r\nConnection: close\r\n\r\n{\"total\":2048,\"used\":768}",
+        _ => metrics_reply(path),
+    }
+}
+
 #[test]
-fn lan_profile_reads_all_metrics_from_local_routes() {
-    let fixture = HttpFixture::start(|path| Some(metrics_reply(path)));
-    let feeds = build_status_feeds(&fixture_config(&fixture)).unwrap();
-    let data: Vec<_> = feeds
-        .iter()
-        .map(|feed| feed.collector.collect_status_reading().unwrap())
-        .collect();
+fn lan_metrics_stay_live_when_tailnet_is_unavailable() {
+    let server = HttpFixture::start(|path| Some(metrics_reply(path)));
+    let workstation = HttpFixture::start(|path| Some(workstation_reply(path)));
+    let mut config = fixture_config(&server, &workstation);
+    let temp = tempfile::tempdir().unwrap();
+    config.tailscale.command = temp.path().join("missing-tailscale").display().to_string();
+    config.tailscale.show_devices = true;
+    config.hosts.push(HostConfig::Tailscale {
+        name: "Remote card".into(),
+        device: "example-peer".into(),
+    });
+    let mut feeds = build_status_feeds(&config).unwrap().into_iter();
+    let mut poll = || {
+        let mut feed = StatusFeed::new_status_feed(feeds.next().unwrap());
+        feed.record_feed_poll(feed.spec.collector.collect_status_reading());
+        feed
+    };
+    let local = poll();
+    let server = poll();
+    let workstation = poll();
+    let remote = poll();
+    let services = poll();
+    let disks = poll();
+    let tailnet = poll();
 
     let [
         FeedData::Host(local),
-        FeedData::Host(remote),
+        FeedData::Host(server),
+        FeedData::Host(workstation),
         FeedData::Services(services),
         FeedData::Disks(disks),
-    ] = data.as_slice()
+    ] = [&local, &server, &workstation, &services, &disks].map(|feed| {
+        assert_eq!(feed.feed_freshness(Duration::ZERO), FeedFreshness::Live);
+        feed.latest_reading().unwrap()
+    })
     else {
-        panic!("expected local, Glances, Kuma, and Scrutiny readings");
+        panic!("expected local metrics, two Glances hosts, Kuma, and Scrutiny");
     };
     assert!(local.memory_total_bytes.is_some());
-    assert_eq!(remote.memory_used_bytes, Some(256));
+    assert_eq!(server.memory_used_bytes, Some(256));
+    assert_eq!(workstation.memory_used_bytes, Some(768));
     assert_eq!(services.len(), 1);
     assert_eq!(services[0].state, ServiceState::Up);
     assert_eq!(disks.len(), 1);
     assert_eq!(disks[0].device, "sda");
+    for feed in [&remote, &tailnet] {
+        assert!(feed.last_poll_error().is_some());
+        assert_eq!(
+            feed.feed_freshness(feed.policy.offline_after),
+            FeedFreshness::Offline
+        );
+    }
 }
 
 #[test]
@@ -123,7 +161,7 @@ fn lan_profile_rejects_redirects_even_with_a_valid_metrics_body() {
             r#"{"total":25}"#,
         ))
     });
-    let feeds = build_status_feeds(&fixture_config(&fixture)).unwrap();
+    let feeds = build_status_feeds(&fixture_config(&fixture, &fixture)).unwrap();
     let error = feeds[1].collector.collect_status_reading().unwrap_err();
 
     assert!(matches!(
@@ -133,14 +171,19 @@ fn lan_profile_rejects_redirects_even_with_a_valid_metrics_body() {
 }
 
 #[test]
-fn lan_feed_recovers_after_connections_drop() {
+fn lan_host_recovers_after_dropped_connections_without_affecting_other_feeds() {
     let online = std::sync::Arc::new(AtomicBool::new(false));
-    let fixture = HttpFixture::start({
+    let server = HttpFixture::start(|path| Some(metrics_reply(path)));
+    let workstation = HttpFixture::start({
         let online = online.clone();
-        move |path| online.load(Ordering::Relaxed).then(|| metrics_reply(path))
+        move |path| {
+            online
+                .load(Ordering::Relaxed)
+                .then(|| workstation_reply(path))
+        }
     });
-    let mut feeds = build_status_feeds(&fixture_config(&fixture)).unwrap();
-    let mut glances = StatusFeed::new_status_feed(feeds.remove(1));
+    let mut feeds = build_status_feeds(&fixture_config(&server, &workstation)).unwrap();
+    let mut glances = StatusFeed::new_status_feed(feeds.remove(2));
 
     glances.record_feed_poll(glances.spec.collector.collect_status_reading());
     assert!(glances.last_poll_error().is_some());
@@ -148,10 +191,10 @@ fn lan_feed_recovers_after_connections_drop() {
         glances.feed_freshness(glances.policy.offline_after),
         FeedFreshness::Offline
     );
-    assert!(matches!(
-        feeds[0].collector.collect_status_reading().unwrap(),
-        FeedData::Host(_)
-    ));
+    for feed in feeds {
+        let reading = feed.collector.collect_status_reading();
+        assert!(reading.is_ok(), "{} failed: {reading:?}", feed.title);
+    }
 
     online.store(true, Ordering::Relaxed);
     glances.record_feed_poll(glances.spec.collector.collect_status_reading());
@@ -161,5 +204,8 @@ fn lan_feed_recovers_after_connections_drop() {
         glances.feed_freshness(glances.policy.offline_after),
         FeedFreshness::Live
     );
-    assert!(matches!(glances.latest_reading(), Some(FeedData::Host(_))));
+    let Some(FeedData::Host(host)) = glances.latest_reading() else {
+        panic!("expected a Glances reading after recovery");
+    };
+    assert_eq!(host.memory_used_bytes, Some(768));
 }
