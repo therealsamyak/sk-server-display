@@ -4613,21 +4613,24 @@ dependencies = [
 
 [[package]]
 name = "server-status-display"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
+ "ashpd",
  "clap",
  "dirs 7.0.0",
  "embed-resource",
  "env_logger",
  "futures-lite",
  "gpui",
+ "gpui_apple",
  "gpui_platform",
  "image",
  "log",
  "objc2-core-foundation",
+ "objc2-foundation 0.3.2",
  "objc2-io-kit",
- "raw-window-handle",
+ "rand 0.9.5",
  "semver",
  "serde",
  "serde_json",
@@ -4638,7 +4641,6 @@ dependencies = [
  "toml 1.2.3+spec-1.1.0",
  "ureq",
  "windows 0.62.2",
- "zbus 5.19.0",
 ]
 
 [[package]]

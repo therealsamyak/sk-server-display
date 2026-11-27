@@ -77,20 +77,30 @@ impl StatusFeed {
         self.data.is_some() || self.last_error.is_some()
     }
 
-    /// Stores the result of one poll: a new reading, or the poll error.
-    pub fn record_feed_poll(&mut self, result: anyhow::Result<FeedData>) {
+    /// Stores a poll result and reports whether its data, history, or error changed.
+    pub fn record_feed_poll(&mut self, result: anyhow::Result<FeedData>) -> bool {
         match result {
             Ok(data) => {
-                if let FeedData::Host(host) = &data {
+                let changed = if let FeedData::Host(host) = &data {
                     self.history.record_host_sample(host);
+                    true
+                } else {
+                    self.data.as_ref() != Some(&data)
+                };
+                if changed {
+                    self.data = Some(data);
                 }
-                self.data = Some(data);
                 self.last_success_at = Some(Instant::now());
-                self.last_error = None;
+                self.last_error.take().is_some() || changed
             }
             Err(error) => {
-                log::warn!("{} poll failed: {error:#}", self.spec.title);
-                self.last_error = Some(format!("{error:#}"));
+                let error = format!("{error:#}");
+                if self.last_error.as_deref() == Some(error.as_str()) {
+                    return false;
+                }
+                log::warn!("{} poll failed: {error}", self.spec.title);
+                self.last_error = Some(error);
+                true
             }
         }
     }
@@ -140,7 +150,6 @@ mod tests {
             source: "local",
             collector: StatusCollector::Local(LocalCollector::default()),
             poll_interval: Duration::from_secs(2),
-            show_btop: false,
         })
     }
 
@@ -174,5 +183,15 @@ mod tests {
         let cpu = &feed.host_history().cpu_percent;
         assert_eq!(cpu.len(), HOST_HISTORY_SAMPLES);
         assert_eq!(cpu.front(), Some(&5.0));
+    }
+
+    #[test]
+    fn unchanged_reading_keeps_feed_fresh_without_changing_its_content() {
+        let mut feed = host_feed();
+        let reading = FeedData::Tailnet(Vec::new());
+        assert!(feed.record_feed_poll(Ok(reading.clone())));
+        feed.last_success_at = Some(Instant::now() - feed.policy.stale_after);
+        assert!(!feed.record_feed_poll(Ok(reading)));
+        assert_eq!(feed.feed_freshness(Duration::ZERO), FeedFreshness::Live);
     }
 }

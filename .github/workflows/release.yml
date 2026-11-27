@@ -1,104 +1,78 @@
 name: Release builds
 
 on:
-  push:
+  pull_request:
     branches:
       - release
+    types:
+      - closed
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Stable version in Cargo.toml (for example, 0.1.0)
+        required: true
+        type: string
+      publish:
+        description: Publish a GitHub Release from the selected branch
+        default: false
+        type: boolean
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: release-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 env:
   CARGO_TERM_COLOR: always
+  RELEASE_COMMIT: ${{ github.event.pull_request.merge_commit_sha || github.sha }}
 
 jobs:
-  version:
-    name: Read release version
+  validate:
+    name: Validate release request
+    if: >-
+      (github.event_name == 'workflow_dispatch' && github.ref_type == 'branch') ||
+      (github.event.pull_request.merged &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.head.ref == github.event.repository.default_branch)
     runs-on: ubuntu-latest
     outputs:
-      version: ${{ steps.version.outputs.version }}
+      tag: ${{ steps.version.outputs.tag }}
     steps:
-      - name: Check out release commit
-        uses: actions/checkout@v4
-
-      - name: Read version from Cargo.toml
-        id: version
-        shell: bash
-        run: |
-          version="$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[0].version')"
-          echo "version=${version}" >> "$GITHUB_OUTPUT"
-
-  changelog:
-    name: Build changelog
-    runs-on: ubuntu-latest
-    needs: version
-    outputs:
-      body: ${{ steps.changelog.outputs.body }}
-    steps:
-      - name: Check out release history
+      - name: Check out selected commit
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0
+          persist-credentials: false
+          ref: ${{ env.RELEASE_COMMIT }}
 
-      - name: Collect commit changes since the last release
-        id: changelog
+      - name: Check release version
+        id: version
         shell: bash
         env:
-          GITHUB_TOKEN: ${{ github.token }}
+          RELEASE_VERSION: ${{ inputs.version }}
         run: |
           set -euo pipefail
-          latest="$(gh release list --repo "$GITHUB_REPOSITORY" --limit 1 --json tagName --jq '.[0].tagName // empty')"
-          range="HEAD"
-          if [[ -n "$latest" ]]; then
-            base_sha="$(git rev-parse "${latest}^{commit}")"
-            range="${base_sha}..HEAD"
+          version="$(cargo metadata --locked --no-deps --format-version 1 \
+            | jq -er '.packages[] | select(.name == "server-status-display") | .version')"
+          number='(0|[1-9][0-9]*)'
+          if [[ ! "$version" =~ ^$number\.$number\.$number$ ]]; then
+            echo "Cargo.toml must specify a stable SemVer version." >&2
+            exit 1
           fi
-          gh api "repos/$GITHUB_REPOSITORY/commits?sha=$GITHUB_SHA&per_page=250" \
-            --jq '.[] | select(.parents | length == 1) | [.sha[0:7], .commit.message] | @tsv' \
-            > release-commits.tsv
-          git log --format='%H%x09%s%n%b' "$range" > git-log.txt
-          python3 - <<'PY'
-          from pathlib import Path
-          import subprocess
+          if [[ "$GITHUB_EVENT_NAME" == workflow_dispatch && "$RELEASE_VERSION" != "$version" ]]; then
+            echo "The requested version must match Cargo.toml." >&2
+            exit 1
+          fi
+          echo "tag=v$version" >> "$GITHUB_OUTPUT"
 
-          shas = {
-              line.split("\t", 1)[0]
-              for line in Path("release-commits.tsv").read_text().splitlines()
-              if "\t" in line
-          }
-          entries = []
-          for record in Path("git-log.txt").read_text().split("\n\n"):
-              if not record.strip():
-                  continue
-              first = record.splitlines()[0]
-              sha, subject = first.split("\t", 1)
-              body = "\n".join(record.splitlines()[1:]).strip()
-              if sha[:7] in shas:
-                  continue
-              entry = f"- {subject} ({sha[:7]})"
-              if body:
-                  entry += "\n  - " + body.replace("\n", "\n  - ")
-              entries.append(entry)
-          if entries:
-              body = "## Changes\n\n" + "\n".join(entries)
-          else:
-              body = "## Changes\n\nNo commit changes found."
-          Path("release-body.md").write_text(body)
-          PY
-          {
-            echo 'body<<CHANGELOG_EOF'
-            cat release-body.md
-            echo 'CHANGELOG_EOF'
-          } >> "$GITHUB_OUTPUT"
+      - name: Check formatting
+        run: cargo fmt --all -- --check
 
   build:
     name: Build ${{ matrix.name }}
     runs-on: ${{ matrix.os }}
-    needs: version
+    needs: validate
     strategy:
       fail-fast: false
       matrix:
@@ -107,92 +81,142 @@ jobs:
             os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
             asset: server-status-display-linux-x86_64
+          - name: Linux ARM64
+            os: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-gnu
+            asset: server-status-display-linux-aarch64
           - name: Windows x86_64
             os: windows-latest
             target: x86_64-pc-windows-msvc
             asset: server-status-display-windows-x86_64.exe
+          - name: Windows ARM64
+            os: windows-11-arm
+            target: aarch64-pc-windows-msvc
+            asset: server-status-display-windows-aarch64.exe
           - name: macOS Apple Silicon
             os: macos-latest
             target: aarch64-apple-darwin
             asset: server-status-display-macos-aarch64
     steps:
-      - name: Check out release commit
+      - name: Check out selected commit
         uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          ref: ${{ env.RELEASE_COMMIT }}
 
       - name: Install Linux build dependencies
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y clang libxkbcommon-dev libwayland-dev libx11-dev libxcb1-dev libxrandr-dev libxi-dev libxcursor-dev libxinerama-dev libegl1-mesa-dev
+          sudo apt-get install -y clang libfontconfig-dev libxkbcommon-dev libwayland-dev libx11-dev libxcb1-dev libxrandr-dev libxi-dev libxcursor-dev libxinerama-dev libegl1-mesa-dev
 
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          toolchain: 1.100.0
-          targets: ${{ matrix.target }}
+      - name: Install Rust target
+        run: |
+          rustup show
+          rustup target add "${{ matrix.target }}"
 
-      - name: Cache Cargo build
+      - name: Cache Cargo downloads
         uses: actions/cache@v4
         with:
           path: |
-            ~/.cargo/bin
             ~/.cargo/registry/index
             ~/.cargo/registry/cache
             ~/.cargo/git/db
-            target
-          key: cargo-${{ runner.os }}-${{ matrix.target }}-${{ hashFiles('Cargo.lock', 'Cargo.toml') }}
-          restore-keys: |
-            cargo-${{ runner.os }}-${{ matrix.target }}-
+          key: cargo-${{ matrix.target }}-${{ hashFiles('Cargo.lock') }}
+
+      - name: Test release build
+        run: cargo test --release --locked --target "${{ matrix.target }}"
 
       - name: Build release executable
         run: cargo build --release --locked --target "${{ matrix.target }}"
 
       - name: Prepare release asset
         shell: bash
+        env:
+          RELEASE_TARGET: ${{ matrix.target }}
+          RELEASE_ASSET: ${{ matrix.asset }}
         run: |
           set -euo pipefail
-          source="target/${{ matrix.target }}/release/server-status-display"
-          if [[ "${{ runner.os }}" == "Windows" ]]; then
+          source="target/$RELEASE_TARGET/release/server-status-display"
+          if [[ "$RUNNER_OS" == Windows ]]; then
             source="${source}.exe"
           fi
           mkdir release-assets
-          cp "$source" "release-assets/${{ matrix.asset }}"
-          sha256sum "release-assets/${{ matrix.asset }}" \
-            | awk '{print $1}' > "release-assets/${{ matrix.asset }}.sha256"
+          cp "$source" "release-assets/$RELEASE_ASSET"
+          if [[ "$RUNNER_OS" == macOS ]]; then
+            shasum -a 256 "release-assets/$RELEASE_ASSET"
+          else
+            sha256sum "release-assets/$RELEASE_ASSET"
+          fi | awk '{print $1}' > "release-assets/$RELEASE_ASSET.sha256"
 
-      - name: Upload build artifact
+      - name: Upload build artifacts
         uses: actions/upload-artifact@v4
         with:
           name: release-${{ matrix.asset }}
           path: release-assets/*
           if-no-files-found: error
 
-  release:
-    name: Publish GitHub release
+  publish:
+    name: Publish GitHub Release
+    if: github.event_name == 'pull_request' || inputs.publish
     runs-on: ubuntu-latest
     needs:
-      - version
-      - changelog
+      - validate
       - build
+    permissions:
+      contents: write
     steps:
-      - name: Download all build artifacts
+      - name: Check out selected release commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.RELEASE_COMMIT }}
+
+      - name: Download build artifacts
         uses: actions/download-artifact@v4
         with:
           pattern: release-server-status-display-*
           merge-multiple: true
           path: release-assets
 
-      - name: Create GitHub release
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
+      - name: Verify release assets
         shell: bash
         run: |
           set -euo pipefail
-          tag="v${{ needs.version.outputs.version }}"
-          gh release create "$tag" release-assets/* \
+          shopt -s nullglob
+          hashes=(release-assets/*.sha256)
+          assets=(release-assets/*)
+          if (( ${#hashes[@]} != 5 || ${#assets[@]} != 10 )); then
+            echo "Expected five executables and five SHA-256 files." >&2
+            exit 1
+          fi
+          for checksum in "${hashes[@]}"; do
+            printf '%s  %s\n' "$(<"$checksum")" "${checksum%.sha256}" | sha256sum --check
+          done
+
+      - name: Tag the selected commit and publish
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ needs.validate.outputs.tag }}
+        run: |
+          set -euo pipefail
+          ref="refs/tags/$RELEASE_TAG"
+          refs="$(git ls-remote --tags origin "$ref" "$ref^{}")"
+          if [[ -z "$refs" ]]; then
+            git push origin "$RELEASE_COMMIT:$ref"
+          else
+            tag_commit="$(awk -v ref="$ref" '
+              $2 == ref { tagged = $1 }
+              $2 == ref "^{}" { peeled = $1 }
+              END { print (peeled ? peeled : tagged) }
+            ' <<< "$refs")"
+            if [[ "$tag_commit" != "$RELEASE_COMMIT" ]]; then
+              echo "This version tag points to another commit." >&2
+              exit 1
+            fi
+          fi
+          gh release create "$RELEASE_TAG" release-assets/* \
             --repo "$GITHUB_REPOSITORY" \
-            --target "$GITHUB_SHA" \
-            --title "SK Status Display ${tag}" \
-            --notes-file - <<'EOF'
-          ${{ needs.changelog.outputs.body }}
-          EOF
+            --verify-tag \
+            --title "Status Display $RELEASE_TAG" \
+            --generate-notes

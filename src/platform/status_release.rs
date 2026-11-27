@@ -8,9 +8,9 @@ use serde::Deserialize;
 use ureq::{Agent, Body, http::Response};
 
 const RELEASE_API: &str =
-    "https://api.github.com/repos/therealsamyak/server-status-display/releases/latest";
+    "https://api.github.com/repos/therealsamyak/sk-server-display/releases/latest";
 const RELEASE_DOWNLOADS: &str =
-    "https://github.com/therealsamyak/server-status-display/releases/download";
+    "https://github.com/therealsamyak/sk-server-display/releases/download";
 const MAX_BUILD_SIZE: u64 = 1024 * 1024 * 1024;
 
 /// Result of checking the latest public release for this device.
