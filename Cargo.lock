@@ -4629,6 +4629,7 @@ dependencies = [
  "objc2-core-foundation",
  "objc2-foundation 0.3.2",
  "objc2-io-kit",
+ "rand 0.9.5",
  "semver",
  "serde",
  "serde_json",

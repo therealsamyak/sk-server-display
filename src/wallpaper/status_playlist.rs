@@ -10,12 +10,32 @@ use std::{
 };
 
 use anyhow::{Context as _, ensure};
+use rand::{Rng, seq::SliceRandom as _};
 use serde::{Deserialize, Serialize};
 
 use super::{
     status_import::{ImportedWallpaper, WallpaperId},
-    status_style::{StatusStyle, StatusStyleName, status_style_by_name},
+    status_style::{ALL_STATUS_STYLES, StatusStyle, StatusStyleName, status_style_by_name},
 };
+
+/// The default one-hour slideshow interval.
+pub(super) const DEFAULT_SLIDESHOW_INTERVAL: NonZeroU32 = NonZeroU32::MIN.saturating_add(59);
+
+/// The built-in slideshow that rotates all preset artwork.
+pub(super) const ALL_SLIDESHOW_NAME: &str = "All";
+
+/// List the artwork IDs in the current preset gallery in gallery order.
+pub(super) fn preset_slideshow_styles(
+    presets: Option<&HashMap<StatusStyleName, PathBuf>>,
+) -> impl Iterator<Item = WallpaperId> + Clone {
+    ALL_STATUS_STYLES
+        .into_iter()
+        .filter(move |style| {
+            *style != StatusStyleName::Plain
+                && presets.is_some_and(|paths| paths.contains_key(style))
+        })
+        .map(WallpaperId::Preset)
+}
 
 /// One ordered set of wallpapers and its time per slide.
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
@@ -80,7 +100,7 @@ impl Default for PlaylistSettings {
             favorites: StatusPlaylist {
                 name: "Favorites".into(),
                 styles: Vec::new(),
-                interval_minutes: NonZeroU32::new(60).unwrap_or(NonZeroU32::MIN),
+                interval_minutes: DEFAULT_SLIDESHOW_INTERVAL,
             },
             slideshows: Vec::new(),
         }
@@ -91,6 +111,7 @@ impl PlaylistSettings {
     /// Find the saved slideshow named by this selection.
     pub fn selected_playlist(&self, choice: &PlaylistChoice) -> Option<&StatusPlaylist> {
         match choice {
+            PlaylistChoice::All => None,
             PlaylistChoice::Favorites => Some(&self.favorites),
             PlaylistChoice::Custom(name) => self.slideshows.iter().find(|list| &list.name == name),
         }
@@ -114,10 +135,11 @@ impl PlaylistSettings {
     }
 }
 
-/// Favorites or a custom slideshow in the user's collection.
+/// All preset artwork, Favorites, or a custom slideshow in the user's collection.
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "kebab-case")]
 pub enum PlaylistChoice {
+    All,
     Favorites,
     Custom(String),
 }
@@ -232,8 +254,8 @@ impl StatusPlayback {
         }
     }
 
-    /// Return the current slideshow if the display is in rotation mode.
-    pub fn playing_playlist(&self) -> Option<&StatusPlaylist> {
+    /// Return the current saved playlist when the display plays Favorites or a custom list.
+    pub fn playing_saved_playlist(&self) -> Option<&StatusPlaylist> {
         match &self.playback {
             StatusPlaybackMode::Fixed(_) => None,
             StatusPlaybackMode::Slideshow(choice) => self.settings.selected_playlist(choice),
@@ -249,6 +271,7 @@ pub struct StatusCarousel {
     pub current: WallpaperId,
     pub last_switch: Instant,
     failed: HashSet<WallpaperId>,
+    all_playlist: StatusPlaylist,
 }
 
 impl StatusCarousel {
@@ -265,13 +288,40 @@ impl StatusCarousel {
             current: WallpaperId::PLAIN,
             last_switch: Instant::now(),
             failed: HashSet::new(),
+            all_playlist: StatusPlaylist {
+                name: ALL_SLIDESHOW_NAME.into(),
+                styles: Vec::new(),
+                interval_minutes: DEFAULT_SLIDESHOW_INTERVAL,
+            },
         };
         carousel.select_initial_slide();
         carousel
     }
 
-    /// Select the first available slide for the current playback mode.
-    pub fn select_initial_slide(&mut self) {
+    /// Start the selected slideshow and persist the selection with its settings.
+    pub fn play_status_playlist(
+        &mut self,
+        choice: PlaylistChoice,
+        settings: PlaylistSettings,
+    ) -> anyhow::Result<()> {
+        let mut next = self.state.clone();
+        next.settings = settings;
+        next.playback = StatusPlaybackMode::Slideshow(choice);
+        self.update_status_playback(next)?;
+        self.select_initial_slide();
+        Ok(())
+    }
+
+    fn select_initial_slide(&mut self) {
+        if self.state.playback == StatusPlaybackMode::Slideshow(PlaylistChoice::All) {
+            self.failed
+                .retain(|id| matches!(id, WallpaperId::Imported(_)));
+            self.refresh_all_playlist(&mut rand::rng());
+        }
+        self.select_first_available_slide();
+    }
+
+    fn select_first_available_slide(&mut self) {
         self.current = match &self.state.playback {
             StatusPlaybackMode::Fixed(style) if self.available(*style) => *style,
             StatusPlaybackMode::Fixed(_) => WallpaperId::PLAIN,
@@ -280,6 +330,22 @@ impl StatusCarousel {
                 .unwrap_or(WallpaperId::PLAIN),
         };
         self.last_switch = Instant::now();
+    }
+
+    fn refresh_all_playlist(&mut self, rng: &mut impl Rng) {
+        self.all_playlist.styles = preset_slideshow_styles(self.presets.as_deref()).collect();
+        self.all_playlist.styles.shuffle(rng);
+    }
+
+    /// Return the active slideshow, including the current shuffled order for All.
+    pub fn playing_playlist(&self) -> Option<&StatusPlaylist> {
+        match &self.state.playback {
+            StatusPlaybackMode::Slideshow(PlaylistChoice::All) => Some(&self.all_playlist),
+            StatusPlaybackMode::Fixed(_)
+            | StatusPlaybackMode::Slideshow(
+                PlaylistChoice::Favorites | PlaylistChoice::Custom(_),
+            ) => self.state.playing_saved_playlist(),
+        }
     }
 
     fn available(&self, style: WallpaperId) -> bool {
@@ -291,14 +357,24 @@ impl StatusCarousel {
         &mut self,
         presets: Option<HashMap<StatusStyleName, PathBuf>>,
     ) -> bool {
-        if self.presets.as_deref() == presets.as_ref() {
+        let changed = self.presets.as_deref() != presets.as_ref();
+        let playing_all = self.state.playback == StatusPlaybackMode::Slideshow(PlaylistChoice::All);
+        let retry_all = playing_all
+            && self
+                .failed
+                .iter()
+                .any(|id| matches!(id, WallpaperId::Preset(_)));
+        if !changed && !retry_all {
             return false;
         }
         self.presets = presets.map(Arc::new);
         self.failed
             .retain(|id| matches!(id, WallpaperId::Imported(_)));
+        if playing_all && changed {
+            self.refresh_all_playlist(&mut rand::rng());
+        }
         if self.current == WallpaperId::PLAIN || !self.available(self.current) {
-            self.select_initial_slide();
+            self.select_first_available_slide();
         }
         true
     }
@@ -357,9 +433,10 @@ impl StatusCarousel {
         }
         match &self.state.playback {
             StatusPlaybackMode::Fixed(id) => *id != WallpaperId::PLAIN,
-            StatusPlaybackMode::Slideshow(_) => {
-                self.state.playing_playlist().is_some_and(|playlist| {
-                    !playlist.styles.is_empty() && self.next_available_slide(None).is_none()
+            StatusPlaybackMode::Slideshow(choice) => {
+                self.playing_playlist().is_some_and(|playlist| {
+                    (matches!(choice, PlaylistChoice::All) || !playlist.styles.is_empty())
+                        && self.next_available_slide(None).is_none()
                 })
             }
         }
@@ -367,14 +444,13 @@ impl StatusCarousel {
 
     /// Find the next slideshow entry with an available wallpaper.
     pub fn next_available_slide(&self, current: Option<WallpaperId>) -> Option<WallpaperId> {
-        self.state
-            .playing_playlist()?
+        self.playing_playlist()?
             .next_slide(current, |style| self.available(style))
     }
 
     /// The slideshow wallpaper that a step forward or back shows, with wraparound.
     pub fn adjacent_slide(&self, forward: bool) -> Option<WallpaperId> {
-        let list = self.state.playing_playlist()?;
+        let list = self.playing_playlist()?;
         let current = Some(self.current);
         let available = |style| self.available(style);
         if forward {
@@ -386,7 +462,7 @@ impl StatusCarousel {
 
     /// Show the next or previous slideshow wallpaper and restart its slide timer.
     pub fn step_slideshow(&mut self, forward: bool) {
-        if self.state.playing_playlist().is_none() {
+        if self.playing_playlist().is_none() {
             return;
         }
         if let Some(step) = self.adjacent_slide(forward) {
@@ -420,9 +496,115 @@ impl StatusCarousel {
 
 #[cfg(test)]
 mod tests {
+    use rand::{SeedableRng as _, rngs::StdRng};
+
     use super::*;
     use StatusStyleName::*;
     use WallpaperId::Preset;
+
+    #[test]
+    fn all_slideshow_shuffles_and_loops_the_preset_gallery() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("state.toml");
+        let gallery = [CyreneBow, FurinaDeep, YolandaKokomi, Plain];
+        let presets = gallery
+            .into_iter()
+            .map(|style| (style, directory.path().join(style.style_name_text())))
+            .collect();
+        let state = StatusPlayback::default();
+        let mut carousel =
+            StatusCarousel::new_status_carousel(state.clone(), Some(path.clone()), Some(presets));
+        carousel
+            .play_status_playlist(PlaylistChoice::All, state.settings.clone())
+            .unwrap();
+        let saved = StatusPlayback::load_status_playback(Some(&path)).unwrap();
+        assert_eq!(
+            saved.playback,
+            StatusPlaybackMode::Slideshow(PlaylistChoice::All)
+        );
+        assert_eq!(saved.settings, state.settings);
+
+        carousel.refresh_all_playlist(&mut StdRng::seed_from_u64(42));
+        carousel.select_first_available_slide();
+        let playlist = carousel.playing_playlist().unwrap();
+        let ordered = &playlist.styles;
+        let expected = [Preset(YolandaKokomi), Preset(FurinaDeep), Preset(CyreneBow)];
+        assert_eq!(
+            ordered.iter().copied().collect::<HashSet<_>>(),
+            HashSet::from(expected)
+        );
+        assert_ne!(ordered, &expected);
+        assert_eq!(ordered.len(), expected.len());
+        assert_eq!(
+            playlist.slide_duration(),
+            state.settings.favorites.slide_duration()
+        );
+        let first = carousel.current;
+        let mut cycle = Vec::new();
+        for _ in &expected {
+            cycle.push(carousel.current);
+            carousel.step_slideshow(true);
+        }
+        assert_eq!(carousel.current, first);
+        for expected in cycle.into_iter().rev() {
+            carousel.step_slideshow(false);
+            assert_eq!(carousel.current, expected);
+        }
+    }
+
+    #[test]
+    fn all_slideshow_tracks_preset_source_changes_after_restart() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("state.toml");
+        let state = StatusPlayback {
+            playback: StatusPlaybackMode::Slideshow(PlaylistChoice::All),
+            ..StatusPlayback::default()
+        };
+        state.save_status_playback(&path).unwrap();
+        let mut restarted = StatusCarousel::new_status_carousel(
+            StatusPlayback::load_status_playback(Some(&path)).unwrap(),
+            Some(path),
+            Some(HashMap::from([(
+                CyreneBow,
+                directory.path().join("cyrene.png"),
+            )])),
+        );
+        assert_eq!(restarted.current, Preset(CyreneBow));
+
+        assert!(restarted.replace_wallpaper_presets(Some(HashMap::from([
+            (CyreneBow, directory.path().join("new/cyrene.png")),
+            (FurinaDeep, directory.path().join("new/furina.png")),
+        ]))));
+        assert_eq!(restarted.current, Preset(CyreneBow));
+        assert_eq!(restarted.adjacent_slide(true), Some(Preset(FurinaDeep)));
+
+        assert!(restarted.replace_wallpaper_presets(None));
+        assert_eq!(restarted.current, WallpaperId::PLAIN);
+        assert_eq!(restarted.adjacent_slide(true), None);
+        assert!(restarted.playback_art_unavailable());
+    }
+
+    #[test]
+    fn all_slideshow_skips_lost_art_and_retries_when_refreshed() {
+        let directory = tempfile::tempdir().unwrap();
+        let presets = HashMap::from([
+            (CyreneBow, directory.path().join("cyrene.png")),
+            (FurinaDeep, directory.path().join("missing.png")),
+        ]);
+        let state = StatusPlayback {
+            playback: StatusPlaybackMode::Slideshow(PlaylistChoice::All),
+            ..StatusPlayback::default()
+        };
+        let mut carousel = StatusCarousel::new_status_carousel(state, None, Some(presets.clone()));
+
+        carousel.skip_failed_wallpaper(Preset(FurinaDeep));
+        assert_eq!(carousel.current, Preset(CyreneBow));
+        assert_eq!(carousel.adjacent_slide(false), Some(Preset(CyreneBow)));
+
+        assert!(carousel.replace_wallpaper_presets(Some(presets)));
+        assert_eq!(carousel.current, Preset(CyreneBow));
+        assert_eq!(carousel.adjacent_slide(false), Some(Preset(FurinaDeep)));
+    }
 
     #[test]
     fn rotation_skips_missing_art_and_wraps_in_order() {
@@ -468,7 +650,7 @@ mod tests {
         assert_eq!(saved, state);
         assert_eq!(
             saved
-                .playing_playlist()
+                .playing_saved_playlist()
                 .expect("active playlist")
                 .slide_duration(),
             Duration::from_secs(604_860)

@@ -428,9 +428,8 @@ impl Render for StatusView {
         }
         let show_window_controls =
             !modal && self.details.is_none() && !self.automatic_slide_in_motion();
-        let slideshow_taps = !modal
-            && self.preview.is_none()
-            && self.carousel.read(cx).state.playing_playlist().is_some();
+        let slideshow_taps =
+            !modal && self.preview.is_none() && self.carousel.read(cx).playing_playlist().is_some();
         let root = div()
             .id("status-root")
             .when(self.picker.is_none() || self.preview.is_some(), |root| {

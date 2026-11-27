@@ -20,7 +20,10 @@ use gpui::{
 use crate::{
     status_fonts::STATUS_SANS_FONT_FAMILY,
     wallpaper::status_import::{ImportedWallpaper, WallpaperId},
-    wallpaper::status_playlist::{PlaylistChoice, PlaylistSettings, StatusPlaylist},
+    wallpaper::status_playlist::{
+        ALL_SLIDESHOW_NAME, DEFAULT_SLIDESHOW_INTERVAL, PlaylistChoice, PlaylistSettings,
+        StatusPlaylist, preset_slideshow_styles,
+    },
     wallpaper::status_style::{ALL_STATUS_STYLES, StatusStyleName, status_style_by_name},
     wallpaper::status_wallpaper::load_status_wallpaper,
 };
@@ -58,7 +61,7 @@ pub enum StatusPickerEvent {
         /// The old and new names when the edit renames a custom slideshow.
         rename: Option<(String, String)>,
     },
-    /// Start playing Favorites or one of the named slideshows.
+    /// Start playing the selected slideshow.
     Play {
         /// Slideshow to start.
         choice: PlaylistChoice,
@@ -263,6 +266,7 @@ impl StatusPicker {
 
     fn selected_playlist_mut(&mut self) -> Option<&mut StatusPlaylist> {
         match &self.playlist {
+            PlaylistChoice::All => None,
             PlaylistChoice::Favorites => Some(&mut self.settings.favorites),
             PlaylistChoice::Custom(name) => self
                 .settings
@@ -360,7 +364,7 @@ impl StatusPicker {
     }
 
     fn play(&mut self, cx: &mut Context<Self>) {
-        if self.apply_interval(cx) {
+        if self.playlist == PlaylistChoice::All || self.apply_interval(cx) {
             cx.emit(StatusPickerEvent::Play {
                 choice: self.playlist.clone(),
                 settings: self.settings.clone(),
@@ -395,7 +399,8 @@ impl StatusPicker {
             return;
         }
         let normalized = name.to_lowercase();
-        let taken = normalized == self.settings.favorites.name.to_lowercase()
+        let taken = name.eq_ignore_ascii_case(ALL_SLIDESHOW_NAME)
+            || normalized == self.settings.favorites.name.to_lowercase()
             || self.settings.slideshows.iter().any(|playlist| {
                 let same_list = matches!(form, NameForm::Rename)
                     && matches!(&self.playlist, PlaylistChoice::Custom(name) if name == &playlist.name);
@@ -412,7 +417,7 @@ impl StatusPicker {
                 self.settings.slideshows.push(StatusPlaylist {
                     name: name.clone(),
                     styles: Vec::new(),
-                    interval_minutes: NonZeroU32::new(60).unwrap_or(NonZeroU32::MIN),
+                    interval_minutes: DEFAULT_SLIDESHOW_INTERVAL,
                 });
                 None
             }
@@ -748,38 +753,49 @@ impl StatusPicker {
     }
 
     fn slideshows(&self, compact: bool, cx: &mut Context<Self>) -> Div {
-        let navigation =
-            div()
-                .id("slideshow-list")
-                .flex()
-                .flex_col()
-                .flex_1()
-                .min_h_0()
-                .gap_2()
-                .p_3()
-                .overflow_y_scroll()
-                .children(
-                    std::iter::once((PlaylistChoice::Favorites, &self.settings.favorites))
-                        .chain(self.settings.slideshows.iter().map(|playlist| {
-                            (PlaylistChoice::Custom(playlist.name.clone()), playlist)
-                        }))
-                        .map(|(choice, playlist)| {
-                            let selected = choice == self.playlist
-                                && !matches!(self.name_form, Some(NameForm::Create));
-                            button(
-                                format!("slideshow-{}", playlist.name),
-                                playlist.name.clone(),
-                                selected_tone(selected),
-                            )
-                            .aria_selected(selected)
-                            .justify_start()
-                            .on_click(cx.listener(
-                                move |picker, _, window, cx| {
-                                    picker.select_playlist(choice.clone(), window, cx);
-                                },
-                            ))
-                        }),
-                );
+        let favorites = self.settings.favorites.name.as_str();
+        let navigation = div()
+            .id("slideshow-list")
+            .flex()
+            .flex_col()
+            .flex_1()
+            .min_h_0()
+            .gap_2()
+            .p_3()
+            .overflow_y_scroll()
+            .child(self.slideshow_choice(
+                "all-slideshow",
+                ALL_SLIDESHOW_NAME,
+                PlaylistChoice::All,
+                cx,
+            ))
+            .child(self.slideshow_choice(
+                "slideshow-Favorites",
+                favorites,
+                PlaylistChoice::Favorites,
+                cx,
+            ))
+            .child(
+                button(
+                    "new-slideshow",
+                    "+ New slideshow",
+                    selected_tone(matches!(self.name_form, Some(NameForm::Create))),
+                )
+                .aria_label("New slideshow")
+                .justify_start()
+                .on_click(cx.listener(|picker, _, window, cx| {
+                    picker.show_name_form(NameForm::Create, window, cx);
+                })),
+            )
+            .children(self.settings.slideshows.iter().map(|playlist| {
+                self.slideshow_choice(
+                    format!("slideshow-{}", playlist.name),
+                    &playlist.name,
+                    PlaylistChoice::Custom(playlist.name.clone()),
+                    cx,
+                )
+            }));
+        let columns = if compact { 2 } else { 4 };
         let editor = div()
             .id("slideshow-editor")
             .flex_1()
@@ -790,9 +806,11 @@ impl StatusPicker {
             .p_5()
             .children(if let Some(form) = self.name_form {
                 Some(self.name_editor(form, cx))
+            } else if self.playlist == PlaylistChoice::All {
+                Some(self.all_slideshow(columns, cx))
             } else {
                 self.selected_playlist()
-                    .map(|playlist| self.playlist_editor(playlist, if compact { 2 } else { 4 }, cx))
+                    .map(|playlist| self.playlist_editor(playlist, columns, cx))
             });
 
         div()
@@ -809,19 +827,88 @@ impl StatusPicker {
                     .when(compact, |nav| nav.h(px(188.)).border_b_1())
                     .when(!compact, |nav| nav.w(px(224.)).border_r_1())
                     .border_color(rgb(PICKER_BORDER))
-                    .child(
-                        div().px_3().pt_3().child(
-                            button("new-slideshow", "New slideshow", ButtonTone::Normal)
-                                .w_full()
-                                .justify_start()
-                                .on_click(cx.listener(|picker, _, window, cx| {
-                                    picker.show_name_form(NameForm::Create, window, cx);
-                                })),
-                        ),
-                    )
                     .child(navigation),
             )
             .child(editor)
+    }
+
+    fn slideshow_choice(
+        &self,
+        id: impl Into<ElementId>,
+        name: &str,
+        choice: PlaylistChoice,
+        cx: &mut Context<Self>,
+    ) -> Stateful<Div> {
+        let selected = choice == self.playlist && !matches!(self.name_form, Some(NameForm::Create));
+        button(id, name.to_owned(), selected_tone(selected))
+            .aria_selected(selected)
+            .justify_start()
+            .on_click(cx.listener(move |picker, _, window, cx| {
+                picker.select_playlist(choice.clone(), window, cx);
+            }))
+    }
+
+    fn all_slideshow(&self, columns: u16, cx: &mut Context<Self>) -> Div {
+        let styles = preset_slideshow_styles(self.presets.as_deref())
+            .filter(|&style| self.preview_available(style));
+        let can_play = styles.clone().next().is_some();
+        div()
+            .flex()
+            .flex_col()
+            .gap_4()
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .justify_between()
+                    .gap_2()
+                    .child(picker_heading(ALL_SLIDESHOW_NAME))
+                    .child(self.play_slideshow_button(can_play, cx)),
+            )
+            .child(div().text_color(rgb(PICKER_MUTED)).child(if can_play {
+                "Preset wallpapers shuffle when you press Play."
+            } else {
+                "No preset wallpapers available."
+            }))
+            .child(
+                div()
+                    .grid()
+                    .grid_cols(columns)
+                    .gap_3()
+                    .children(styles.map(|style| {
+                        div()
+                            .min_w_0()
+                            .overflow_hidden()
+                            .rounded_lg()
+                            .border_1()
+                            .border_color(rgb(PICKER_BORDER))
+                            .bg(rgb(PICKER_SURFACE))
+                            .child(self.wallpaper_artwork(style))
+                            .child(
+                                div()
+                                    .truncate()
+                                    .px_2()
+                                    .py_1()
+                                    .text_sm()
+                                    .child(self.wallpaper_title(style)),
+                            )
+                    })),
+            )
+    }
+
+    fn play_slideshow_button(&self, can_play: bool, cx: &mut Context<Self>) -> Stateful<Div> {
+        button(
+            "play-slideshow",
+            "Play",
+            if can_play {
+                ButtonTone::Primary
+            } else {
+                ButtonTone::Disabled
+            },
+        )
+        .when(can_play, |button| {
+            button.on_click(cx.listener(|picker, _, _, cx| picker.play(cx)))
+        })
     }
 
     fn name_editor(&self, form: NameForm, cx: &mut Context<Self>) -> Div {
@@ -902,20 +989,7 @@ impl StatusPicker {
                                         })),
                                 )
                             })
-                            .child(
-                                button(
-                                    "play-slideshow",
-                                    "Play",
-                                    if can_play {
-                                        ButtonTone::Primary
-                                    } else {
-                                        ButtonTone::Disabled
-                                    },
-                                )
-                                .when(can_play, |button| {
-                                    button.on_click(cx.listener(|picker, _, _, cx| picker.play(cx)))
-                                }),
-                            ),
+                            .child(self.play_slideshow_button(can_play, cx)),
                     ),
             )
             .child(

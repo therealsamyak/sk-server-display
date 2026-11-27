@@ -78,7 +78,7 @@ impl StatusView {
             return;
         }
         let carousel = self.carousel.read(cx);
-        let Some(list) = carousel.state.playing_playlist() else {
+        let Some(list) = carousel.playing_playlist() else {
             return;
         };
         let interval = list.slide_duration();
@@ -121,7 +121,7 @@ impl StatusView {
             && self.update_dialog.is_none()
             && self.preview.is_none()
             && self.btop.is_none()
-            && self.carousel.read(cx).state.playing_playlist().is_some()
+            && self.carousel.read(cx).playing_playlist().is_some()
         {
             self.swipe = Some(SlideshowSwipe::Pressed(position));
         }
