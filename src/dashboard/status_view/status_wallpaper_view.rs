@@ -341,7 +341,7 @@ impl StatusView {
             for panel in &self.panels {
                 panel.update(cx, |panel, cx| panel.set_panel_style(frame.style, cx));
             }
-            if let Some(details) = &self.details {
+            for details in self.details.sessions() {
                 details
                     .panel
                     .update(cx, |panel, cx| panel.set_panel_style(frame.style, cx));
@@ -354,7 +354,7 @@ impl StatusView {
     }
 
     pub(super) fn open_picker(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        self.details = None;
+        self.details.collapse_all_feed_cards();
         self.incoming_panels = None;
         let carousel = self.carousel.read(cx);
         let active = self.wallpaper.shown;

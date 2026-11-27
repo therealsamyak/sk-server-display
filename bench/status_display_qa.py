@@ -77,6 +77,10 @@ def wait_for_qa_frame(
     raise RuntimeError(f"Expected {expected!r} in {screenshot.name}")
 
 
+def qa_word_left(words: list[dict[str, str]], text: str) -> int:
+    return int(next(word for word in words if word["text"].lower() == text)["left"])
+
+
 def write_qa_profile(config: Path, name: str) -> None:
     config.write_text(f'[[host]]\nname = "{name}"\nsource = "local"\n', encoding="utf-8")
 
@@ -124,9 +128,11 @@ def check_unavailable_idle_inhibition(
         x = int(label["left"]) + int(label["width"]) // 2
         y = int(label["top"]) + int(label["height"]) // 2
         send_qa_input(helper, session, "click", str(x), str(y))
-        wait_for_qa_frame(
+        failed = wait_for_qa_frame(
             session, frames / "idle-request-failed.png", "retry stay awake", absent="allow sleep",
         )
+        if qa_word_left(words, "windowed") != qa_word_left(failed, "windowed"):
+            raise RuntimeError("The stay awake label change moved the toolbar")
     finally:
         running.stop()
 
@@ -149,7 +155,7 @@ def main() -> None:
             check_profile_refresh(binary, session, helper, home, frames)
             print("PASS: Reload a new, missing, and restored default profile.")
             check_unavailable_idle_inhibition(binary, session, helper, home, frames)
-            print("PASS: Show retry when the desktop cannot confirm idle inhibition.")
+            print("PASS: Show retry in place when the desktop cannot confirm idle inhibition.")
         finally:
             session.stop()
 

@@ -4,6 +4,7 @@
 //! controls. Each feed panel is a cached child view (see `status_panel`), so
 //! a root redraw for the clock reuses the panels as they are.
 
+mod status_feed_expansion;
 mod status_slideshow_swipe;
 mod status_toolbar;
 mod status_update_view;
@@ -33,6 +34,7 @@ use super::{
     status_theme::{Scale, StatusLayout, StatusTheme},
     status_window::StatusDisplayApp,
 };
+use status_feed_expansion::FeedExpansions;
 use status_slideshow_swipe::{IncomingPanels, SlideshowSwipe};
 use status_update_view::StatusUpdateDialog;
 use status_wallpaper_view::{PickerSession, StatusWallpaper, WallpaperPreview};
@@ -95,7 +97,8 @@ pub struct StatusView {
     picker: Option<PickerSession>,
     preview: Option<WallpaperPreview>,
     preview_error: Option<String>,
-    details: Option<FeedDetailsSession>,
+    /// Expanded feed cards, at most one in each expansion group.
+    details: FeedExpansions<FeedDetailsSession>,
     btop: Option<BtopSession>,
     pointer_pressed: bool,
     swipe: Option<SlideshowSwipe>,
@@ -115,7 +118,6 @@ pub struct StatusView {
 }
 
 struct FeedDetailsSession {
-    index: usize,
     panel: Entity<FeedPanelView>,
     incoming: Option<(crate::wallpaper::WallpaperId, Entity<FeedPanelView>)>,
     _close: Subscription,
@@ -182,7 +184,7 @@ impl StatusView {
             picker: None,
             preview: None,
             preview_error: None,
-            details: None,
+            details: FeedExpansions::default(),
             btop: None,
             pointer_pressed: false,
             swipe: None,
@@ -256,14 +258,23 @@ impl StatusView {
     }
 
     fn open_feed_details(&mut self, index: usize, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(group) = self
+            .board
+            .read(cx)
+            .status_feeds()
+            .get(index)
+            .and_then(|feed| feed.spec.collector.feed_expansion_group())
+        else {
+            return;
+        };
         let board = self.board.clone();
         let battery = self.feed_battery(index, cx);
         let panel = cx.new(|cx| {
             FeedPanelView::new_expanded_panel(board, index, self.wallpaper.style, battery, cx)
         });
-        let close = cx.subscribe(&panel, |view, _, _: &FeedDetailsClosed, cx| {
+        let close = cx.subscribe(&panel, move |view, _, _: &FeedDetailsClosed, cx| {
             if !view.swipe_consumed && !view.swipe_in_motion() {
-                view.close_feed_details(cx);
+                view.close_feed_details(index, cx);
             }
         });
         let btop = cx.subscribe_in(
@@ -275,13 +286,16 @@ impl StatusView {
                 }
             },
         );
-        self.details = Some(FeedDetailsSession {
+        self.details.expand_feed_card(
             index,
-            panel,
-            incoming: None,
-            _close: close,
-            _btop: btop,
-        });
+            group,
+            FeedDetailsSession {
+                panel,
+                incoming: None,
+                _close: close,
+                _btop: btop,
+            },
+        );
         cx.notify();
     }
 
@@ -308,8 +322,8 @@ impl StatusView {
         cx.notify();
     }
 
-    fn close_feed_details(&mut self, cx: &mut Context<Self>) {
-        self.details = None;
+    fn close_feed_details(&mut self, index: usize, cx: &mut Context<Self>) {
+        self.details.collapse_feed_card(index);
         cx.notify();
     }
 
@@ -333,8 +347,9 @@ impl StatusView {
         } else if self.btop.is_some() {
             self.btop = None;
             cx.notify();
-        } else if self.details.is_some() {
-            self.close_feed_details(cx);
+        } else if !self.details.is_empty() {
+            self.details.collapse_all_feed_cards();
+            cx.notify();
         } else if window.is_fullscreen() {
             self.toggle_fullscreen(&ToggleFullscreen, window, cx);
         }
@@ -363,7 +378,7 @@ impl StatusView {
     ) {
         if let Some(board) = board {
             self.board = board;
-            self.details = None;
+            self.details.collapse_all_feed_cards();
             self.btop = None;
             self.incoming_panels = None;
             self.rebuild_feed_panels(cx);
@@ -431,7 +446,7 @@ impl Render for StatusView {
             self.toolbar_bounds = None;
         }
         let show_window_controls =
-            !modal && self.details.is_none() && !self.automatic_slide_in_motion();
+            !modal && self.details.is_empty() && !self.automatic_slide_in_motion();
         let slideshow_taps =
             !modal && self.preview.is_none() && self.carousel.read(cx).playing_playlist().is_some();
         let root = div()
