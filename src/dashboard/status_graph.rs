@@ -18,27 +18,8 @@ use crate::{
 const CPU_SCALE_STEP: f32 = 10.0;
 const NETWORK_SCALE_FLOOR: f64 = 4.0 * 1024.0;
 
-/// CPU history ceiling and whether any samples exceed it.
-#[derive(Clone, Copy)]
-pub struct CpuHistoryScale {
-    ceiling: f32,
-    has_peaks_above_ceiling: bool,
-}
-
-impl CpuHistoryScale {
-    /// Label the CPU scale and flag bars that exceed the ceiling.
-    pub fn scale_label(self) -> String {
-        let marker = if self.has_peaks_above_ceiling {
-            "+"
-        } else {
-            ""
-        };
-        format!("Scale {:.0}%{marker}", self.ceiling)
-    }
-}
-
 /// Round the 90th percentile of CPU history up to the next ten-point step.
-pub fn cpu_history_scale(samples: &VecDeque<f32>) -> CpuHistoryScale {
+fn cpu_history_scale(samples: &VecDeque<f32>) -> f32 {
     let mut values = [0.0; HOST_HISTORY_SAMPLES];
     let count = samples
         .iter()
@@ -48,22 +29,15 @@ pub fn cpu_history_scale(samples: &VecDeque<f32>) -> CpuHistoryScale {
         .map(|(percent, slot)| *slot = percent.clamp(0.0, 100.0))
         .count();
     if count == 0 {
-        return CpuHistoryScale {
-            ceiling: CPU_SCALE_STEP,
-            has_peaks_above_ceiling: false,
-        };
+        return CPU_SCALE_STEP;
     }
     let rank = count - count / 10 - 1;
-    let (_, percentile, peaks) = values[..count].select_nth_unstable_by(rank, f32::total_cmp);
-    let ceiling = (percentile.max(CPU_SCALE_STEP) / CPU_SCALE_STEP).ceil() * CPU_SCALE_STEP;
-    CpuHistoryScale {
-        ceiling,
-        has_peaks_above_ceiling: peaks.iter().any(|peak| *peak > ceiling),
-    }
+    let (_, percentile, _) = values[..count].select_nth_unstable_by(rank, f32::total_cmp);
+    (percentile.max(CPU_SCALE_STEP) / CPU_SCALE_STEP).ceil() * CPU_SCALE_STEP
 }
 
 /// Use one power-of-two rate scale for both directions of network history.
-pub fn network_history_scale(history: &HostHistory) -> f64 {
+fn network_history_scale(history: &HostHistory) -> f64 {
     let peak = history
         .network_receive_rate
         .iter()
@@ -148,9 +122,9 @@ pub fn cpu_graph(
     s: Scale,
     theme: StatusTheme,
     samples: &VecDeque<f32>,
-    scale: CpuHistoryScale,
     dim: bool,
 ) -> impl IntoElement {
+    let ceiling = cpu_history_scale(samples);
     let bars = samples
         .iter()
         .map(|percent| {
@@ -164,7 +138,7 @@ pub fn cpu_graph(
             } else {
                 threshold_color(theme, percent / 100.0)
             };
-            (percent / scale.ceiling, color.opacity(GRAPH_BAR_OPACITY))
+            (percent / ceiling, color.opacity(GRAPH_BAR_OPACITY))
         })
         .collect();
     div()
@@ -187,9 +161,9 @@ pub fn network_graph(
     s: Scale,
     theme: StatusTheme,
     history: &HostHistory,
-    ceiling: f64,
     dim: bool,
 ) -> impl IntoElement {
+    let ceiling = network_history_scale(history);
     let bars = |samples: &VecDeque<f64>, color: Hsla| {
         let color = if dim { theme.faint() } else { color };
         samples
@@ -230,35 +204,31 @@ mod tests {
     #[test]
     fn cpu_scale_keeps_idle_history_on_a_valid_axis() {
         let samples = VecDeque::from([0.0, -1.0, f32::NAN, f32::INFINITY]);
-        assert!((cpu_history_scale(&samples).ceiling - 10.0).abs() < f32::EPSILON);
+        assert!((cpu_history_scale(&samples) - 10.0).abs() < f32::EPSILON);
     }
 
     #[test]
     fn cpu_scale_rounds_up_to_fit_a_short_history() {
         let samples = VecDeque::from([2.0, 23.0, 5.0]);
-        assert!((cpu_history_scale(&samples).ceiling - 30.0).abs() < f32::EPSILON);
+        assert!((cpu_history_scale(&samples) - 30.0).abs() < f32::EPSILON);
     }
 
     #[test]
-    fn cpu_scale_marks_isolated_spikes_without_flattening_typical_load() {
+    fn cpu_scale_shows_typical_load_despite_an_isolated_spike() {
         let samples = VecDeque::from([2.0, 4.0, 6.0, 2.0, 3.0, 100.0, 5.0, 7.0, 4.0, 3.0]);
-        let scale = cpu_history_scale(&samples);
-        assert!((scale.ceiling - 10.0).abs() < f32::EPSILON);
-        assert!(scale.has_peaks_above_ceiling);
+        assert!((cpu_history_scale(&samples) - 10.0).abs() < f32::EPSILON);
     }
 
     #[test]
     fn cpu_scale_grows_for_sustained_load() {
         let samples = VecDeque::from([95.0; HOST_HISTORY_SAMPLES]);
-        let scale = cpu_history_scale(&samples);
-        assert!((scale.ceiling - 100.0).abs() < f32::EPSILON);
-        assert!(!scale.has_peaks_above_ceiling);
+        assert!((cpu_history_scale(&samples) - 100.0).abs() < f32::EPSILON);
     }
 
     #[test]
     fn cpu_scale_stays_within_one_hundred_percent() {
         let samples = VecDeque::from([105.0]);
-        assert!((cpu_history_scale(&samples).ceiling - 100.0).abs() < f32::EPSILON);
+        assert!((cpu_history_scale(&samples) - 100.0).abs() < f32::EPSILON);
     }
 
     #[test]

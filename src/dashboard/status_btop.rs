@@ -10,7 +10,7 @@ use gpui::{
 
 use crate::{
     dashboard::status_format::{format_status_bytes, format_status_rate, format_status_uptime},
-    dashboard::status_graph::{cpu_graph, cpu_history_scale, network_graph, network_history_scale},
+    dashboard::status_graph::{cpu_graph, network_graph},
     dashboard::status_theme::{Scale, StatusLayout, StatusTheme, threshold_color},
     metrics::{FeedData, HostMetrics, StatusBoard, StatusFeedUpdated},
     wallpaper::StatusStyle,
@@ -143,114 +143,84 @@ impl Render for BtopWindowView {
             })
             .unwrap_or_default();
         let body = match host {
-            Some(host) => {
-                let cpu_scale = cpu_history_scale(&history.cpu_percent);
-                let network_ceiling = network_history_scale(history);
-                div()
-                    .flex_1()
-                    .min_h_0()
-                    .flex()
-                    .flex_col()
-                    .gap(s(16.))
-                    .child(
-                        div()
-                            .flex()
-                            .gap(s(12.))
-                            .min_h_0()
-                            .flex_grow(0.85)
-                            .flex_basis(relative(0.))
-                            .child(
-                                btop_box(s, surface, "cpu", theme.ok(), 3.)
-                                    .child(
-                                        div()
-                                            .flex()
-                                            .flex_wrap()
-                                            .gap_x(s(8.))
-                                            .justify_between()
-                                            .text_size(s(13.))
-                                            .child(format!(
-                                                "Total {}",
-                                                percent_text(host.cpu_percent)
-                                            ))
-                                            .child(
-                                                div()
-                                                    .text_color(theme.faint())
-                                                    .child(cpu_scale.scale_label()),
-                                            )
-                                            .children(host.temperature_celsius.map(|celsius| {
-                                                div()
-                                                    .text_color(theme.muted())
-                                                    .child(format!("{celsius:.0}°C"))
-                                            })),
-                                    )
-                                    .child(
-                                        div()
-                                            .flex_1()
-                                            .min_h(s(32.))
-                                            .max_h(s(140.))
-                                            .flex()
-                                            .flex_col()
-                                            .child(cpu_graph(
-                                                s,
-                                                theme,
-                                                &history.cpu_percent,
-                                                cpu_scale,
-                                                false,
-                                            )),
-                                    )
-                                    .child(core_meters(s, theme, &host.core_percents)),
-                            )
-                            .child(
-                                btop_box(s, surface, "mem", theme.info(), 2.)
-                                    .child(memory_rows(s, theme, host)),
-                            ),
-                    )
-                    .child(
-                        div()
-                            .flex()
-                            .gap(s(12.))
-                            .min_h_0()
-                            .flex_grow(1.25)
-                            .flex_basis(relative(0.))
-                            .child(
-                                btop_box(s, surface, "net", theme.receive(), 2.)
-                                    .child(
-                                        div()
-                                            .flex()
-                                            .flex_wrap()
-                                            .gap_x(s(8.))
-                                            .justify_between()
-                                            .text_size(s(13.))
-                                            .child(div().text_color(theme.receive()).child(
-                                                format!(
-                                                    "↓ {}",
-                                                    rate_text(host.network_receive_rate)
-                                                ),
-                                            ))
-                                            .child(div().text_color(theme.send()).child(format!(
-                                                "↑ {}",
-                                                rate_text(host.network_send_rate)
-                                            )))
-                                            .child(div().text_color(theme.faint()).child(format!(
-                                                "Scale {}",
-                                                format_status_rate(network_ceiling)
-                                            ))),
-                                    )
-                                    .child(network_graph(
-                                        s,
-                                        theme,
-                                        history,
-                                        network_ceiling,
-                                        false,
-                                    )),
-                            )
-                            .child(
-                                btop_box(s, surface, "proc", theme.warn(), 3.)
-                                    .child(process_table(s, theme, host)),
-                            ),
-                    )
-                    .into_any_element()
-            }
+            Some(host) => div()
+                .flex_1()
+                .min_h_0()
+                .flex()
+                .flex_col()
+                .gap(s(16.))
+                .child(
+                    div()
+                        .flex()
+                        .gap(s(12.))
+                        .min_h_0()
+                        .flex_grow(0.85)
+                        .flex_basis(relative(0.))
+                        .child(
+                            btop_box(s, surface, "cpu", theme.ok(), 3.)
+                                .child(
+                                    div()
+                                        .flex()
+                                        .flex_wrap()
+                                        .gap_x(s(8.))
+                                        .justify_between()
+                                        .text_size(s(13.))
+                                        .child(format!("Total {}", percent_text(host.cpu_percent)))
+                                        .children(host.temperature_celsius.map(|celsius| {
+                                            div()
+                                                .text_color(theme.muted())
+                                                .child(format!("{celsius:.0}°C"))
+                                        })),
+                                )
+                                .child(
+                                    div()
+                                        .flex_1()
+                                        .min_h(s(32.))
+                                        .max_h(s(140.))
+                                        .flex()
+                                        .flex_col()
+                                        .child(cpu_graph(s, theme, &history.cpu_percent, false)),
+                                )
+                                .child(core_meters(s, theme, &host.core_percents)),
+                        )
+                        .child(
+                            btop_box(s, surface, "mem", theme.info(), 2.)
+                                .child(memory_rows(s, theme, host)),
+                        ),
+                )
+                .child(
+                    div()
+                        .flex()
+                        .gap(s(12.))
+                        .min_h_0()
+                        .flex_grow(1.25)
+                        .flex_basis(relative(0.))
+                        .child(
+                            btop_box(s, surface, "net", theme.receive(), 2.)
+                                .child(
+                                    div()
+                                        .flex()
+                                        .flex_wrap()
+                                        .gap_x(s(8.))
+                                        .justify_between()
+                                        .text_size(s(13.))
+                                        .child(div().text_color(theme.receive()).child(format!(
+                                            "↓ {}",
+                                            rate_text(host.network_receive_rate)
+                                        )))
+                                        .child(div().text_color(theme.send()).child(format!(
+                                            "↑ {}",
+                                            rate_text(host.network_send_rate)
+                                        ))),
+                                )
+                                .child(network_graph(s, theme, history, false)),
+                        )
+                        .child(
+                            btop_box(s, surface, "proc", theme.warn(), 3.)
+                                .child(process_table(s, theme, host)),
+                        ),
+                )
+                .into_any_element(),
             None => div()
                 .flex_1()
                 .flex()
