@@ -6,7 +6,7 @@ A fullscreen dashboard for the clock, system metrics, and service status.
 
 ## Quick start
 
-1. Download the build for your device from [GitHub Releases](https://github.com/therealsamyak/server-status-display/releases) and open it. The dashboard starts with the clock and a local device card.
+1. Download the build for your device from [GitHub Releases](https://github.com/therealsamyak/sk-server-display/releases) and open it. The dashboard starts with the clock and a local device card.
 2. Copy [config.example.toml](config.example.toml) to the path below for your OS. Create the folder if needed, then edit the file.
 3. Press **R** in the app to load your settings.
 
