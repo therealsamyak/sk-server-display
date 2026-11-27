@@ -298,13 +298,7 @@ impl StatusView {
             }
         }
 
-        let clock = status_clock(
-            s,
-            style,
-            now,
-            self.settings.local_offset,
-            self.battery.read(cx).battery_label(),
-        );
+        let clock = status_clock(s, style, now, self.settings.local_offset);
         let notices = div().w_full().flex().flex_col().gap(s(8.)).children(alerts);
         match style.arrangement {
             StyleArrangement::Band => {
@@ -619,17 +613,11 @@ fn area_shade(
     }
 }
 
-/// Clock, date, and local battery status for the selected wallpaper.
-fn status_clock(
-    s: Scale,
-    style: StatusStyle,
-    now: OffsetDateTime,
-    offset: UtcOffset,
-    battery: Option<&str>,
-) -> Div {
+/// Clock and date for the selected wallpaper.
+fn status_clock(s: Scale, style: StatusStyle, now: OffsetDateTime, offset: UtcOffset) -> Div {
     let kind = style.kind;
     let theme = StatusTheme(style.palette);
-    div().flex().flex_col().gap(s(16.)).child(
+    div().min_w_0().flex().flex_col().gap(s(16.)).child(
         div()
             .flex()
             .flex_col()
@@ -648,23 +636,9 @@ fn status_clock(
             .child(
                 div()
                     .px(s(4.))
-                    .flex()
-                    .flex_wrap()
-                    .items_baseline()
-                    .gap_x(s(14.))
                     .text_size(s(28.))
                     .text_color(theme.date())
-                    .child(
-                        div()
-                            .whitespace_nowrap()
-                            .child(format_status_date(now, offset)),
-                    )
-                    .children(battery.map(|battery| {
-                        div()
-                            .whitespace_nowrap()
-                            .text_size(s(18.))
-                            .child(battery.to_owned())
-                    })),
+                    .child(format_status_date(now, offset)),
             ),
     )
 }

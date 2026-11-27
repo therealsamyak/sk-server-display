@@ -27,7 +27,7 @@ use crate::{
     },
     metrics::{HostHistory, StatusFeed},
     metrics::{StatusBoard, StatusFeedUpdated},
-    platform::{BatteryReading, LocalBatteryStatus},
+    platform::{BatteryLabelChanged, BatteryReading, LocalBatteryStatus},
     wallpaper::{StatusStyle, StyleArrangement, plain_status_style},
 };
 use gpui::{
@@ -62,6 +62,7 @@ impl FeedPanelView {
         board: Entity<StatusBoard>,
         index: usize,
         carded: CardedTailnetDevices,
+        battery: Option<Entity<LocalBatteryStatus>>,
         cx: &mut Context<Self>,
     ) -> Self {
         let subscription = cx.subscribe(&board, |this, board, event: &StatusFeedUpdated, cx| {
@@ -79,6 +80,9 @@ impl FeedPanelView {
             }
             cx.notify();
         });
+        let battery_subscription = battery
+            .as_ref()
+            .map(|battery| cx.subscribe(battery, |_, _, _: &BatteryLabelChanged, cx| cx.notify()));
         Self {
             board,
             index,
@@ -86,10 +90,10 @@ impl FeedPanelView {
             style: plain_status_style(),
             carded,
             last_live_summary: None,
-            battery: None,
+            battery,
             redraw: StatusRedrawTimer::default(),
             _subscription: subscription,
-            _battery_subscription: None,
+            _battery_subscription: battery_subscription,
         }
     }
 
@@ -107,7 +111,8 @@ impl FeedPanelView {
         battery: Option<Entity<LocalBatteryStatus>>,
         cx: &mut Context<Self>,
     ) -> Self {
-        let mut panel = Self::new_feed_panel(board, index, CardedTailnetDevices::default(), cx);
+        let mut panel =
+            Self::new_feed_panel(board, index, CardedTailnetDevices::default(), None, cx);
         panel.detail_scroll = Some(ScrollHandle::new());
         panel.style = style;
         panel._battery_subscription = battery
@@ -598,17 +603,24 @@ fn core_grid(theme: StatusTheme, s: Scale, cores: &[f32], dim: bool) -> Div {
 fn host_panel(s: Scale, view: &FeedView, battery: Option<Option<&BatteryReading>>) -> Div {
     let detail = view.detail_scroll.is_some();
     let theme = StatusTheme(view.style.palette);
+    let battery_label = (!detail)
+        .then_some(battery.flatten())
+        .flatten()
+        .map(|reading| host_battery_label(s, theme, reading));
     let host = match view.reading() {
         Some(FeedData::Host(host)) => host,
         Some(FeedData::HostPresence(_)) => return presence_panel(s, view, !detail),
         _ => {
+            let has_battery_label = battery_label.is_some();
             let body = if detail {
                 empty_body(s, view)
             } else {
-                div().into_any_element()
+                div().children(battery_label).into_any_element()
             };
             return feed_panel(s, view, None, body, !detail)
-                .when(!detail, |panel| panel.justify_center().gap_0());
+                .when(!detail && !has_battery_label, |panel| {
+                    panel.justify_center().gap_0()
+                });
         }
     };
     if let Some(scroll) = view.detail_scroll {
@@ -624,8 +636,29 @@ fn host_panel(s: Scale, view: &FeedView, battery: Option<Option<&BatteryReading>
         return feed_panel(s, view, None, body.into_any_element(), false);
     }
     let HostSummary { uptime, values } = HostSummary::from_metrics(host);
-    let body = host_summary(theme, s, values, view.dim());
+    let status = if battery.is_some() {
+        battery_label
+    } else {
+        (view.freshness == FeedFreshness::Live).then(|| {
+            div()
+                .flex()
+                .items_center()
+                .gap(s(10.))
+                .text_color(theme.ok())
+                .child(status_dot(s, theme.ok()))
+                .child("online")
+        })
+    };
+    let body = host_summary(theme, s, status, values, view.dim());
     feed_panel(s, view, uptime, body.into_any_element(), true)
+}
+
+fn host_battery_label(s: Scale, theme: StatusTheme, reading: &BatteryReading) -> Div {
+    div()
+        .truncate()
+        .text_size(s(13.))
+        .text_color(theme.text())
+        .child(reading.label.clone())
 }
 
 fn battery_details(s: Scale, theme: StatusTheme, reading: Option<&BatteryReading>) -> Div {
@@ -686,25 +719,39 @@ impl HostSummary {
     }
 }
 
-fn host_summary(theme: StatusTheme, s: Scale, values: [String; 3], dim: bool) -> Div {
+fn host_summary(
+    theme: StatusTheme,
+    s: Scale,
+    status: Option<Div>,
+    values: [String; 3],
+    dim: bool,
+) -> Div {
     div()
         .flex()
         .items_center()
-        .justify_between()
         .gap(s(8.))
-        .text_size(s(14.))
-        .children(
-            ["CPU", "Mem", "Disk"]
-                .into_iter()
-                .zip(values)
-                .map(|(label, value)| {
-                    div()
-                        .flex()
-                        .items_center()
-                        .gap(s(6.))
-                        .child(div().text_color(theme.muted()).child(label))
-                        .child(div().text_color(value_color(theme, dim)).child(value))
-                }),
+        .text_size(s(13.))
+        .child(div().flex_1().min_w_0().children(status))
+        .child(
+            div()
+                .flex()
+                .flex_none()
+                .items_center()
+                .gap(s(8.))
+                .whitespace_nowrap()
+                .children(
+                    ["CPU", "Mem", "Disk"]
+                        .into_iter()
+                        .zip(values)
+                        .map(|(label, value)| {
+                            div()
+                                .flex()
+                                .items_center()
+                                .gap(s(4.))
+                                .child(div().text_color(theme.muted()).child(label))
+                                .child(div().text_color(value_color(theme, dim)).child(value))
+                        }),
+                ),
         )
 }
 

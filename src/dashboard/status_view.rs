@@ -18,10 +18,8 @@ use gpui::{
 use time::{OffsetDateTime, UtcOffset};
 
 use crate::{
-    metrics::{StatusBoard, StatusFeed},
-    platform::{
-        BatteryLabelChanged, LocalBatteryStatus, StatusPower, status_update::finish_app_update,
-    },
+    metrics::{StatusBoard, StatusCollector, StatusFeed},
+    platform::{LocalBatteryStatus, StatusPower, status_update::finish_app_update},
     status_fonts::STATUS_MONO_FONT_FAMILY,
     status_startup::{StartupMilestone, log_startup_milestone},
     wallpaper::StatusCarousel,
@@ -146,7 +144,6 @@ impl StatusView {
         let view = cx.weak_entity();
         let battery = cx.new(LocalBatteryStatus::new_local_battery_status);
         let subscriptions = vec![
-            cx.subscribe(&battery, |_, _, _: &BatteryLabelChanged, cx| cx.notify()),
             window.observe_window_visibility(move |_, window, cx| {
                 if let Err(error) = view.update(cx, |view, cx| {
                     view.update_display_power(cx);
@@ -210,19 +207,31 @@ impl StatusView {
         // Devices with a host card do not repeat in the tailnet list.
         self.carded = CardedTailnetDevices::from_status_feeds(feeds);
         self.panels = (0..feeds.len())
-            .map(|index| {
-                cx.new(|cx| {
-                    let mut panel = FeedPanelView::new_feed_panel(
-                        self.board.clone(),
-                        index,
-                        self.carded.clone(),
-                        cx,
-                    );
-                    panel.set_panel_style(self.wallpaper.style, cx);
-                    panel
-                })
-            })
+            .map(|index| self.create_feed_panel(index, cx))
             .collect();
+    }
+
+    fn create_feed_panel(&self, index: usize, cx: &mut Context<Self>) -> Entity<FeedPanelView> {
+        let battery = self.feed_battery(index, cx);
+        cx.new(|cx| {
+            let mut panel = FeedPanelView::new_feed_panel(
+                self.board.clone(),
+                index,
+                self.carded.clone(),
+                battery,
+                cx,
+            );
+            panel.set_panel_style(self.wallpaper.style, cx);
+            panel
+        })
+    }
+
+    fn feed_battery(&self, index: usize, cx: &App) -> Option<Entity<LocalBatteryStatus>> {
+        matches!(
+            self.board.read(cx).status_feeds()[index].spec.collector,
+            StatusCollector::Local(_)
+        )
+        .then(|| self.battery.clone())
     }
 
     fn update_display_power(&mut self, cx: &Context<Self>) {
@@ -245,11 +254,7 @@ impl StatusView {
 
     fn open_feed_details(&mut self, index: usize, window: &mut Window, cx: &mut Context<Self>) {
         let board = self.board.clone();
-        let local = matches!(
-            board.read(cx).status_feeds()[index].spec.collector,
-            crate::metrics::StatusCollector::Local(_)
-        );
-        let battery = local.then(|| self.battery.clone());
+        let battery = self.feed_battery(index, cx);
         let panel = cx.new(|cx| {
             FeedPanelView::new_expanded_panel(board, index, self.wallpaper.style, battery, cx)
         });

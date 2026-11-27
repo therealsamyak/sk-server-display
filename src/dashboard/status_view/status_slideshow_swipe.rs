@@ -272,28 +272,22 @@ impl StatusView {
             let incoming = cx.new(|cx| FeedPanelView::new_incoming_detail(&panel, style, cx));
             details.incoming = Some((id, incoming));
         }
-        let incoming = self.incoming_panels.get_or_insert_with(|| IncomingPanels {
-            id: None,
-            panels: (0..self.panels.len())
-                .map(|index| {
-                    cx.new(|cx| {
-                        FeedPanelView::new_feed_panel(
-                            self.board.clone(),
-                            index,
-                            self.carded.clone(),
-                            cx,
-                        )
-                    })
-                })
-                .collect(),
-        });
-        if incoming.id == Some(id) {
-            return;
+        let mut incoming = self
+            .incoming_panels
+            .take()
+            .unwrap_or_else(|| IncomingPanels {
+                id: None,
+                panels: (0..self.panels.len())
+                    .map(|index| self.create_feed_panel(index, cx))
+                    .collect(),
+            });
+        if incoming.id != Some(id) {
+            incoming.id = Some(id);
+            for panel in &incoming.panels {
+                panel.update(cx, |panel, cx| panel.set_panel_style(style, cx));
+            }
         }
-        incoming.id = Some(id);
-        for panel in &incoming.panels {
-            panel.update(cx, |panel, cx| panel.set_panel_style(style, cx));
-        }
+        self.incoming_panels = Some(incoming);
     }
 
     fn slide_positions(
