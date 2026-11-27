@@ -9,9 +9,14 @@ use gpui::{BackgroundExecutor, Context, EventEmitter, Task, Window};
 mod platform;
 #[cfg(target_os = "macos")]
 #[path = "status_power/macos.rs"]
+#[allow(unsafe_code, reason = "IOKit battery snapshots and idle assertions")]
 mod platform;
 #[cfg(target_os = "windows")]
 #[path = "status_power/windows.rs"]
+#[allow(
+    unsafe_code,
+    reason = "Win32 battery state and suspend-aware idle requests"
+)]
 mod platform;
 
 const IDLE_INHIBITION_REASON: &str = "Stay awake is enabled in Server Status Display";

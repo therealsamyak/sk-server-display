@@ -1,5 +1,6 @@
 mod display_select;
 #[cfg(target_os = "windows")]
+#[allow(unsafe_code, reason = "Win32 display paths and monitor information")]
 mod display_windows;
 #[cfg_attr(not(target_os = "windows"), allow(dead_code))]
 mod status_display;

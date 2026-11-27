@@ -1,6 +1,9 @@
 //! Windows display helpers: list active displays with their output kind,
 //! and find the physical status display.
 
+use std::{collections::HashMap, ptr::without_provenance_mut, rc::Rc};
+
+use gpui::PlatformDisplay;
 use windows::Win32::{
     Devices::Display::{
         DISPLAYCONFIG_DEVICE_INFO_GET_SOURCE_NAME, DISPLAYCONFIG_DEVICE_INFO_GET_TARGET_NAME,
@@ -14,39 +17,23 @@ use windows::Win32::{
         DisplayConfigGetDeviceInfo, GetDisplayConfigBufferSizes, QDC_ONLY_ACTIVE_PATHS,
         QueryDisplayConfig,
     },
-    Foundation::{ERROR_SUCCESS, LPARAM, RECT},
-    Graphics::Gdi::{
-        EnumDisplayMonitors, GetMonitorInfoW, HDC, HMONITOR, MONITORINFO, MONITORINFOEXW,
-    },
+    Foundation::ERROR_SUCCESS,
+    Graphics::Gdi::{GetMonitorInfoW, HMONITOR, MONITORINFOEXW},
     UI::WindowsAndMessaging::MONITORINFOF_PRIMARY,
 };
-use windows::core::BOOL;
 
 use crate::platform::status_display::{
     DisplayOutputKind, PhysicalDisplayCandidate, rank_physical_display_candidates,
 };
 
-/// One active Windows display: its monitor handle, desktop rectangle, and
-/// output kind.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct WindowsDisplay {
-    /// `HMONITOR` value. GPUI on Windows uses it as the display ID.
-    pub monitor_handle: isize,
-    /// GDI device name, such as `\\.\DISPLAY1`.
-    pub gdi_device_name: String,
-    /// Monitor name from the display configuration, such as `Built-in Display`.
-    pub friendly_name: String,
-    pub kind: DisplayOutputKind,
-    pub is_primary: bool,
-    /// Top-left corner in physical desktop pixels.
-    pub position: (i32, i32),
-    /// Size in physical pixels.
-    pub size: (u32, u32),
+struct ActiveDisplayPath {
+    gdi_device_name: String,
+    friendly_name: String,
+    kind: DisplayOutputKind,
 }
 
-impl WindowsDisplay {
-    /// Display label detail, such as `built-in panel "Built-in Display"`.
-    pub fn windows_display_description(&self) -> String {
+impl ActiveDisplayPath {
+    fn display_description(&self) -> String {
         let name = if self.friendly_name.is_empty() {
             self.gdi_device_name.trim_start_matches(r"\\.\")
         } else {
@@ -56,58 +43,35 @@ impl WindowsDisplay {
     }
 }
 
-struct ActiveDisplayPath {
-    gdi_device_name: String,
-    friendly_name: String,
-    kind: DisplayOutputKind,
-}
-
-struct ActiveMonitor {
-    handle: HMONITOR,
-    gdi_device_name: String,
-    is_primary: bool,
-    rect: RECT,
-}
-
-/// Lists the active displays that have both a display path and a monitor.
-pub fn list_windows_displays() -> Vec<WindowsDisplay> {
-    let Some(paths) = query_active_display_paths() else {
-        return Vec::new();
-    };
-    let monitors = enumerate_active_monitors();
-    paths
-        .into_iter()
-        .filter_map(|path| {
-            let monitor = monitors
-                .iter()
-                .find(|monitor| monitor.gdi_device_name == path.gdi_device_name)?;
-            Some(WindowsDisplay {
-                monitor_handle: monitor.handle.0 as isize,
-                gdi_device_name: path.gdi_device_name,
-                friendly_name: path.friendly_name,
-                kind: path.kind,
-                is_primary: monitor.is_primary,
-                position: (monitor.rect.left, monitor.rect.top),
-                size: (
-                    (monitor.rect.right - monitor.rect.left).max(0) as u32,
-                    (monitor.rect.bottom - monitor.rect.top).max(0) as u32,
-                ),
-            })
-        })
-        .collect()
-}
-
-/// Finds the physical status display: the built-in panel first, then a
-/// physical external monitor. Virtual displays are never returned.
-pub fn find_physical_windows_display(displays: &[WindowsDisplay]) -> Option<&WindowsDisplay> {
-    let candidates: Vec<PhysicalDisplayCandidate> = displays
+/// Ranks active Windows paths for displays already enumerated by GPUI.
+pub(super) fn find_physical_windows_display(
+    displays: &[Rc<dyn PlatformDisplay>],
+) -> Option<(&Rc<dyn PlatformDisplay>, String)> {
+    let paths = query_active_display_paths()?;
+    let monitors: HashMap<_, _> = displays
         .iter()
-        .map(|display| PhysicalDisplayCandidate {
-            kind: display.kind,
-            is_primary: display.is_primary,
+        .filter_map(|display| {
+            let info = display_monitor_info(display.as_ref())?;
+            let name = wide_to_string(&info.szDevice);
+            let is_primary = info.monitorInfo.dwFlags & MONITORINFOF_PRIMARY != 0;
+            Some((name, (display, is_primary)))
         })
         .collect();
-    displays.get(rank_physical_display_candidates(&candidates)?)
+    let (candidates, matches): (Vec<_>, Vec<_>) = paths
+        .iter()
+        .filter_map(|path| {
+            let &(display, is_primary) = monitors.get(&path.gdi_device_name)?;
+            Some((
+                PhysicalDisplayCandidate {
+                    kind: path.kind,
+                    is_primary,
+                },
+                (display, path),
+            ))
+        })
+        .unzip();
+    let &(display, path) = matches.get(rank_physical_display_candidates(&candidates)?)?;
+    Some((display, path.display_description()))
 }
 
 fn output_kind(technology: DISPLAYCONFIG_VIDEO_OUTPUT_TECHNOLOGY) -> DisplayOutputKind {
@@ -170,11 +134,12 @@ fn query_active_display_paths() -> Option<Vec<ActiveDisplayPath>> {
             },
             ..Default::default()
         };
-        // SAFETY: each header has the type and size of its enclosing packet.
+        // SAFETY: both pointers come from live, writable packets. Each begins with
+        // a header whose type and size tell Windows which complete packet to write.
         let (target_status, source_status) = unsafe {
             (
-                DisplayConfigGetDeviceInfo(&mut target.header),
-                DisplayConfigGetDeviceInfo(&mut source.header),
+                DisplayConfigGetDeviceInfo((&raw mut target).cast()),
+                DisplayConfigGetDeviceInfo((&raw mut source).cast()),
             )
         };
         if target_status != 0 || source_status != 0 {
@@ -189,46 +154,17 @@ fn query_active_display_paths() -> Option<Vec<ActiveDisplayPath>> {
     Some(result)
 }
 
-fn enumerate_active_monitors() -> Vec<ActiveMonitor> {
-    unsafe extern "system" fn collect(
-        monitor: HMONITOR,
-        _hdc: HDC,
-        _rect: *mut RECT,
-        data: LPARAM,
-    ) -> BOOL {
-        // SAFETY: `data` is the `Vec<HMONITOR>` pointer passed below.
-        let handles = unsafe { &mut *(data.0 as *mut Vec<HMONITOR>) };
-        handles.push(monitor);
-        BOOL(1)
-    }
-
-    let mut handles: Vec<HMONITOR> = Vec::new();
-    // SAFETY: the callback only runs during this call, while `handles` lives.
-    let _ = unsafe {
-        EnumDisplayMonitors(
-            None,
-            None,
-            Some(collect),
-            LPARAM(&mut handles as *mut Vec<HMONITOR> as isize),
-        )
-    };
-    handles
-        .into_iter()
-        .filter_map(|handle| {
-            let mut info = MONITORINFOEXW::default();
-            info.monitorInfo.cbSize = size_of::<MONITORINFOEXW>() as u32;
-            // SAFETY: `info` is a `MONITORINFOEXW` with `cbSize` set.
-            let ok = unsafe {
-                GetMonitorInfoW(handle, &mut info as *mut MONITORINFOEXW as *mut MONITORINFO)
-            };
-            ok.as_bool().then(|| ActiveMonitor {
-                handle,
-                gdi_device_name: wide_to_string(&info.szDevice),
-                is_primary: info.monitorInfo.dwFlags & MONITORINFOF_PRIMARY != 0,
-                rect: info.monitorInfo.rcMonitor,
-            })
-        })
-        .collect()
+fn display_monitor_info(display: &dyn PlatformDisplay) -> Option<MONITORINFOEXW> {
+    // The pinned GPUI Windows backend stores the HMONITOR value as its display ID.
+    let handle = HMONITOR(without_provenance_mut(
+        usize::try_from(u64::from(display.id())).ok()?,
+    ));
+    let mut info = MONITORINFOEXW::default();
+    info.monitorInfo.cbSize = u32::try_from(size_of::<MONITORINFOEXW>()).ok()?;
+    // SAFETY: the handle came from the Windows display list. The output pointer
+    // covers the full MONITORINFOEXW, as reported by cbSize.
+    let ok = unsafe { GetMonitorInfoW(handle, (&raw mut info).cast()) };
+    ok.as_bool().then_some(info)
 }
 
 fn wide_to_string(wide: &[u16]) -> String {

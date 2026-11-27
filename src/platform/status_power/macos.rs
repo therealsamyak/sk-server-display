@@ -21,7 +21,10 @@ pub(super) fn read_battery_status() -> Option<BatteryReading> {
     let sources = unsafe { IOPSCopyPowerSourcesList(Some(&snapshot)) }?;
     // SAFETY: IOKit documents the returned array as containing CFType objects.
     let sources = unsafe { sources.cast_unchecked::<CFType>() };
-    let state = mac_power_state(&snapshot);
+    // SAFETY: this is the snapshot returned by IOPSCopyPowerSourcesInfo.
+    let state = unsafe { IOPSGetProvidingPowerSourceType(Some(&snapshot)) }
+        .as_deref()
+        .and_then(mac_power_state);
     let battery_type = CFString::from_str(kIOPSInternalBatteryType.to_str().ok()?);
     for source in sources.iter() {
         // SAFETY: the source is an entry from this snapshot's power-source array.
@@ -66,12 +69,10 @@ pub(super) fn read_battery_status() -> Option<BatteryReading> {
         .then(|| BatteryReading::new(AC_ONLY_BATTERY_LABEL.into()))
 }
 
-fn mac_power_state(snapshot: &CFType) -> Option<BatteryPowerState> {
-    // SAFETY: the snapshot is the value from IOPSCopyPowerSourcesInfo.
-    let source = unsafe { IOPSGetProvidingPowerSourceType(Some(snapshot)) }?;
-    if *source == *CFString::from_str("AC Power") {
+fn mac_power_state(source: &CFString) -> Option<BatteryPowerState> {
+    if source == &*CFString::from_str("AC Power") {
         Some(BatteryPowerState::PluggedIn)
-    } else if *source == *CFString::from_str("Battery Power") {
+    } else if source == &*CFString::from_str("Battery Power") {
         Some(BatteryPowerState::OnBattery)
     } else {
         None

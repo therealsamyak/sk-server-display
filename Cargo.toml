@@ -6,6 +6,13 @@ publish = false
 license = "AGPL-3.0-or-later"
 description = "Full-screen, continuously updating server status display built with GPUI."
 
+[lints.rust]
+unsafe_code = "deny"
+unsafe_op_in_unsafe_fn = "deny"
+
+[lints.clippy]
+undocumented_unsafe_blocks = "deny"
+
 [[bin]]
 name = "server-status-display"
 path = "src/main.rs"

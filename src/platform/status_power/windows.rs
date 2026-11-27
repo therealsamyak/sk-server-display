@@ -142,6 +142,23 @@ fn read_system_power_status() -> windows::core::Result<SYSTEM_POWER_STATUS> {
     Ok(power)
 }
 
+fn read_system_battery_state() -> Option<SYSTEM_BATTERY_STATE> {
+    let mut battery = SYSTEM_BATTERY_STATE::default();
+    let size = u32::try_from(std::mem::size_of_val(&battery)).ok()?;
+    // SAFETY: SystemBatteryState takes no input and writes to this live output
+    // buffer, whose byte size matches a SYSTEM_BATTERY_STATE.
+    let status = unsafe {
+        CallNtPowerInformation(
+            SystemBatteryState,
+            None,
+            0,
+            Some((&raw mut battery).cast()),
+            size,
+        )
+    };
+    (status.is_ok() && battery.BatteryPresent).then_some(battery)
+}
+
 /// Formats Windows battery percentage and power state for the dashboard.
 pub(super) fn read_battery_status() -> Option<BatteryReading> {
     let power = match read_system_power_status() {
@@ -158,19 +175,7 @@ pub(super) fn read_battery_status() -> Option<BatteryReading> {
     )?;
     let mut reading = BatteryReading::new(label);
     reading.on_battery = power.ACLineStatus == 0;
-    let mut battery = SYSTEM_BATTERY_STATE::default();
-    let size = u32::try_from(std::mem::size_of_val(&battery)).ok()?;
-    // SAFETY: SystemBatteryState writes one SYSTEM_BATTERY_STATE into this buffer.
-    let status = unsafe {
-        CallNtPowerInformation(
-            SystemBatteryState,
-            None,
-            0,
-            Some((&raw mut battery).cast()),
-            size,
-        )
-    };
-    let battery = (status.is_ok() && battery.BatteryPresent).then_some(battery);
+    let battery = read_system_battery_state();
     reading.net_watts = battery
         .filter(|battery| battery.Rate != BATTERY_UNKNOWN_RATE)
         .map(|battery| f64::from(battery.Rate.cast_signed()) / 1000.0);

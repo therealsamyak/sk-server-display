@@ -49,16 +49,9 @@ pub fn choose_status_display(selector: DisplaySelector, cx: &App) -> Option<Disp
         DisplaySelector::Auto => {
             #[cfg(target_os = "windows")]
             {
-                use crate::platform::display_windows::{
-                    find_physical_windows_display, list_windows_displays,
-                };
-                let windows_displays = list_windows_displays();
-                if let Some(physical) = find_physical_windows_display(&windows_displays)
-                    && let Some(display) = displays
-                        .iter()
-                        .find(|d| d.id() == DisplayId::new(physical.monitor_handle as u64))
-                {
-                    return Some(choice(display, &physical.windows_display_description()));
+                use crate::platform::display_windows::find_physical_windows_display;
+                if let Some((display, description)) = find_physical_windows_display(&displays) {
+                    return Some(choice(display, &description));
                 }
             }
             primary_or_first(cx, &displays).map(|(d, detail)| choice(&d, detail))
