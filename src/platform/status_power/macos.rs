@@ -16,27 +16,29 @@ use super::{
 };
 
 /// Reads the built-in battery from a macOS power-source snapshot.
+#[expect(
+    unsafe_code,
+    reason = "IOKit exposes built-in battery fields through opaque snapshots"
+)]
 pub(super) fn read_battery_status() -> Option<BatteryReading> {
-    // Temporary unsafe for the IOKit snapshot, its source list and the description types.
-    // Uzu's battery reader also uses unsafe to access those snapshot-bound objects.
+    // Temporary unsafe for charge rate and time. Uzu uses the same IOKit snapshot APIs.
     // https://github.com/trymirai/uzu/blob/8fd73f041d6971bdae84e846c80fadb3e09b38c5/crates/legacy/keisoku/src/sys/battery.rs#L9-L29
     let snapshot = IOPSCopyPowerSourcesInfo()?;
-    // SAFETY: this is the snapshot returned by IOPSCopyPowerSourcesInfo.
+    // SAFETY: only the live IOKit snapshot is passed to its list accessor.
     let sources = unsafe { IOPSCopyPowerSourcesList(Some(&snapshot)) }?;
-    // SAFETY: IOKit documents the returned array as containing CFType objects.
+    // SAFETY: IOKit guarantees that each source handle is a CFType.
     let sources = unsafe { sources.cast_unchecked::<CFType>() };
-    // Temporary unsafe for the snapshot-specific power source query. Hammerspoon's
-    // native battery extension passes the same kind of snapshot to this API.
+    // Temporary unsafe to distinguish AC, battery, and UPS. Hammerspoon uses this API.
     // https://github.com/Hammerspoon/hammerspoon/blob/f3928953b584a91ed74d0402ddd6dfb2f9b97629/extensions/battery/libbattery.m#L64-L72
-    // SAFETY: this is the snapshot returned by IOPSCopyPowerSourcesInfo.
+    // SAFETY: the live snapshot came from IOPSCopyPowerSourcesInfo.
     let state = unsafe { IOPSGetProvidingPowerSourceType(Some(&snapshot)) }
         .as_deref()
         .and_then(mac_power_state);
     let battery_type = CFString::from_str(kIOPSInternalBatteryType.to_str().ok()?);
     for source in sources.iter() {
-        // SAFETY: the source is an entry from this snapshot's power-source array.
+        // SAFETY: the source belongs to the same live snapshot.
         let description = unsafe { IOPSGetPowerSourceDescription(Some(&snapshot), Some(&source)) }?;
-        // SAFETY: IOKit describes power sources with CFString keys and CF objects.
+        // SAFETY: IOKit guarantees CFString keys and CFType values.
         let description = unsafe { description.cast_unchecked::<CFString, CFType>() };
         let lookup =
             |key: &std::ffi::CStr| description.get(&CFString::from_str(key.to_str().ok()?));

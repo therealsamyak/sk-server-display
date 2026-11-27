@@ -4,7 +4,7 @@ use anyhow::{Context as _, Result};
 use gpui::{App, Subscription};
 use windows::{
     Win32::{
-        Foundation::{CloseHandle, HANDLE},
+        Foundation::HANDLE,
         System::{
             Power::{
                 BATTERY_UNKNOWN_RATE, BATTERY_UNKNOWN_TIME, CallNtPowerInformation,
@@ -16,7 +16,7 @@ use windows::{
             Threading::{POWER_REQUEST_CONTEXT_SIMPLE_STRING, REASON_CONTEXT, REASON_CONTEXT_0},
         },
     },
-    core::PWSTR,
+    core::{Owned, PWSTR},
 };
 
 use super::{BatteryReading, IDLE_INHIBITION_REASON, format_windows_battery};
@@ -64,24 +64,29 @@ impl DisplayPowerMonitor {
     }
 }
 
+#[expect(
+    unsafe_code,
+    reason = "GetSystemPowerStatus supplies AC and charge flags"
+)]
 fn read_system_power_status() -> windows::core::Result<SYSTEM_POWER_STATUS> {
     let mut power = SYSTEM_POWER_STATUS::default();
-    // Temporary unsafe for the status output buffer. Zed's Windows backend uses
-    // the same GetSystemPowerStatus call to query its battery saver state.
+    // Temporary unsafe for AC and charge flags. Zed uses the same status API.
     // https://github.com/zed-industries/zed/blob/6501df15765d66d6c2a2b66b1eb22434ccef3f86/crates/gpui_windows/src/platform.rs#L237-L244
     // SAFETY: `power` is a writable, correctly typed status buffer.
     unsafe { GetSystemPowerStatus(&mut power) }?;
     Ok(power)
 }
 
+#[expect(
+    unsafe_code,
+    reason = "SystemBatteryState supplies signed charge rate and time"
+)]
 fn read_system_battery_state() -> Option<SYSTEM_BATTERY_STATE> {
     let mut battery = SYSTEM_BATTERY_STATE::default();
     let size = u32::try_from(std::mem::size_of_val(&battery)).ok()?;
-    // Temporary unsafe for the signed battery rate and remaining time. Sysinfo
-    // uses the same CallNtPowerInformation output-buffer API for processor power.
+    // Temporary unsafe for charge rate and time. Sysinfo uses this API for CPU power.
     // https://github.com/GuillaumeGomez/sysinfo/blob/847a39249bdc82215f6a6e4f2ae5b1c7bdc969ac/src/windows/cpu.rs#L468-L479
-    // SAFETY: SystemBatteryState takes no input and writes to this live output
-    // buffer, whose byte size matches a SYSTEM_BATTERY_STATE.
+    // SAFETY: no input is required. The writable output buffer matches SystemBatteryState.
     let status = unsafe {
         CallNtPowerInformation(
             SystemBatteryState,
@@ -131,15 +136,16 @@ const IDLE_REQUESTS: [POWER_REQUEST_TYPE; 2] =
     [PowerRequestDisplayRequired, PowerRequestSystemRequired];
 
 struct IdlePowerRequests {
-    handle: HANDLE,
+    // Drop the handle before the UTF-16 reason it borrows.
+    handle: Owned<HANDLE>,
     active: usize,
     _reason: Vec<u16>,
 }
 
 impl IdlePowerRequests {
+    #[expect(unsafe_code, reason = "GPUI has no Windows display idle request")]
     fn acquire() -> Result<Self> {
-        // Temporary unsafe to create a power request and activate both request types.
-        // Zed's Windows backend uses the same sequence for its system request.
+        // Temporary unsafe for display idle inhibition. Zed uses this API for system idle.
         // https://github.com/zed-industries/zed/blob/6501df15765d66d6c2a2b66b1eb22434ccef3f86/crates/gpui_windows/src/platform.rs#L138-L169
         let mut reason: Vec<u16> = IDLE_INHIBITION_REASON.encode_utf16().chain([0]).collect();
         let context = REASON_CONTEXT {
@@ -149,9 +155,9 @@ impl IdlePowerRequests {
                 SimpleReasonString: PWSTR(reason.as_mut_ptr()),
             },
         };
-        // SAFETY: the context uses the simple-string variant. The UTF-16 buffer remains
-        // allocated until after the handle closes.
-        let handle =
+        let mut handle = Owned::<HANDLE>::default();
+        // SAFETY: this simple-string context has a UTF-16 reason that outlives the handle.
+        *handle =
             unsafe { PowerCreateRequest(&context) }.context("could not create power request")?;
         let mut requests = Self {
             handle,
@@ -159,8 +165,8 @@ impl IdlePowerRequests {
             _reason: reason,
         };
         for request in IDLE_REQUESTS {
-            // SAFETY: `requests` owns the live power request handle.
-            unsafe { PowerSetRequest(handle, request) }
+            // SAFETY: the live handle is owned by `requests` and the request type is valid.
+            unsafe { PowerSetRequest(*requests.handle, request) }
                 .context("could not set idle power request")?;
             requests.active += 1;
         }
@@ -169,19 +175,18 @@ impl IdlePowerRequests {
 }
 
 impl Drop for IdlePowerRequests {
+    #[expect(
+        unsafe_code,
+        reason = "Win32 requires clearing each active idle request"
+    )]
     fn drop(&mut self) {
-        // Temporary unsafe to clear each active request and close its handle.
-        // Zed's Windows backend uses the same teardown for its system request.
+        // Temporary unsafe to balance active requests. Zed uses the same teardown.
         // https://github.com/zed-industries/zed/blob/6501df15765d66d6c2a2b66b1eb22434ccef3f86/crates/gpui_windows/src/platform.rs#L172-L180
         for request in IDLE_REQUESTS.into_iter().take(self.active) {
             // SAFETY: every cleared request was set on this live handle.
-            if let Err(error) = unsafe { PowerClearRequest(self.handle, request) } {
+            if let Err(error) = unsafe { PowerClearRequest(*self.handle, request) } {
                 log::warn!("could not clear idle power request: {error}");
             }
-        }
-        // SAFETY: this guard owns the handle and closes it once.
-        if let Err(error) = unsafe { CloseHandle(self.handle) } {
-            log::warn!("could not close idle power request: {error}");
         }
     }
 }
