@@ -865,11 +865,13 @@ impl StatusPicker {
                     .child(picker_heading(ALL_SLIDESHOW_NAME))
                     .child(self.play_slideshow_button(can_play, cx)),
             )
-            .child(div().text_color(rgb(PICKER_MUTED)).child(if can_play {
-                "Preset wallpapers shuffle when you press Play."
-            } else {
-                "No preset wallpapers available."
-            }))
+            .when(!can_play, |editor| {
+                editor.child(
+                    div()
+                        .text_color(rgb(PICKER_MUTED))
+                        .child("No preset wallpapers available."),
+                )
+            })
             .child(
                 div()
                     .grid()
