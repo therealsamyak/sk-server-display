@@ -61,8 +61,8 @@ objc2-foundation = { version = "0.3.2", default-features = false, features = ["s
 objc2-io-kit = { version = "0.3.2", default-features = false, features = ["std", "ps"] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
+ashpd = { version = "0.13.13", default-features = false, features = ["async-io", "inhibit"] }
 futures-lite = "2"
-zbus = "5.19"
 
 # GPUI resolves these crates through Zed's workspace patches. Cargo does not
 # apply a dependency's patches, so this crate repeats the ones GPUI needs.

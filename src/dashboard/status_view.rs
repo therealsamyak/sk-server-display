@@ -19,7 +19,7 @@ use time::{OffsetDateTime, UtcOffset};
 
 use crate::{
     metrics::{StatusBoard, StatusCollector, StatusFeed},
-    platform::{LocalBatteryStatus, StatusPower, status_update::finish_app_update},
+    platform::{IdlePowerState, LocalBatteryStatus, StatusPower, status_update::finish_app_update},
     status_fonts::STATUS_MONO_FONT_FAMILY,
     status_startup::{StartupMilestone, log_startup_milestone},
     wallpaper::StatusCarousel,
@@ -105,7 +105,7 @@ pub struct StatusView {
     toolbar_hovered: bool,
     toolbar_bounds: Option<Bounds<Pixels>>,
     battery: Entity<LocalBatteryStatus>,
-    power: StatusPower,
+    power: Entity<StatusPower>,
     first_frame_requested: bool,
     refresh_failed: bool,
     update_busy: bool,
@@ -143,10 +143,15 @@ impl StatusView {
         // again only for its own changes and for panel changes.
         let view = cx.weak_entity();
         let battery = cx.new(LocalBatteryStatus::new_local_battery_status);
+        let power = cx.new(|cx| {
+            let mut power = StatusPower::default();
+            power.set_keep_awake(settings.keep_awake, cx);
+            power
+        });
         let subscriptions = vec![
+            cx.observe(&power, |_, _, cx| cx.notify()),
             window.observe_window_visibility(move |_, window, cx| {
                 if let Err(error) = view.update(cx, |view, cx| {
-                    view.update_display_power(cx);
                     if !window.is_visible() {
                         view.pointer_pressed = false;
                         view.swipe = None;
@@ -186,7 +191,7 @@ impl StatusView {
             toolbar_hovered: false,
             toolbar_bounds: None,
             battery,
-            power: StatusPower::default(),
+            power,
             first_frame_requested: false,
             refresh_failed: false,
             update_busy: false,
@@ -234,12 +239,11 @@ impl StatusView {
         .then(|| self.battery.clone())
     }
 
-    fn update_display_power(&mut self, cx: &Context<Self>) {
-        self.power.set_keep_awake(self.settings.keep_awake, cx);
-    }
-
     fn toggle_keep_awake(&mut self, cx: &mut Context<Self>) {
-        let keep_awake = !self.settings.keep_awake;
+        let keep_awake = matches!(
+            self.power.read(cx).idle_power_state(),
+            IdlePowerState::Off | IdlePowerState::Failed
+        );
         if let Err(error) = self
             .controller
             .update(cx, |app, _| app.keep_awake = keep_awake)
@@ -247,9 +251,8 @@ impl StatusView {
             log::debug!("status display closed: {error}");
             return;
         }
-        self.settings.keep_awake = keep_awake;
-        self.update_display_power(cx);
-        cx.notify();
+        self.power
+            .update(cx, |power, cx| power.set_keep_awake(keep_awake, cx));
     }
 
     fn open_feed_details(&mut self, index: usize, window: &mut Window, cx: &mut Context<Self>) {
@@ -408,7 +411,6 @@ impl Render for StatusView {
                 }
             });
         }
-        self.update_display_power(cx);
         self.finish_swipe(window, cx);
         self.update_wallpaper(window, cx);
         self.warm_slideshow(window, cx);

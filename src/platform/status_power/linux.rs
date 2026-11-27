@@ -1,23 +1,24 @@
-use std::{collections::HashMap, time::Duration};
+use std::time::Duration;
 
 use anyhow::{Context as _, Result, bail};
-use gpui::{App, Task};
-use zbus::{
-    Connection, Proxy,
-    proxy::{Builder, CacheProperties},
-    zvariant::{OwnedObjectPath, Value},
+use ashpd::{
+    desktop::inhibit::{InhibitFlags, InhibitOptions, InhibitProxy},
+    zbus::{
+        self, Connection, Proxy,
+        proxy::{Builder, CacheProperties},
+    },
 };
+use futures_lite::{StreamExt as _, future::race};
+use gpui::{BackgroundExecutor, Context, Task};
 
 use super::{
     AC_ONLY_BATTERY_LABEL, BatteryPowerState, BatteryReading, IDLE_INHIBITION_REASON,
-    format_battery_status,
+    IdlePowerState, StatusPower, format_battery_status,
 };
 
 const UPOWER: &str = "org.freedesktop.UPower";
 const UPOWER_PATH: &str = "/org/freedesktop/UPower";
 const ON_BATTERY: &str = "OnBattery";
-const PORTAL_IDLE: u32 = 8;
-const PORTAL_SUSPEND: u32 = 4;
 
 /// Reads the system battery from UPower's combined display device.
 pub(super) async fn read_battery_status(
@@ -102,35 +103,66 @@ pub(super) struct DisplayPowerMonitor {
 }
 
 impl DisplayPowerMonitor {
-    /// Blocks idle sleep using the desktop portal.
-    pub(super) fn start(cx: &App) -> Result<Self> {
-        let monitor = cx.background_executor().spawn(async move {
-            if let Err(error) = hold_idle_inhibition().await {
-                log::warn!("idle inhibition unavailable: {error:#}");
+    /// Requests idle inhibition and reports its state to the toolbar.
+    pub(super) fn start(cx: &Context<StatusPower>) -> Self {
+        let executor = cx.background_executor().clone();
+        let monitor = cx.spawn(async move |power, cx| {
+            let error = match request_idle_inhibition(&executor).await {
+                Ok((session, mut owner_changes)) => {
+                    if power
+                        .update(cx, |power, cx| {
+                            power.state = IdlePowerState::Active;
+                            cx.notify();
+                        })
+                        .is_err()
+                    {
+                        return;
+                    }
+                    race(session.closed(), async {
+                        owner_changes.next().await;
+                    })
+                    .await;
+                    anyhow::anyhow!("desktop idle inhibition connection closed")
+                }
+                Err(error) => error,
+            };
+            log::warn!("idle inhibition unavailable: {error:#}");
+            if let Err(error) = power.update(cx, |power, cx| {
+                power.monitor = None;
+                power.state = IdlePowerState::Failed;
+                cx.notify();
+            }) {
+                log::debug!("idle inhibition view closed: {error}");
             }
         });
-        Ok(Self { _monitor: monitor })
+        Self { _monitor: monitor }
     }
 }
 
-async fn hold_idle_inhibition() -> Result<()> {
-    // A dedicated connection owns this request. The portal releases the inhibition when
-    // the connection drops, even when fullscreen ends before the D-Bus call returns.
-    let session = Connection::session()
-        .await
-        .context("could not open the desktop session bus")?;
-    let portal = Proxy::new(
-        &session,
-        "org.freedesktop.portal.Desktop",
-        "/org/freedesktop/portal/desktop",
-        "org.freedesktop.portal.Inhibit",
-    )
-    .await?;
-    let options = HashMap::from([("reason", Value::from(IDLE_INHIBITION_REASON))]);
-    let _request: OwnedObjectPath = portal
-        .call("Inhibit", &("", PORTAL_IDLE | PORTAL_SUSPEND, options))
-        .await
-        .context("desktop portal could not inhibit display and system idle")?;
-    session.closed().await;
-    bail!("desktop session bus disconnected");
+async fn request_idle_inhibition(
+    executor: &BackgroundExecutor,
+) -> Result<(Connection, zbus::proxy::OwnerChangedStream<'static>)> {
+    // The dedicated connection releases the request when the task is cancelled.
+    let acquire = async {
+        let session = Connection::session()
+            .await
+            .context("could not open the desktop session bus")?;
+        let portal = InhibitProxy::with_connection(session.clone()).await?;
+        let owner_changes = portal.receive_owner_changed().await?;
+        portal
+            .inhibit(
+                None,
+                InhibitFlags::Idle | InhibitFlags::Suspend,
+                InhibitOptions::default().set_reason(IDLE_INHIBITION_REASON),
+            )
+            .await?
+            .response()
+            .context("desktop portal rejected idle inhibition")?;
+        Ok((session, owner_changes))
+    };
+    race(acquire, async {
+        executor.timer(Duration::from_secs(5)).await;
+        bail!("desktop portal did not confirm idle inhibition")
+    })
+    .await
 }

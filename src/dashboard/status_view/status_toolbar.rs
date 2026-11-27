@@ -172,10 +172,12 @@ impl StatusView {
                 s,
                 theme,
                 "control-keep-awake",
-                if self.settings.keep_awake {
-                    "Allow sleep"
-                } else {
-                    "Stay awake"
+                match self.power.read(cx).idle_power_state() {
+                    super::IdlePowerState::Off => "Stay awake",
+                    #[cfg(target_os = "linux")]
+                    super::IdlePowerState::Pending => "Cancel stay awake",
+                    super::IdlePowerState::Active => "Allow sleep",
+                    super::IdlePowerState::Failed => "Retry stay awake",
                 },
                 cx.listener(|view, _, _, cx| view.toggle_keep_awake(cx)),
             ))

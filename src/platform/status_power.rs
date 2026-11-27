@@ -2,7 +2,7 @@
 
 use std::time::Duration;
 
-use gpui::{App, Context, EventEmitter, Task};
+use gpui::{Context, EventEmitter, Task};
 
 #[cfg(target_os = "linux")]
 #[path = "status_power/linux.rs"]
@@ -102,7 +102,7 @@ impl LocalBatteryStatus {
 #[derive(Default)]
 struct BatteryReader {
     #[cfg(target_os = "linux")]
-    system_bus: Option<zbus::Connection>,
+    system_bus: Option<ashpd::zbus::Connection>,
 }
 
 impl BatteryReader {
@@ -158,21 +158,61 @@ fn format_windows_battery(ac_line: u8, flags: u8, percent: u8) -> Option<String>
     format_battery_status(Some(f64::from(percent)), state)
 }
 
-/// Owns the app's idle inhibition request.
+/// State of the operating system's idle inhibition request.
+#[derive(Clone, Copy, Default)]
+pub(crate) enum IdlePowerState {
+    #[default]
+    Off,
+    #[cfg(target_os = "linux")]
+    Pending,
+    Active,
+    Failed,
+}
+
+/// Owns the app's idle inhibition request and exposes its status.
 #[derive(Default)]
-pub(crate) struct StatusPower(Option<platform::DisplayPowerMonitor>);
+pub(crate) struct StatusPower {
+    monitor: Option<platform::DisplayPowerMonitor>,
+    state: IdlePowerState,
+}
 
 impl StatusPower {
     /// Starts or releases the app's idle inhibition request.
-    pub(crate) fn set_keep_awake(&mut self, keep_awake: bool, cx: &App) {
+    pub(crate) fn set_keep_awake(&mut self, keep_awake: bool, cx: &mut Context<Self>) {
         if !keep_awake {
-            self.0 = None;
-        } else if self.0.is_none() {
-            match platform::DisplayPowerMonitor::start(cx) {
-                Ok(monitor) => self.0 = Some(monitor),
-                Err(error) => log::warn!("idle inhibition unavailable: {error:#}"),
-            }
+            self.monitor = None;
+            self.state = IdlePowerState::Off;
+            cx.notify();
+        } else if self.monitor.is_none() {
+            self.start_idle_inhibition(cx);
         }
+    }
+
+    /// Returns the latest idle inhibition status for the toolbar.
+    pub(crate) fn idle_power_state(&self) -> IdlePowerState {
+        self.state
+    }
+
+    #[cfg(target_os = "linux")]
+    fn start_idle_inhibition(&mut self, cx: &mut Context<Self>) {
+        self.state = IdlePowerState::Pending;
+        self.monitor = Some(platform::DisplayPowerMonitor::start(cx));
+        cx.notify();
+    }
+
+    #[cfg(not(target_os = "linux"))]
+    fn start_idle_inhibition(&mut self, cx: &mut Context<Self>) {
+        self.state = match platform::DisplayPowerMonitor::start(cx) {
+            Ok(monitor) => {
+                self.monitor = Some(monitor);
+                IdlePowerState::Active
+            }
+            Err(error) => {
+                log::warn!("idle inhibition unavailable: {error:#}");
+                IdlePowerState::Failed
+            }
+        };
+        cx.notify();
     }
 }
 

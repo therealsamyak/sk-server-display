@@ -4616,6 +4616,7 @@ name = "server-status-display"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "ashpd",
  "clap",
  "dirs 7.0.0",
  "embed-resource",
@@ -4640,7 +4641,6 @@ dependencies = [
  "toml 1.2.3+spec-1.1.0",
  "ureq",
  "windows 0.62.2",
- "zbus 5.19.0",
 ]
 
 [[package]]
