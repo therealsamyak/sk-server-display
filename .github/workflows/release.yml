@@ -115,6 +115,11 @@ jobs:
           rustup show
           rustup target add "${{ matrix.target }}"
 
+      - name: Link the Windows C runtime statically
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: '"RUSTFLAGS=-C target-feature=+crt-static" >> $env:GITHUB_ENV'
+
       - name: Cache Cargo downloads
         uses: actions/cache@v4
         with:
