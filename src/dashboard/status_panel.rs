@@ -17,8 +17,7 @@ use crate::{
         service_history_strip, service_state_color, service_summary_strip,
     },
     dashboard::status_theme::{
-        CORE_GRID_ROW_HEIGHT, HOST_CARD_HEIGHT, HOST_PANEL_BASE_HEIGHT, Scale, StatusLayout,
-        StatusTheme, threshold_color,
+        HOST_CARD_HEIGHT, Scale, StatusLayout, StatusTheme, threshold_color,
     },
     metrics::FeedFreshness,
     metrics::StatusCollector,
@@ -159,13 +158,7 @@ impl Render for FeedPanelView {
                         .battery
                         .as_ref()
                         .map(|battery| battery.read(cx).battery_reading());
-                    host_panel(
-                        s,
-                        &view,
-                        expanded_panel_height(feed, layout),
-                        self.detail,
-                        battery,
-                    )
+                    host_panel(s, &view, self.detail, battery)
                 }
                 StatusCollector::TailnetHost(_) => presence_panel(s, &view, compact),
                 StatusCollector::Kuma(_) => services_panel(s, &view, self.detail),
@@ -187,6 +180,10 @@ const TITLE_ROW_HEIGHT: f32 = 17. * PANEL_LINE_HEIGHT;
 
 /// Height of the collapsed Services header, including the inline history strip.
 const SERVICE_SUMMARY_HEIGHT: f32 = 56.;
+const HOST_HISTORY_HEIGHT: f32 = 64.;
+const HOST_DETAIL_BASE_HEIGHT: f32 = 320.;
+const HOST_BATTERY_HEIGHT: f32 = 32.;
+const CORE_GRID_ROW_HEIGHT: f32 = 23.;
 
 /// Height of an expanded feed card within its column.
 pub fn expanded_panel_height(feed: &StatusFeed, layout: StatusLayout) -> f32 {
@@ -195,7 +192,26 @@ pub fn expanded_panel_height(feed: &StatusFeed, layout: StatusLayout) -> f32 {
             list_panel_height(services.len())
         }
         (StatusCollector::Kuma(_), _) => 144.,
-        (StatusCollector::Local(_), _) => 400.,
+        (
+            collector @ (StatusCollector::Local(_) | StatusCollector::Glances(_)),
+            Some(FeedData::Host(host)),
+        ) => {
+            let core_rows = host
+                .core_percents
+                .len()
+                .div_ceil(core_grid_columns(&host.core_percents));
+            let core_height = if core_rows == 0 {
+                0.
+            } else {
+                8. + CORE_GRID_ROW_HEIGHT * core_rows as f32
+            };
+            let battery_height = if matches!(collector, StatusCollector::Local(_)) {
+                HOST_BATTERY_HEIGHT
+            } else {
+                0.
+            };
+            HOST_DETAIL_BASE_HEIGHT + battery_height + core_height
+        }
         _ => 368.,
     };
     height.min(layout.panel_area)
@@ -527,17 +543,17 @@ fn core_grid(theme: StatusTheme, s: Scale, cores: &[f32], dim: bool) -> Div {
     div()
         .grid()
         .grid_cols(core_grid_columns(cores) as u16)
-        .gap_x(s(24.))
+        .gap_x(s(12.))
         .gap_y(s(6.))
         .text_size(s(13.))
         .children(cores.iter().enumerate().map(|(index, percent)| {
             div()
                 .flex()
                 .items_center()
-                .gap(s(8.))
+                .gap(s(4.))
                 .child(
                     div()
-                        .w(s(24.))
+                        .w(s(16.))
                         .flex_none()
                         .text_color(theme.faint())
                         .child(index.to_string()),
@@ -545,7 +561,7 @@ fn core_grid(theme: StatusTheme, s: Scale, cores: &[f32], dim: bool) -> Div {
                 .child(meter(theme, s, Some(percent / 100.0), 4., dim))
                 .child(
                     div()
-                        .w(s(40.))
+                        .w(s(34.))
                         .flex_none()
                         .flex()
                         .justify_end()
@@ -558,7 +574,6 @@ fn core_grid(theme: StatusTheme, s: Scale, cores: &[f32], dim: bool) -> Div {
 fn host_panel(
     s: Scale,
     view: &FeedView,
-    panel_height: f32,
     detail: bool,
     battery: Option<Option<&BatteryReading>>,
 ) -> Div {
@@ -582,17 +597,9 @@ fn host_panel(
             s,
             host,
             view.feed.host_history(),
-            panel_height - if battery.is_some() { 32. } else { 0. },
             view.dim(),
+            battery,
         );
-        let body = div()
-            .flex_1()
-            .min_h_0()
-            .flex()
-            .flex_col()
-            .gap(s(8.))
-            .children(battery.map(|reading| battery_details(s, theme, reading)))
-            .child(body);
         return feed_panel(s, view, None, body.into_any_element(), false);
     }
     let HostSummary { uptime, values } = HostSummary::from_metrics(host);
@@ -685,15 +692,9 @@ fn host_body(
     s: Scale,
     host: &HostMetrics,
     history: &HostHistory,
-    panel_height: f32,
     dim: bool,
-) -> Div {
-    let core_rows = host
-        .core_percents
-        .len()
-        .div_ceil(core_grid_columns(&host.core_percents));
-    let show_cores = !host.core_percents.is_empty()
-        && panel_height >= HOST_PANEL_BASE_HEIGHT + CORE_GRID_ROW_HEIGHT * core_rows as f32;
+    battery: Option<Option<&BatteryReading>>,
+) -> impl IntoElement {
     let ratio = |used: Option<u64>, total: Option<u64>| match (used, total) {
         (Some(used), Some(total)) if total > 0 => Some(used as f32 / total as f32),
         _ => None,
@@ -757,18 +758,31 @@ fn host_body(
                 .child(format!("load {load:.2}"))
         }));
     div()
+        .id("host-detail-scroll")
         .flex_1()
         .min_h_0()
+        .overflow_y_scroll()
         .flex()
         .flex_col()
         .gap(s(8.))
         .child(cpu_header)
-        .child(cpu_graph(s, theme, &history.cpu_percent, dim))
-        .when(show_cores, |body| {
-            body.child(core_grid(theme, s, &host.core_percents, dim))
-        })
+        .child(
+            div()
+                .h(s(HOST_HISTORY_HEIGHT))
+                .flex_none()
+                .flex()
+                .flex_col()
+                .child(cpu_graph(s, theme, &history.cpu_percent, dim)),
+        )
         .child(network_header)
-        .child(network_graph(s, theme, history, peak, dim))
+        .child(
+            div()
+                .h(s(HOST_HISTORY_HEIGHT))
+                .flex_none()
+                .flex()
+                .flex_col()
+                .child(network_graph(s, theme, history, peak, dim)),
+        )
         .child(
             div()
                 .flex()
@@ -791,6 +805,10 @@ fn host_body(
                     dim,
                 )),
         )
+        .children(battery.map(|reading| battery_details(s, theme, reading)))
+        .when(!host.core_percents.is_empty(), |body| {
+            body.child(core_grid(theme, s, &host.core_percents, dim))
+        })
 }
 
 fn status_dot(s: Scale, color: Hsla) -> Div {

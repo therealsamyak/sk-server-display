@@ -37,7 +37,10 @@ impl StatusView {
             .min_w_0()
             .gap(s(8.))
             .when(show_window_controls, |row| {
-                row.child(self.window_controls(s, theme, window, cx))
+                row.child(
+                    self.window_controls(s, theme, window, cx)
+                        .when(!visible, |controls| controls.invisible()),
+                )
             })
             .child(
                 control_button(
@@ -48,8 +51,7 @@ impl StatusView {
                     cx.listener(|view, _, window, cx| view.open_picker(window, cx)),
                 )
                 .flex_none(),
-            )
-            .when(!visible, |row| row.invisible());
+            );
         div()
             .absolute()
             .top_0()

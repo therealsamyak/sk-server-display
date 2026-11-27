@@ -10,15 +10,8 @@ const DESIGN_WIDTH: f32 = 1600.0;
 /// Space between panels, in design pixels.
 pub const PANEL_GAP: f32 = 16.0;
 
-/// Host panel height, in design pixels, without the core grid: frame, text
-/// rows, and the smallest CPU and network graphs.
-pub const HOST_PANEL_BASE_HEIGHT: f32 = 272.0;
-
 /// Height of a two-row host card, including padding and border.
 pub const HOST_CARD_HEIGHT: f32 = 76.0;
-
-/// Height of one core grid row, in design pixels.
-pub const CORE_GRID_ROW_HEIGHT: f32 = 26.0;
 
 /// Part of the window height that the panels use. The wallpaper and the
 /// clock fill the rest.

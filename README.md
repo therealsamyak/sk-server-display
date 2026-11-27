@@ -127,8 +127,8 @@ The first build compiles GPUI from source and takes several minutes. Linux also 
 | R | Reload the active configuration and refresh its sources. |
 | Ctrl+Q or Cmd+Q | Quit. |
 
-Move the pointer near the top-center display selector or the top-right toolbar to show both.
-They stay open while the pointer is over either control or the space between them.
+**Wallpaper** stays visible on the dashboard. Move the pointer near it or the top-center
+display selector to show the other controls. They stay visible in the space between them.
 Select the display label to cycle through monitors.
 Select **Refresh** to apply edits to the active configuration
 in the same window. If the new configuration is invalid, the display keeps the previous settings
