@@ -3,7 +3,7 @@
 use std::path::PathBuf;
 
 use crate::{
-    metrics::{default_status_config_path, load_status_feed_config, status_state_path},
+    metrics::{StatusConfigFile, default_status_config_path, status_state_path},
     platform::DisplaySelector,
     profile::{export_profile, import_profile},
     wallpaper::find_style_wallpapers,
@@ -73,14 +73,15 @@ pub(super) fn run_status_display() {
         return;
     }
 
-    let (config, feeds) = match load_status_feed_config(args.config.as_deref()) {
+    let state_path = status_state_path(args.config.as_deref());
+    let mut config_file = StatusConfigFile::new(args.config);
+    let (config, feeds) = match config_file.load_status_feed_config() {
         Ok(loaded) => loaded,
         Err(error) => {
             log::error!("{error:#}");
             std::process::exit(2);
         }
     };
-    let state_path = status_state_path(args.config.as_deref());
     let playback = match StatusPlayback::load_status_playback(state_path.as_deref()) {
         Ok(playback) => playback,
         Err(error) => {
@@ -97,7 +98,7 @@ pub(super) fn run_status_display() {
         selector: args.display,
         start_fullscreen: !args.windowed,
         local_offset,
-        config_path: args.config,
+        config_file,
     };
 
     // No AccessKit adapter, as in Zed by default: a screen reader cannot

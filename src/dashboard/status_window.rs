@@ -1,7 +1,7 @@
 //! Status window controller: opens the status window on the chosen display
 //! and reopens it when monitors change.
 
-use std::{path::PathBuf, time::Duration};
+use std::time::Duration;
 
 use gpui::{
     App, AppContext as _, Bounds, Context, DisplayEvent, Entity, Subscription, Task,
@@ -13,7 +13,7 @@ use crate::platform::DisplaySelector;
 
 use crate::{
     dashboard::status_view::{StatusView, StatusViewSettings},
-    metrics::{StatusBoard, StatusConfig, load_status_feed_config},
+    metrics::{StatusBoard, StatusConfig, StatusConfigFile},
     platform::{DisplayChoice, choose_status_display, ordered_status_displays},
     wallpaper::{StatusCarousel, find_style_wallpapers},
 };
@@ -28,8 +28,8 @@ pub struct StatusWindowSettings {
     pub selector: DisplaySelector,
     pub start_fullscreen: bool,
     pub local_offset: UtcOffset,
-    /// Explicit profile path, or the platform default when omitted.
-    pub config_path: Option<PathBuf>,
+    /// Configuration file used at startup and refresh.
+    pub config_file: StatusConfigFile,
 }
 
 /// Status display app: owns the status window and its display placement.
@@ -98,26 +98,27 @@ impl StatusDisplayApp {
         if self.refresh_task.is_some() {
             return;
         }
-        let path = self.settings.config_path.clone();
+        let mut config_file = self.settings.config_file.clone();
         let load = cx.background_spawn(async move {
-            let (config, feeds) = load_status_feed_config(path.as_deref())?;
+            let (config, feeds) = config_file.load_status_feed_config()?;
             let presets = config
                 .preset_wallpapers
                 .as_deref()
                 .map(find_style_wallpapers);
-            Ok::<_, anyhow::Error>((config, feeds, presets))
+            Ok::<_, anyhow::Error>((config_file, config, feeds, presets))
         });
         self.refresh_task = Some(cx.spawn(async move |this, cx| {
             let result = load.await;
             if let Err(error) = this.update(cx, |app, cx| {
                 app.refresh_task = None;
                 match result {
-                    Ok((config, feeds, presets)) => {
-                        let board = (app.config != config).then(|| {
-                            app.config = config;
+                    Ok((config_file, config, feeds, presets)) => {
+                        let board = (!app.config.has_same_status_feeds(&config)).then(|| {
                             app.board = StatusBoard::new_status_board(feeds, cx);
                             app.board.clone()
                         });
+                        app.settings.config_file = config_file;
+                        app.config = config;
                         app.board
                             .update(cx, |board, cx| board.refresh_all_feeds(cx));
                         let presets_changed = app.carousel.update(cx, |carousel, _| {
