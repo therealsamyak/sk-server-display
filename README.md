@@ -115,7 +115,9 @@ Install the Rust toolchain from [rust-toolchain.toml](rust-toolchain.toml). Then
 cargo run --release
 ```
 
-The first build compiles GPUI from source and takes several minutes. Linux also needs the system libraries from the [Zed build guide](https://zed.dev/docs/development/linux). The app supports Windows, Linux, and Apple Silicon Macs.
+The release builds target Linux and Windows on x86-64 and ARM64, and Apple Silicon Macs.
+The first build compiles GPUI from source and takes several minutes.
+Linux also needs the system libraries from the [Zed build guide](https://zed.dev/docs/development/linux).
 
 ## Basic controls
 
