@@ -1,6 +1,4 @@
-use crate::metrics::{
-    FeedData, StatusConfig, StatusFeed, TailnetConnection, TailnetDevice, build_status_feeds,
-};
+use crate::metrics::{FeedData, StatusConfig, StatusFeed, TailnetDevice, build_status_feeds};
 
 use super::{CardedTailnetDevices, list_panel_height, side_panel_height};
 
@@ -69,20 +67,19 @@ fn fixture_feeds(local_card: bool) -> Vec<StatusFeed> {
         .last_mut()
         .unwrap()
         .record_feed_poll(Ok(FeedData::Tailnet(vec![
-            fixture_device("actual-self", TailnetConnection::ThisMachine),
-            fixture_device("remote-device", TailnetConnection::Idle),
-            fixture_device("carded-remote", TailnetConnection::Idle),
+            fixture_device("actual-self", true),
+            fixture_device("remote-device", false),
+            fixture_device("carded-remote", false),
         ])));
     feeds
 }
 
-fn fixture_device(name: &str, connection: TailnetConnection) -> TailnetDevice {
+fn fixture_device(name: &str, is_self: bool) -> TailnetDevice {
     TailnetDevice {
         name: name.into(),
-        os: "windows".into(),
+        os: "Windows".into(),
         online: true,
-        is_self: connection == TailnetConnection::ThisMachine,
+        is_self,
         last_seen: None,
-        connection,
     }
 }

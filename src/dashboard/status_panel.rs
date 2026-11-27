@@ -23,7 +23,7 @@ use crate::{
     metrics::StatusCollector,
     metrics::{
         DiskHealth, DiskState, FeedData, HostMetrics, HostPresence, ServiceHealth, ServiceState,
-        TailnetConnection, TailnetDevice,
+        TailnetDevice,
     },
     metrics::{HostHistory, StatusFeed},
     metrics::{StatusBoard, StatusFeedUpdated},
@@ -897,8 +897,8 @@ fn status_dot(s: Scale, color: Hsla) -> Div {
     div().flex_none().size(s(8.)).rounded(s(4.)).bg(color)
 }
 
-/// List row: state dot, name, then right-aligned columns of fixed width.
-fn list_row(s: Scale, color: Hsla, name: String, columns: Vec<(String, f32, Hsla)>) -> Div {
+/// List row with a state dot and a name that leaves room for trailing details.
+fn list_row(s: Scale, color: Hsla, name: String) -> Div {
     div()
         .flex()
         .items_center()
@@ -906,15 +906,6 @@ fn list_row(s: Scale, color: Hsla, name: String, columns: Vec<(String, f32, Hsla
         .text_size(s(14.))
         .child(status_dot(s, color))
         .child(div().flex_1().min_w_0().truncate().child(name))
-        .children(columns.into_iter().map(|(text, width, color)| {
-            div()
-                .flex_none()
-                .w(s(width))
-                .flex()
-                .justify_end()
-                .text_color(color)
-                .child(text)
-        }))
 }
 
 fn list_body(s: Scale, rows: impl IntoIterator<Item = Div>) -> AnyElement {
@@ -962,7 +953,7 @@ fn services_panel(s: Scale, view: &FeedView) -> Div {
         } else {
             service_state_color(theme, service.state)
         };
-        list_row(s, color, service.name.clone(), Vec::new()).child(service_history_strip(
+        list_row(s, color, service.name.clone()).child(service_history_strip(
             s,
             theme,
             service,
@@ -997,11 +988,8 @@ fn disks_panel(s: Scale, view: &FeedView) -> Div {
             DiskState::FailedBoth => (theme.bad(), "failed"),
         };
         let color = if dim { theme.faint() } else { color };
-        list_row(
-            s,
-            color,
-            disk.device.clone(),
-            vec![
+        list_row(s, color, disk.device.clone()).children(
+            [
                 (
                     disk.temperature_celsius
                         .map_or(String::new(), |t| format!("{t:.0}°C")),
@@ -1010,7 +998,17 @@ fn disks_panel(s: Scale, view: &FeedView) -> Div {
                 ),
                 (format_status_bytes(disk.capacity_bytes), 64., theme.muted()),
                 (state.to_string(), 80., color),
-            ],
+            ]
+            .into_iter()
+            .map(|(text, width, color)| {
+                div()
+                    .flex_none()
+                    .w(s(width))
+                    .flex()
+                    .justify_end()
+                    .text_color(color)
+                    .child(text)
+            }),
         )
     });
     feed_panel(
@@ -1035,17 +1033,30 @@ fn tailnet_panel(s: Scale, view: &FeedView, carded: &CardedTailnetDevices) -> Di
             (true, _) | (_, false) => theme.faint(),
             (_, true) => theme.ok(),
         };
-        let connection = tailnet_connection_text(view, device);
-        list_row(
-            s,
-            color,
-            device.name.clone(),
-            vec![
-                (device.os.clone(), 64., theme.muted()),
-                (connection, 96., theme.muted()),
-            ],
-        )
-        .when(!device.online, |row| row.text_color(theme.muted()))
+        let offline = (!device.online).then(|| {
+            device
+                .last_seen
+                .map_or_else(|| "offline".into(), |at| view.ago(Some(at)))
+        });
+        list_row(s, color, device.name.clone())
+            .when(!device.online, |row| row.text_color(theme.muted()))
+            .when(!device.os.is_empty() || offline.is_some(), |row| {
+                row.child(
+                    div()
+                        .flex()
+                        .flex_none()
+                        .max_w(relative(0.6))
+                        .items_center()
+                        .gap(s(10.))
+                        .text_color(theme.muted())
+                        .when(!device.os.is_empty(), |details| {
+                            details.child(div().min_w_0().truncate().child(device.os.clone()))
+                        })
+                        .children(
+                            offline.map(|text| div().flex_none().whitespace_nowrap().child(text)),
+                        ),
+                )
+            })
     });
     feed_panel(
         s,
@@ -1096,8 +1107,6 @@ fn presence_panel(s: Scale, view: &FeedView, compact: bool) -> Div {
                 .text_color(state_color)
                 .child(state),
         );
-    // An offline device shows its last-seen age in the body only.
-    let path = (device.online && !device.is_self).then(|| tailnet_connection_text(view, device));
     let Some(error) = metrics_error.as_ref().filter(|_| !compact) else {
         // Keep the state and OS on one line in the collapsed host card.
         let row = state_row.child(div().flex_none().text_color(theme.muted()).child(
@@ -1107,7 +1116,7 @@ fn presence_panel(s: Scale, view: &FeedView, compact: bool) -> Div {
                 device.os.clone()
             },
         ));
-        return feed_panel(s, view, path, row.into_any_element(), true);
+        return feed_panel(s, view, None, row.into_any_element(), true);
     };
     let body = div()
         .flex()
@@ -1117,7 +1126,7 @@ fn presence_panel(s: Scale, view: &FeedView, compact: bool) -> Div {
         .child(state_row)
         .child(div().text_color(theme.muted()).child(device.os.clone()))
         .child(presence_note(theme, s, device, error, dim));
-    feed_panel(s, view, path, body.into_any_element(), compact)
+    feed_panel(s, view, None, body.into_any_element(), compact)
 }
 
 /// Note under the presence card of a Glances host: why the card shows no
@@ -1148,19 +1157,5 @@ fn presence_note(
                     .truncate()
                     .child(error.to_string()),
             ),
-    }
-}
-
-/// Tailscale path to a device, such as `direct` or `relay lax`.
-fn tailnet_connection_text(view: &FeedView, device: &TailnetDevice) -> String {
-    match &device.connection {
-        TailnetConnection::ThisMachine => String::new(),
-        TailnetConnection::Direct => "direct".to_string(),
-        TailnetConnection::Relay(relay) => format!("relay {relay}"),
-        TailnetConnection::Idle => "idle".to_string(),
-        TailnetConnection::Offline => match device.last_seen {
-            Some(_) => view.ago(device.last_seen),
-            None => "offline".to_string(),
-        },
     }
 }

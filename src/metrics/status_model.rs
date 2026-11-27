@@ -111,21 +111,6 @@ pub struct TailnetDevice {
     /// `true` for the machine that runs the status display.
     pub is_self: bool,
     pub last_seen: Option<OffsetDateTime>,
-    pub connection: TailnetConnection,
-}
-
-/// How the status display machine reaches a tailnet device.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum TailnetConnection {
-    /// This machine.
-    ThisMachine,
-    /// Direct peer-to-peer path.
-    Direct,
-    /// Traffic goes through a DERP relay, such as `lax`.
-    Relay(String),
-    /// Online, but no traffic now.
-    Idle,
-    Offline,
 }
 
 /// One reading from one status collector.

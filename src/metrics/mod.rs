@@ -22,5 +22,5 @@ pub(crate) use status_freshness::FeedFreshness;
 pub(crate) use status_model::ServiceHeartbeat;
 pub(crate) use status_model::{
     DiskHealth, DiskState, FeedData, HostMetrics, HostPresence, ServiceHealth, ServiceState,
-    TailnetConnection, TailnetDevice,
+    TailnetDevice,
 };

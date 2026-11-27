@@ -14,7 +14,7 @@ use anyhow::{Context as _, bail};
 use serde::Deserialize;
 use time::OffsetDateTime;
 
-use crate::metrics::status_model::{TailnetConnection, TailnetDevice};
+use crate::metrics::status_model::TailnetDevice;
 
 /// Time that one `tailscale status --json` result stays valid for other
 /// feeds. The tailnet feed and the host cards poll at the same time, so they
@@ -109,12 +109,6 @@ pub(crate) struct TailscalePeer {
     pub os: String,
     #[serde(rename = "Online", default)]
     pub online: bool,
-    #[serde(rename = "Active", default)]
-    pub active: bool,
-    #[serde(rename = "CurAddr", default)]
-    pub current_address: String,
-    #[serde(rename = "Relay", default)]
-    pub relay: String,
     #[serde(rename = "LastSeen", default, with = "time::serde::rfc3339::option")]
     pub last_seen: Option<OffsetDateTime>,
 }
@@ -192,25 +186,22 @@ pub(crate) fn tailnet_devices(status: TailscaleStatus) -> Vec<TailnetDevice> {
             .filter(|label| !label.is_empty())
             .unwrap_or(&peer.host_name)
             .to_string();
-        let connection = if is_self {
-            TailnetConnection::ThisMachine
-        } else if !peer.online {
-            TailnetConnection::Offline
-        } else if !peer.current_address.is_empty() {
-            TailnetConnection::Direct
-        } else if peer.active && !peer.relay.is_empty() {
-            TailnetConnection::Relay(peer.relay.clone())
-        } else {
-            TailnetConnection::Idle
+        let os = match peer.os.to_ascii_lowercase().as_str() {
+            "android" => "Android".into(),
+            "ios" => "iOS".into(),
+            "ipados" => "iPadOS".into(),
+            "macos" | "darwin" => "macOS".into(),
+            "windows" => "Windows".into(),
+            "linux" => "Linux".into(),
+            _ => peer.os,
         };
         TailnetDevice {
             name,
-            os: peer.os,
+            os,
             online: is_self || peer.online,
             is_self,
             // Tailscale reports year 1 for devices that are online now.
             last_seen: peer.last_seen.filter(|at| at.year() > 1),
-            connection,
         }
     };
     let mut devices: Vec<TailnetDevice> = status
@@ -228,7 +219,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn orders_devices_and_classifies_connections() {
+    fn orders_devices_and_formats_operating_systems() {
         let status: TailscaleStatus = serde_json::from_str(
             r#"{
               "Self": {"HostName": "Laptop", "DNSName": "laptop.example.ts.net.", "OS": "windows", "Online": true},
@@ -238,9 +229,9 @@ mod tests {
                 "b": {"HostName": "Server", "DNSName": "server.example.ts.net.", "OS": "linux",
                       "Online": true, "Active": true, "CurAddr": "192.0.2.10:41641", "Relay": "lax",
                       "LastSeen": "0001-01-01T00:00:00Z"},
-                "c": {"HostName": "Phone", "DNSName": "phone.example.ts.net.", "OS": "iOS",
+                "c": {"HostName": "Phone", "DNSName": "phone.example.ts.net.", "OS": "ios",
                       "Online": true, "Active": true, "CurAddr": "", "Relay": "lax"},
-                "d": {"HostName": "Desk", "DNSName": "", "OS": "macOS", "Online": true}
+                "d": {"HostName": "Desk", "DNSName": "", "OS": "darwin", "Online": true}
               }
             }"#,
         )
@@ -248,15 +239,14 @@ mod tests {
         let devices = tailnet_devices(status);
         let names: Vec<_> = devices.iter().map(|d| d.name.as_str()).collect();
         assert_eq!(names, ["laptop", "Desk", "phone", "server", "old-tablet"]);
-        assert_eq!(devices[0].connection, TailnetConnection::ThisMachine);
-        assert_eq!(devices[1].connection, TailnetConnection::Idle);
+        let systems: Vec<_> = devices.iter().map(|d| d.os.as_str()).collect();
+        assert_eq!(systems, ["Windows", "macOS", "iOS", "Linux", "Android"]);
+        assert!(devices[0].is_self);
         assert_eq!(
-            devices[2].connection,
-            TailnetConnection::Relay("lax".into())
+            devices.iter().map(|d| d.online).collect::<Vec<_>>(),
+            [true, true, true, true, false]
         );
-        assert_eq!(devices[3].connection, TailnetConnection::Direct);
         assert_eq!(devices[3].last_seen, None);
-        assert_eq!(devices[4].connection, TailnetConnection::Offline);
         assert!(devices[4].last_seen.is_some());
         let found = find_tailnet_device(&devices, "SERVER").unwrap();
         assert_eq!(found.name, "server");

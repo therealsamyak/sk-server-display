@@ -215,8 +215,7 @@ pub(crate) fn parse_glances_uptime(text: &str) -> Option<u64> {
 mod tests {
     use super::*;
     use crate::metrics::{
-        collectors::collector_tailscale::TailscaleStatusReader,
-        status_model::{TailnetConnection, TailnetDevice},
+        collectors::collector_tailscale::TailscaleStatusReader, status_model::TailnetDevice,
     };
 
     #[test]
@@ -227,7 +226,6 @@ mod tests {
             online: false,
             is_self: false,
             last_seen: None,
-            connection: TailnetConnection::Offline,
         };
         let collector = |presence| GlancesCollector {
             show_btop: false,
