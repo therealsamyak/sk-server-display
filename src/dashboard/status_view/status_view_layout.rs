@@ -19,6 +19,21 @@ use crate::{
     wallpaper::{PanelGroup, StatusStyle, StyleAnchor, StyleArea, StyleArrangement},
 };
 
+/// Feed views for one wallpaper, with its expanded card if open.
+#[derive(Clone, Copy)]
+pub(super) struct PagePanels<'a> {
+    pub(super) regular: &'a [Entity<FeedPanelView>],
+    pub(super) expanded: Option<(usize, &'a Entity<FeedPanelView>)>,
+}
+
+impl PagePanels<'_> {
+    fn expanded_panel(&self, index: usize) -> Option<&Entity<FeedPanelView>> {
+        self.expanded
+            .filter(|(expanded, _)| *expanded == index)
+            .map(|(_, panel)| panel)
+    }
+}
+
 /// Alert for a feed that is stale or offline. Live feeds give none.
 fn feed_alert(
     s: Scale,
@@ -135,24 +150,21 @@ impl StatusView {
         index: usize,
         feed: &StatusFeed,
         panel: &Entity<FeedPanelView>,
+        expanded: bool,
         layout: StatusLayout,
         cx: &Context<Self>,
     ) -> AnyElement {
-        let expanded = self
-            .details
-            .as_ref()
-            .filter(|details| details.index == index);
-        let height = expanded.map_or_else(
-            || side_panel_height(feed, &self.carded),
-            |_| expanded_panel_height(feed, layout),
-        );
-        let panel = expanded.map_or(panel, |details| &details.panel);
+        let height = if expanded {
+            expanded_panel_height(feed, layout)
+        } else {
+            side_panel_height(feed, &self.carded)
+        };
         div()
             .id(("feed-card", index))
             .w_full()
             .h(layout.scale(height))
             .flex_none()
-            .when(expanded.is_none(), |card| {
+            .when(!expanded, |card| {
                 card.role(Role::Button)
                     .aria_label(format!("Expand {}", feed.spec.title))
                     .cursor_pointer()
@@ -243,7 +255,7 @@ impl StatusView {
         layout: StatusLayout,
         now: OffsetDateTime,
         style: StatusStyle,
-        panels: &[Entity<FeedPanelView>],
+        panels: PagePanels<'_>,
         cx: &Context<Self>,
     ) -> Div {
         let scale = move |value| layout.scale(value);
@@ -326,7 +338,7 @@ impl StatusView {
         layout: StatusLayout,
         clock: Div,
         notices: Div,
-        panel_views: &[Entity<FeedPanelView>],
+        panels: PagePanels<'_>,
         cx: &Context<Self>,
     ) -> Div {
         let board = self.board.read(cx);
@@ -350,13 +362,21 @@ impl StatusView {
         let mut host_panels = Vec::new();
         let mut service_panels = Vec::new();
         let mut side_panels = Vec::new();
-        for (index, (feed, panel)) in board.status_feeds().iter().zip(panel_views).enumerate() {
+        for (index, (feed, panel)) in board.status_feeds().iter().zip(panels.regular).enumerate() {
             let style = match feed.spec.collector {
                 StatusCollector::TailnetHost(_) => status_card_style(),
                 _ => panel_style(),
             };
             let panel = if feed.spec.collector.has_expandable_panel() {
-                self.feed_card(index, feed, panel, layout, cx)
+                let expanded = panels.expanded_panel(index);
+                self.feed_card(
+                    index,
+                    feed,
+                    expanded.unwrap_or(panel),
+                    expanded.is_some(),
+                    layout,
+                    cx,
+                )
             } else {
                 panel.clone().cached(style).into_any_element()
             };
@@ -420,17 +440,25 @@ impl StatusView {
         layout: StatusLayout,
         clock: Div,
         [left, right]: [StyleArea; 2],
-        panel_views: &[Entity<FeedPanelView>],
+        panels: PagePanels<'_>,
         cx: &Context<Self>,
     ) -> Div {
         let board = self.board.read(cx);
         let mut hosts = Vec::new();
         let mut others = Vec::new();
-        for (index, (feed, panel)) in board.status_feeds().iter().zip(panel_views).enumerate() {
+        for (index, (feed, panel)) in board.status_feeds().iter().zip(panels.regular).enumerate() {
             let height = s(side_panel_height(feed, &self.carded));
             let style = StyleRefinement::default().flex_none().w_full().h(height);
             let panel = if feed.spec.collector.has_expandable_panel() {
-                self.feed_card(index, feed, panel, layout, cx)
+                let expanded = panels.expanded_panel(index);
+                self.feed_card(
+                    index,
+                    feed,
+                    expanded.unwrap_or(panel),
+                    expanded.is_some(),
+                    layout,
+                    cx,
+                )
             } else {
                 panel.clone().cached(style).into_any_element()
             };

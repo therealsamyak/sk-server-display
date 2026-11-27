@@ -32,14 +32,14 @@ use crate::{
 };
 use gpui::{
     AnyElement, ClickEvent, Context, Div, Entity, EventEmitter, FontWeight, Hsla, IntoElement,
-    Render, Role, Subscription, WeakEntity, Window, div, prelude::*, relative,
+    Render, Role, ScrollHandle, Subscription, WeakEntity, Window, div, prelude::*, relative,
 };
 
 /// Feed panel view: the status panel of one feed.
 pub struct FeedPanelView {
     board: Entity<StatusBoard>,
     index: usize,
-    detail: bool,
+    detail_scroll: Option<ScrollHandle>,
     style: StatusStyle,
     /// Devices with their own host card. The tailnet panel leaves them out.
     carded: Vec<String>,
@@ -76,7 +76,7 @@ impl FeedPanelView {
         Self {
             board,
             index,
-            detail: false,
+            detail_scroll: None,
             style: plain_status_style(),
             carded,
             last_live_summary: None,
@@ -102,12 +102,33 @@ impl FeedPanelView {
         cx: &mut Context<Self>,
     ) -> Self {
         let mut panel = Self::new_feed_panel(board, index, Vec::new(), cx);
-        panel.detail = true;
+        panel.detail_scroll = Some(ScrollHandle::new());
         panel.style = style;
         panel._battery_subscription = battery
             .as_ref()
             .map(|battery| cx.observe(battery, |_, _, cx| cx.notify()));
         panel.battery = battery;
+        panel
+    }
+
+    /// Draws the expanded card on the incoming page with its current scroll offset.
+    pub fn new_incoming_detail(
+        source: &Entity<Self>,
+        style: StatusStyle,
+        cx: &mut Context<Self>,
+    ) -> Self {
+        let source = source.read(cx);
+        let offset = source.detail_scroll.as_ref().map(ScrollHandle::offset);
+        let panel = Self::new_expanded_panel(
+            source.board.clone(),
+            source.index,
+            style,
+            source.battery.clone(),
+            cx,
+        );
+        if let Some((offset, incoming)) = offset.zip(panel.detail_scroll.as_ref()) {
+            incoming.set_offset(offset);
+        }
         panel
     }
 }
@@ -127,7 +148,8 @@ impl Render for FeedPanelView {
         let layout = StatusLayout::from_status_window(window);
         let scale = move |value: f32| layout.scale(value);
         let s: Scale = &scale;
-        let close_details = self.detail.then(|| cx.weak_entity());
+        let expanded = self.detail_scroll.is_some();
+        let close_details = expanded.then(|| cx.weak_entity());
         let panel = {
             let board = self.board.read(cx);
             let feed = &board.status_feeds()[self.index];
@@ -141,27 +163,28 @@ impl Render for FeedPanelView {
                 redraw: &self.redraw,
                 now: OffsetDateTime::now_utc(),
                 close_details,
+                detail_scroll: self.detail_scroll.as_ref(),
             };
             self.last_live_summary = match view.reading() {
                 Some(FeedData::Host(host))
-                    if !self.detail && view.freshness == FeedFreshness::Live =>
+                    if !expanded && view.freshness == FeedFreshness::Live =>
                 {
                     Some(HostSummary::from_metrics(host))
                 }
                 _ => None,
             };
             let compact =
-                self.detail || matches!(self.style.arrangement, StyleArrangement::Sides { .. });
+                expanded || matches!(self.style.arrangement, StyleArrangement::Sides { .. });
             match &feed.spec.collector {
                 StatusCollector::Glances(_) | StatusCollector::Local(_) => {
                     let battery = self
                         .battery
                         .as_ref()
                         .map(|battery| battery.read(cx).battery_reading());
-                    host_panel(s, &view, self.detail, battery)
+                    host_panel(s, &view, battery)
                 }
                 StatusCollector::TailnetHost(_) => presence_panel(s, &view, compact),
-                StatusCollector::Kuma(_) => services_panel(s, &view, self.detail),
+                StatusCollector::Kuma(_) => services_panel(s, &view),
                 StatusCollector::Scrutiny(_) => disks_panel(s, &view),
                 StatusCollector::Tailscale(_) => tailnet_panel(s, &view, &self.carded),
             }
@@ -262,6 +285,7 @@ struct FeedView<'a> {
     redraw: &'a StatusRedrawTimer,
     now: OffsetDateTime,
     close_details: Option<WeakEntity<FeedPanelView>>,
+    detail_scroll: Option<&'a ScrollHandle>,
 }
 
 impl FeedView<'_> {
@@ -572,12 +596,8 @@ fn core_grid(theme: StatusTheme, s: Scale, cores: &[f32], dim: bool) -> Div {
         }))
 }
 
-fn host_panel(
-    s: Scale,
-    view: &FeedView,
-    detail: bool,
-    battery: Option<Option<&BatteryReading>>,
-) -> Div {
+fn host_panel(s: Scale, view: &FeedView, battery: Option<Option<&BatteryReading>>) -> Div {
+    let detail = view.detail_scroll.is_some();
     let theme = StatusTheme(view.style.palette);
     let host = match view.reading() {
         Some(FeedData::Host(host)) => host,
@@ -592,7 +612,7 @@ fn host_panel(
                 .when(!detail, |panel| panel.justify_center().gap_0());
         }
     };
-    if detail {
+    if let Some(scroll) = view.detail_scroll {
         let body = host_body(
             theme,
             s,
@@ -600,6 +620,7 @@ fn host_panel(
             view.feed.host_history(),
             view.dim(),
             battery,
+            scroll,
         );
         return feed_panel(s, view, None, body.into_any_element(), false);
     }
@@ -695,6 +716,7 @@ fn host_body(
     history: &HostHistory,
     dim: bool,
     battery: Option<Option<&BatteryReading>>,
+    scroll: &ScrollHandle,
 ) -> impl IntoElement {
     let ratio = |used: Option<u64>, total: Option<u64>| match (used, total) {
         (Some(used), Some(total)) if total > 0 => Some(used as f32 / total as f32),
@@ -770,6 +792,7 @@ fn host_body(
         .flex_1()
         .min_h_0()
         .overflow_y_scroll()
+        .track_scroll(scroll)
         .flex()
         .flex_col()
         .gap(s(8.))
@@ -852,7 +875,7 @@ fn list_body(s: Scale, rows: impl IntoIterator<Item = Div>) -> AnyElement {
         .into_any_element()
 }
 
-fn services_panel(s: Scale, view: &FeedView, expanded: bool) -> Div {
+fn services_panel(s: Scale, view: &FeedView) -> Div {
     let theme = StatusTheme(view.style.palette);
     let reading = match view.reading() {
         Some(FeedData::Services(services)) => Some(services),
@@ -865,11 +888,11 @@ fn services_panel(s: Scale, view: &FeedView, expanded: bool) -> Div {
             .count();
         format!("{up}/{} up", services.len())
     });
-    if !expanded {
+    let Some(scroll) = view.detail_scroll else {
         return feed_panel(s, view, summary, div().into_any_element(), true)
             .justify_center()
             .gap_0();
-    }
+    };
     let Some(services) = reading else {
         return feed_panel(s, view, summary, empty_body(s, view), false);
     };
@@ -900,6 +923,7 @@ fn services_panel(s: Scale, view: &FeedView, expanded: bool) -> Div {
         .flex_1()
         .min_h_0()
         .overflow_y_scroll()
+        .track_scroll(scroll)
         .child(list_body(s, rows));
     feed_panel(s, view, summary, body.into_any_element(), false)
 }

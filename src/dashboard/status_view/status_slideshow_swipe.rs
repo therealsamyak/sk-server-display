@@ -11,7 +11,7 @@ use gpui::{
 };
 use time::OffsetDateTime;
 
-use super::StatusView;
+use super::{StatusView, status_view_layout::PagePanels};
 use crate::{
     dashboard::{
         status_panel::FeedPanelView,
@@ -120,7 +120,6 @@ impl StatusView {
             && self.picker.is_none()
             && self.update_dialog.is_none()
             && self.preview.is_none()
-            && self.details.is_none()
             && self.btop.is_none()
             && self.carousel.read(cx).state.playing_playlist().is_some()
         {
@@ -257,9 +256,22 @@ impl StatusView {
     /// Prepare the destination colors and views once per neighboring preset.
     pub(super) fn prepare_incoming_panels(&mut self, window: &Window, cx: &mut Context<Self>) {
         let Some((_, _, id)) = self.slide_positions(window, cx) else {
+            if let Some(details) = &mut self.details {
+                details.incoming = None;
+            }
             return;
         };
         let style = self.carousel.read(cx).wallpaper_style(id);
+        if let Some(details) = &mut self.details
+            && details
+                .incoming
+                .as_ref()
+                .is_none_or(|(current, _)| *current != id)
+        {
+            let panel = details.panel.clone();
+            let incoming = cx.new(|cx| FeedPanelView::new_incoming_detail(&panel, style, cx));
+            details.incoming = Some((id, incoming));
+        }
         let incoming = self.incoming_panels.get_or_insert_with(|| IncomingPanels {
             id: None,
             panels: (0..self.panels.len())
@@ -322,7 +334,7 @@ impl StatusView {
         let page = |left,
                     style: crate::wallpaper::StatusStyle,
                     image: Option<Arc<RenderImage>>,
-                    panels: &[Entity<FeedPanelView>]| {
+                    panels: PagePanels<'_>| {
             let theme = StatusTheme(style.palette);
             div()
                 .absolute()
@@ -350,7 +362,13 @@ impl StatusView {
                     motion.map_or(px(0.), |(offset, _, _)| offset),
                     self.wallpaper.style,
                     self.wallpaper.image.clone(),
-                    &self.panels,
+                    PagePanels {
+                        regular: &self.panels,
+                        expanded: self
+                            .details
+                            .as_ref()
+                            .map(|details| (details.index, &details.panel)),
+                    },
                 )
                 .id("active-slideshow-page"),
             )
@@ -362,7 +380,13 @@ impl StatusView {
                         offset + side,
                         style,
                         self.wallpaper.warm_image(id, window),
-                        &incoming.panels,
+                        PagePanels {
+                            regular: &incoming.panels,
+                            expanded: self.details.as_ref().and_then(|details| {
+                                let (wallpaper, panel) = details.incoming.as_ref()?;
+                                (*wallpaper == id).then_some((details.index, panel))
+                            }),
+                        },
                     )
                     .id("incoming-slideshow-page")
                 },

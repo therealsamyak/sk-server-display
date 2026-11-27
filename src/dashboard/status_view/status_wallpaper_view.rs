@@ -306,7 +306,6 @@ impl StatusView {
         }
         if !self.pointer_pressed
             && !self.swipe_in_motion()
-            && self.details.is_none()
             && let Some(frame) = self.wallpaper.ready.take()
         {
             if let Some(old) = std::mem::replace(&mut self.wallpaper.image, frame.image)
@@ -329,6 +328,11 @@ impl StatusView {
             self.wallpaper.style = frame.style;
             for panel in &self.panels {
                 panel.update(cx, |panel, cx| panel.set_panel_style(frame.style, cx));
+            }
+            if let Some(details) = &self.details {
+                details
+                    .panel
+                    .update(cx, |panel, cx| panel.set_panel_style(frame.style, cx));
             }
             if let Some(btop) = &self.btop {
                 btop.view

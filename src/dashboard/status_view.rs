@@ -119,6 +119,7 @@ pub struct StatusView {
 struct FeedDetailsSession {
     index: usize,
     panel: Entity<FeedPanelView>,
+    incoming: Option<(crate::wallpaper::WallpaperId, Entity<FeedPanelView>)>,
     _close: Subscription,
     _btop: Subscription,
 }
@@ -257,18 +258,23 @@ impl StatusView {
             FeedPanelView::new_expanded_panel(board, index, self.wallpaper.style, battery, cx)
         });
         let close = cx.subscribe(&panel, |view, _, _: &FeedDetailsClosed, cx| {
-            view.close_feed_details(cx);
+            if !view.swipe_consumed && !view.swipe_in_motion() {
+                view.close_feed_details(cx);
+            }
         });
         let btop = cx.subscribe_in(
             &panel,
             window,
             move |view, _, _: &FeedBtopRequested, window, cx| {
-                view.open_btop_window(index, window, cx);
+                if !view.swipe_consumed && !view.swipe_in_motion() {
+                    view.open_btop_window(index, window, cx);
+                }
             },
         );
         self.details = Some(FeedDetailsSession {
             index,
             panel,
+            incoming: None,
             _close: close,
             _btop: btop,
         });
