@@ -127,11 +127,14 @@ The first build compiles GPUI from source and takes several minutes. Linux also 
 | R | Reload the active configuration and refresh its sources. |
 | Ctrl+Q or Cmd+Q | Quit. |
 
-Move the pointer to show the toolbar. It stays open while the pointer is over it.
+Move the pointer near the top-center display selector or the top-right toolbar to show both.
+They stay open while the pointer is over either control or the space between them.
+Select the display label to cycle through monitors.
 Select **Refresh** to apply edits to the active configuration
 in the same window. If the new configuration is invalid, the display keeps the previous settings
-and shows an alert. Select **Wallpaper** to open the picker. The app keeps the display and system
-awake while a fullscreen window is visible on AC power.
+and shows an alert. Select **Wallpaper** to open the picker.
+Select **Stay awake** to block idle sleep until you select **Allow sleep** or quit.
+Open the local host card for system metrics, net battery power, and an estimate of battery time left when available.
 
 ## License
 

@@ -1,7 +1,6 @@
 use std::{collections::HashMap, time::Duration};
 
 use anyhow::{Context as _, Result, bail};
-use futures_lite::{StreamExt as _, future};
 use gpui::{BackgroundExecutor, Task, Window};
 use zbus::{
     Connection, Proxy,
@@ -10,8 +9,8 @@ use zbus::{
 };
 
 use super::{
-    AC_ONLY_BATTERY_LABEL, BatteryPowerState, IDLE_INHIBITION_REASON, format_battery_status,
-    update_idle_inhibition,
+    AC_ONLY_BATTERY_LABEL, BatteryPowerState, BatteryReading, IDLE_INHIBITION_REASON,
+    format_battery_status,
 };
 
 const UPOWER: &str = "org.freedesktop.UPower";
@@ -21,7 +20,9 @@ const PORTAL_IDLE: u32 = 8;
 const PORTAL_SUSPEND: u32 = 4;
 
 /// Reads the system battery from UPower's combined display device.
-pub(super) async fn read_battery_status(system_bus: &mut Option<Connection>) -> Option<String> {
+pub(super) async fn read_battery_status(
+    system_bus: &mut Option<Connection>,
+) -> Option<BatteryReading> {
     match read_upower_battery(system_bus).await {
         Ok(status) => status,
         Err(error) => {
@@ -31,7 +32,9 @@ pub(super) async fn read_battery_status(system_bus: &mut Option<Connection>) -> 
     }
 }
 
-async fn read_upower_battery(system_bus: &mut Option<Connection>) -> zbus::Result<Option<String>> {
+async fn read_upower_battery(
+    system_bus: &mut Option<Connection>,
+) -> zbus::Result<Option<BatteryReading>> {
     const UPOWER_CHARGING: u32 = 1;
     let connection = match system_bus {
         Some(connection) if !connection.is_closed() => connection,
@@ -58,7 +61,7 @@ async fn read_upower_battery(system_bus: &mut Option<Connection>) -> zbus::Resul
         .await?;
     let on_battery = power.get_property::<bool>(ON_BATTERY).await?;
     if !display.get_property::<bool>("IsPresent").await? {
-        return Ok((!on_battery).then(|| AC_ONLY_BATTERY_LABEL.into()));
+        return Ok((!on_battery).then(|| BatteryReading::new(AC_ONLY_BATTERY_LABEL.into())));
     }
     let percent = display.get_property::<f64>("Percentage").await?;
     let charging = display.get_property::<u32>("State").await? == UPOWER_CHARGING;
@@ -67,60 +70,47 @@ async fn read_upower_battery(system_bus: &mut Option<Connection>) -> zbus::Resul
         (false, true) => BatteryPowerState::OnBattery,
         (false, false) => BatteryPowerState::PluggedIn,
     };
-    Ok(format_battery_status(Some(percent), Some(state)))
+    let Some(label) = format_battery_status(Some(percent), Some(state)) else {
+        return Ok(None);
+    };
+    let mut reading = BatteryReading::new(label);
+    reading.on_battery = on_battery;
+    reading.net_watts = display
+        .get_property::<f64>("EnergyRate")
+        .await
+        .ok()
+        .filter(|rate| rate.is_finite() && *rate >= 0.0)
+        .and_then(|rate| match state {
+            BatteryPowerState::Charging => Some(rate),
+            BatteryPowerState::OnBattery => Some(-rate),
+            BatteryPowerState::PluggedIn => (rate == 0.0).then_some(0.0),
+        });
+    if on_battery {
+        reading.remaining_seconds = display
+            .get_property::<i64>("TimeToEmpty")
+            .await
+            .ok()
+            .and_then(|seconds| u64::try_from(seconds).ok())
+            .filter(|seconds| *seconds > 0);
+    }
+    Ok(Some(reading))
 }
 
-/// Owns the desktop idle requests and the UPower subscription.
+/// Owns the desktop idle inhibition request.
 pub(super) struct DisplayPowerMonitor {
     _monitor: Task<()>,
 }
 
 impl DisplayPowerMonitor {
-    /// Watches external power while the status window is in display mode.
+    /// Blocks idle sleep using the desktop portal.
     pub(super) fn start(_: &Window, executor: &BackgroundExecutor) -> Result<Self> {
-        let background = executor.clone();
         let monitor = executor.spawn(async move {
-            if let Err(error) = monitor_power(&background).await {
-                log::warn!("could not monitor external power: {error:#}");
+            if let Err(error) = hold_idle_inhibition().await {
+                log::warn!("idle inhibition unavailable: {error:#}");
             }
         });
         Ok(Self { _monitor: monitor })
     }
-}
-
-async fn monitor_power(executor: &BackgroundExecutor) -> Result<()> {
-    let system = Connection::system()
-        .await
-        .context("could not open the system bus")?;
-    let power = Proxy::new(&system, UPOWER, UPOWER_PATH, UPOWER).await?;
-    let mut owners = power.receive_owner_changed().await?;
-    let mut changes = power.receive_property_changed::<bool>(ON_BATTERY).await;
-    let watch_power = async {
-        let mut inhibitor = None;
-        let mut on_battery = power.get_property::<bool>(ON_BATTERY).await?;
-        loop {
-            update_idle_inhibition(&mut inhibitor, !on_battery, || {
-                Ok(executor.spawn(async {
-                    if let Err(error) = hold_idle_inhibition().await {
-                        log::warn!("idle inhibition unavailable: {error:#}");
-                    }
-                }))
-            });
-            let Some(change) = changes.next().await else {
-                bail!("UPower stopped reporting power changes");
-            };
-            on_battery = change.get().await?;
-        }
-    };
-    let watch_owner = async {
-        while let Some(Some(_)) = owners.next().await {}
-        bail!("UPower disconnected");
-    };
-    let watch_bus = async {
-        system.closed().await;
-        bail!("system bus disconnected");
-    };
-    future::race(watch_power, future::race(watch_owner, watch_bus)).await
 }
 
 async fn hold_idle_inhibition() -> Result<()> {

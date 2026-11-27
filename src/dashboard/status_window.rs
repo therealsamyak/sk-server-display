@@ -40,6 +40,8 @@ pub struct StatusDisplayApp {
     settings: StatusWindowSettings,
     selector: DisplaySelector,
     fullscreen: bool,
+    /// User's idle inhibition preference for this app session.
+    pub(super) keep_awake: bool,
     window: Option<WindowHandle<StatusView>>,
     display: Option<DisplayChoice>,
     reconcile_task: Option<Task<()>>,
@@ -78,6 +80,7 @@ impl StatusDisplayApp {
                 config,
                 selector: settings.selector,
                 fullscreen: settings.start_fullscreen,
+                keep_awake: false,
                 settings,
                 window: None,
                 display: None,
@@ -227,6 +230,7 @@ impl StatusDisplayApp {
         let controller = cx.weak_entity();
         let label = choice.label.clone();
         let local_offset = self.settings.local_offset;
+        let keep_awake = self.keep_awake;
         let carousel = self.carousel.clone();
         match cx.open_window(options, move |window, cx| {
             cx.new(|cx| {
@@ -234,6 +238,7 @@ impl StatusDisplayApp {
                     StatusViewSettings {
                         display_label: label,
                         local_offset,
+                        keep_awake,
                     },
                     board,
                     carousel,

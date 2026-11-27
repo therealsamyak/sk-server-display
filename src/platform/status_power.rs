@@ -1,8 +1,8 @@
-//! Read local battery status and keep the fullscreen display awake on external power.
+//! Read local battery status and inhibit idle sleep while requested.
 
 use std::time::Duration;
 
-use gpui::{BackgroundExecutor, Context, Task, Window};
+use gpui::{BackgroundExecutor, Context, EventEmitter, Task, Window};
 
 #[cfg(target_os = "linux")]
 #[path = "status_power/linux.rs"]
@@ -14,14 +14,39 @@ mod platform;
 #[path = "status_power/windows.rs"]
 mod platform;
 
-const IDLE_INHIBITION_REASON: &str = "Server status display is fullscreen";
+const IDLE_INHIBITION_REASON: &str = "Stay awake is enabled in Server Status Display";
 const BATTERY_POLL_INTERVAL: Duration = Duration::from_secs(5);
 const AC_ONLY_BATTERY_LABEL: &str = "100% plugged in";
 
 /// Maintains the battery label for the computer running the dashboard.
 pub(crate) struct LocalBatteryStatus {
-    text: Option<String>,
+    reading: Option<BatteryReading>,
     _poll: Task<()>,
+}
+
+/// The compact battery label changed.
+pub(crate) struct BatteryLabelChanged;
+
+impl EventEmitter<BatteryLabelChanged> for LocalBatteryStatus {}
+
+/// Local battery status and optional estimates from the operating system.
+#[derive(PartialEq)]
+pub(crate) struct BatteryReading {
+    pub label: String,
+    pub net_watts: Option<f64>,
+    pub remaining_seconds: Option<u64>,
+    pub on_battery: bool,
+}
+
+impl BatteryReading {
+    fn new(label: String) -> Self {
+        Self {
+            label,
+            net_watts: None,
+            remaining_seconds: None,
+            on_battery: false,
+        }
+    }
 }
 
 impl LocalBatteryStatus {
@@ -31,7 +56,7 @@ impl LocalBatteryStatus {
             let executor = cx.background_executor().clone();
             let mut reader = BatteryReader::default();
             loop {
-                let (next_reader, text) = executor
+                let (next_reader, reading) = executor
                     .spawn(async move {
                         let text = reader.read_battery_status().await;
                         (reader, text)
@@ -40,8 +65,13 @@ impl LocalBatteryStatus {
                 reader = next_reader;
                 if status
                     .update(cx, |status, cx| {
-                        if status.text != text {
-                            status.text = text;
+                        if status.reading != reading {
+                            let old_label = status.battery_label();
+                            let new_label = reading.as_ref().map(|reading| reading.label.as_str());
+                            if old_label != new_label {
+                                cx.emit(BatteryLabelChanged);
+                            }
+                            status.reading = reading;
                             cx.notify();
                         }
                     })
@@ -53,14 +83,19 @@ impl LocalBatteryStatus {
             }
         });
         Self {
-            text: None,
+            reading: None,
             _poll: poll,
         }
     }
 
     /// Returns the most recent local battery label.
     pub(crate) fn battery_label(&self) -> Option<&str> {
-        self.text.as_deref()
+        self.battery_reading().map(|reading| reading.label.as_str())
+    }
+
+    /// Returns the operating system's latest battery telemetry.
+    pub(crate) fn battery_reading(&self) -> Option<&BatteryReading> {
+        self.reading.as_ref()
     }
 }
 
@@ -71,7 +106,7 @@ struct BatteryReader {
 }
 
 impl BatteryReader {
-    async fn read_battery_status(&mut self) -> Option<String> {
+    async fn read_battery_status(&mut self) -> Option<BatteryReading> {
         #[cfg(target_os = "linux")]
         {
             platform::read_battery_status(&mut self.system_bus).await
@@ -123,19 +158,19 @@ fn format_windows_battery(ac_line: u8, flags: u8, percent: u8) -> Option<String>
     format_battery_status(Some(f64::from(percent)), state)
 }
 
-/// Owns idle inhibition for the visible fullscreen status window.
+/// Owns the app's idle inhibition request.
 #[derive(Default)]
 pub(crate) struct StatusPower(Option<platform::DisplayPowerMonitor>);
 
 impl StatusPower {
-    /// Starts or stops monitoring external power as the window enters or leaves display mode.
-    pub(crate) fn set_display_mode(
+    /// Starts or releases the app's idle inhibition request.
+    pub(crate) fn set_keep_awake(
         &mut self,
-        display_mode: bool,
+        keep_awake: bool,
         window: &Window,
         executor: &BackgroundExecutor,
     ) {
-        if !display_mode {
+        if !keep_awake {
             self.0 = None;
         } else if self.0.is_none() {
             match platform::DisplayPowerMonitor::start(window, executor) {
@@ -146,24 +181,9 @@ impl StatusPower {
     }
 }
 
-fn update_idle_inhibition<T>(
-    guard: &mut Option<T>,
-    external_power: bool,
-    acquire: impl FnOnce() -> anyhow::Result<T>,
-) {
-    if !external_power {
-        *guard = None;
-    } else if guard.is_none() {
-        match acquire() {
-            Ok(inhibitor) => *guard = Some(inhibitor),
-            Err(error) => log::warn!("idle inhibition unavailable: {error:#}"),
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
-    use super::{format_windows_battery, update_idle_inhibition};
+    use super::format_windows_battery;
 
     #[test]
     fn windows_battery_distinguishes_power_states() {
@@ -183,36 +203,5 @@ mod tests {
                 expected
             );
         }
-    }
-
-    #[test]
-    fn battery_power_does_not_acquire_idle_inhibition() {
-        let mut guard = None;
-        update_idle_inhibition(&mut guard, false, || Ok(()));
-        assert!(guard.is_none());
-    }
-
-    #[test]
-    fn battery_power_releases_existing_idle_inhibition() {
-        use std::rc::Rc;
-
-        let token = Rc::new(());
-        let mut guard = Some(Rc::clone(&token));
-        update_idle_inhibition(&mut guard, false, || Ok(Rc::clone(&token)));
-        assert_eq!(Rc::strong_count(&token), 1);
-    }
-
-    #[test]
-    fn external_power_acquires_idle_inhibition() {
-        let mut guard = None;
-        update_idle_inhibition(&mut guard, true, || Ok(()));
-        assert!(guard.is_some());
-    }
-
-    #[test]
-    fn external_power_preserves_existing_idle_inhibition() {
-        let mut guard = Some(1);
-        update_idle_inhibition(&mut guard, true, || Ok(2));
-        assert_eq!(guard, Some(1));
     }
 }

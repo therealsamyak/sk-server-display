@@ -28,6 +28,7 @@ use crate::{
     },
     metrics::{HostHistory, StatusFeed},
     metrics::{StatusBoard, StatusFeedUpdated},
+    platform::{BatteryReading, LocalBatteryStatus},
     wallpaper::{StatusStyle, StyleArrangement, plain_status_style},
 };
 use gpui::{
@@ -44,8 +45,10 @@ pub struct FeedPanelView {
     /// Devices with their own host card. The tailnet panel leaves them out.
     carded: Vec<String>,
     last_live_summary: Option<HostSummary>,
+    battery: Option<Entity<LocalBatteryStatus>>,
     redraw: StatusRedrawTimer,
     _subscription: Subscription,
+    _battery_subscription: Option<Subscription>,
 }
 
 impl FeedPanelView {
@@ -78,8 +81,10 @@ impl FeedPanelView {
             style: plain_status_style(),
             carded,
             last_live_summary: None,
+            battery: None,
             redraw: StatusRedrawTimer::default(),
             _subscription: subscription,
+            _battery_subscription: None,
         }
     }
 
@@ -94,11 +99,16 @@ impl FeedPanelView {
         board: Entity<StatusBoard>,
         index: usize,
         style: StatusStyle,
+        battery: Option<Entity<LocalBatteryStatus>>,
         cx: &mut Context<Self>,
     ) -> Self {
         let mut panel = Self::new_feed_panel(board, index, Vec::new(), cx);
         panel.detail = true;
         panel.style = style;
+        panel._battery_subscription = battery
+            .as_ref()
+            .map(|battery| cx.observe(battery, |_, _, cx| cx.notify()));
+        panel.battery = battery;
         panel
     }
 }
@@ -145,7 +155,17 @@ impl Render for FeedPanelView {
                 self.detail || matches!(self.style.arrangement, StyleArrangement::Sides { .. });
             match &feed.spec.collector {
                 StatusCollector::Glances(_) | StatusCollector::Local(_) => {
-                    host_panel(s, &view, expanded_panel_height(feed, layout), self.detail)
+                    let battery = self
+                        .battery
+                        .as_ref()
+                        .map(|battery| battery.read(cx).battery_reading());
+                    host_panel(
+                        s,
+                        &view,
+                        expanded_panel_height(feed, layout),
+                        self.detail,
+                        battery,
+                    )
                 }
                 StatusCollector::TailnetHost(_) => presence_panel(s, &view, compact),
                 StatusCollector::Kuma(_) => services_panel(s, &view, self.detail),
@@ -175,6 +195,7 @@ pub fn expanded_panel_height(feed: &StatusFeed, layout: StatusLayout) -> f32 {
             list_panel_height(services.len())
         }
         (StatusCollector::Kuma(_), _) => 144.,
+        (StatusCollector::Local(_), _) => 400.,
         _ => 368.,
     };
     height.min(layout.panel_area)
@@ -534,7 +555,13 @@ fn core_grid(theme: StatusTheme, s: Scale, cores: &[f32], dim: bool) -> Div {
         }))
 }
 
-fn host_panel(s: Scale, view: &FeedView, panel_height: f32, detail: bool) -> Div {
+fn host_panel(
+    s: Scale,
+    view: &FeedView,
+    panel_height: f32,
+    detail: bool,
+    battery: Option<Option<&BatteryReading>>,
+) -> Div {
     let theme = StatusTheme(view.style.palette);
     let host = match view.reading() {
         Some(FeedData::Host(host)) => host,
@@ -555,14 +582,51 @@ fn host_panel(s: Scale, view: &FeedView, panel_height: f32, detail: bool) -> Div
             s,
             host,
             view.feed.host_history(),
-            panel_height,
+            panel_height - if battery.is_some() { 32. } else { 0. },
             view.dim(),
         );
+        let body = div()
+            .flex_1()
+            .min_h_0()
+            .flex()
+            .flex_col()
+            .gap(s(8.))
+            .children(battery.map(|reading| battery_details(s, theme, reading)))
+            .child(body);
         return feed_panel(s, view, None, body.into_any_element(), false);
     }
     let HostSummary { uptime, values } = HostSummary::from_metrics(host);
     let body = host_summary(theme, s, values, view.dim());
     feed_panel(s, view, uptime, body.into_any_element(), true)
+}
+
+fn battery_details(s: Scale, theme: StatusTheme, reading: Option<&BatteryReading>) -> Div {
+    div()
+        .flex()
+        .flex_wrap()
+        .items_center()
+        .gap_x(s(12.))
+        .text_size(s(13.))
+        .child(div().text_color(theme.muted()).child("Battery"))
+        .child(reading.map_or_else(|| "Unavailable".into(), |battery| battery.label.clone()))
+        .children(reading.and_then(|battery| battery.net_watts).map(|watts| {
+            div()
+                .whitespace_nowrap()
+                .child(format!("Net {watts:+.1} W"))
+        }))
+        .children(reading.filter(|battery| battery.on_battery).map(|battery| {
+            let estimate = battery.remaining_seconds.map_or_else(
+                || "Estimate unavailable".into(),
+                |seconds| {
+                    if seconds < 60 {
+                        "<1m left".into()
+                    } else {
+                        format!("{} left", format_status_uptime(seconds))
+                    }
+                },
+            );
+            div().whitespace_nowrap().child(estimate)
+        }))
 }
 
 /// Text shown by the compact host card, independent of its full metric history.

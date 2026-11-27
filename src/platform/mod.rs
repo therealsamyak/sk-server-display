@@ -9,4 +9,6 @@ pub(crate) mod status_update;
 
 pub(crate) use display_select::{DisplayChoice, choose_status_display, ordered_status_displays};
 pub(crate) use status_display::DisplaySelector;
-pub(crate) use status_power::{LocalBatteryStatus, StatusPower};
+pub(crate) use status_power::{
+    BatteryLabelChanged, BatteryReading, LocalBatteryStatus, StatusPower,
+};

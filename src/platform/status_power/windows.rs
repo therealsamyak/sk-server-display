@@ -8,26 +8,25 @@ use windows::{
         Foundation::{CloseHandle, HANDLE, HWND, LPARAM, LRESULT, WPARAM},
         System::{
             Power::{
-                GetSystemPowerStatus, HPOWERNOTIFY, POWER_REQUEST_TYPE, PowerClearRequest,
-                PowerCreateRequest, PowerRequestDisplayRequired, PowerRequestSystemRequired,
-                PowerSetRequest, RegisterPowerSettingNotification, SYSTEM_POWER_STATUS,
-                UnregisterPowerSettingNotification,
+                BATTERY_UNKNOWN_RATE, BATTERY_UNKNOWN_TIME, CallNtPowerInformation,
+                GetSystemPowerStatus, POWER_REQUEST_TYPE, PowerClearRequest, PowerCreateRequest,
+                PowerRequestDisplayRequired, PowerRequestSystemRequired, PowerSetRequest,
+                SYSTEM_BATTERY_STATE, SYSTEM_POWER_STATUS, SystemBatteryState,
             },
-            SystemServices::{GUID_ACDC_POWER_SOURCE, POWER_REQUEST_CONTEXT_VERSION},
+            SystemServices::POWER_REQUEST_CONTEXT_VERSION,
             Threading::{POWER_REQUEST_CONTEXT_SIMPLE_STRING, REASON_CONTEXT, REASON_CONTEXT_0},
         },
         UI::{
             Shell::{DefSubclassProc, RemoveWindowSubclass, SetWindowSubclass},
             WindowsAndMessaging::{
-                DEVICE_NOTIFY_WINDOW_HANDLE, PBT_APMRESUMEAUTOMATIC, PBT_APMSUSPEND,
-                PBT_POWERSETTINGCHANGE, WM_NCDESTROY, WM_POWERBROADCAST,
+                PBT_APMRESUMEAUTOMATIC, PBT_APMSUSPEND, WM_NCDESTROY, WM_POWERBROADCAST,
             },
         },
     },
     core::PWSTR,
 };
 
-use super::{IDLE_INHIBITION_REASON, format_windows_battery, update_idle_inhibition};
+use super::{BatteryReading, IDLE_INHIBITION_REASON, format_windows_battery};
 
 type WindowInhibitor = Rc<RefCell<Option<IdlePowerRequests>>>;
 
@@ -37,15 +36,14 @@ thread_local! {
     static WINDOW_INHIBITORS: RefCell<HashMap<usize, WindowInhibitor>> = RefCell::default();
 }
 
-/// Owns the Windows idle requests and AC power notification.
+/// Owns the Windows idle requests and renews them after a manual suspend.
 pub(super) struct DisplayPowerMonitor {
     hwnd: HWND,
     inhibitor: WindowInhibitor,
-    notification: Option<HPOWERNOTIFY>,
 }
 
 impl DisplayPowerMonitor {
-    /// Watches AC power through the status window.
+    /// Blocks idle display and system sleep.
     pub(super) fn start(window: &Window, _: &BackgroundExecutor) -> Result<Self> {
         let native_handle = HasWindowHandle::window_handle(window)
             .map_err(|error| anyhow::anyhow!("could not read status window handle: {error}"))?;
@@ -55,7 +53,7 @@ impl DisplayPowerMonitor {
         let hwnd = HWND(std::ptr::without_provenance_mut(
             handle.hwnd.get().cast_unsigned(),
         ));
-        let inhibitor = Rc::new(RefCell::new(None));
+        let inhibitor = Rc::new(RefCell::new(Some(IdlePowerRequests::acquire()?)));
         let id = Rc::as_ptr(&inhibitor).addr();
 
         // SAFETY: GPUI calls this on the thread that owns the live status window.
@@ -66,23 +64,7 @@ impl DisplayPowerMonitor {
         );
         WINDOW_INHIBITORS.with_borrow_mut(|windows| windows.insert(id, Rc::clone(&inhibitor)));
 
-        let mut monitor = Self {
-            hwnd,
-            inhibitor,
-            notification: None,
-        };
-        // SAFETY: the HWND belongs to this thread and the GUID is valid for the call.
-        let notification = unsafe {
-            RegisterPowerSettingNotification(
-                HANDLE(hwnd.0),
-                &GUID_ACDC_POWER_SOURCE,
-                DEVICE_NOTIFY_WINDOW_HANDLE,
-            )
-        }
-        .context("could not register for AC power changes")?;
-        monitor.notification = Some(notification);
-        refresh_idle_inhibition(&monitor.inhibitor);
-        Ok(monitor)
+        Ok(Self { hwnd, inhibitor })
     }
 }
 
@@ -100,12 +82,6 @@ impl Drop for DisplayPowerMonitor {
             .as_bool()
             {
                 log::warn!("could not remove status power window subclass");
-            }
-        }
-        if let Some(notification) = self.notification {
-            // SAFETY: this monitor owns the registration and unregisters it once.
-            if let Err(error) = unsafe { UnregisterPowerSettingNotification(notification) } {
-                log::warn!("could not unregister AC power changes: {error}");
             }
         }
     }
@@ -133,14 +109,18 @@ unsafe extern "system" fn on_power_message(
             let inhibitor = WINDOW_INHIBITORS.with_borrow(|windows| windows.get(&id).cloned());
             if let Some(inhibitor) = inhibitor {
                 match u32::try_from(wparam.0) {
-                    Ok(PBT_POWERSETTINGCHANGE) => refresh_idle_inhibition(&inhibitor),
                     Ok(PBT_APMSUSPEND) => {
                         inhibitor.replace(None);
                     }
                     Ok(PBT_APMRESUMEAUTOMATIC) => {
                         // Windows cancels active power requests on user-initiated sleep.
                         inhibitor.replace(None);
-                        refresh_idle_inhibition(&inhibitor);
+                        match IdlePowerRequests::acquire() {
+                            Ok(requests) => {
+                                inhibitor.replace(Some(requests));
+                            }
+                            Err(error) => log::warn!("could not renew idle inhibition: {error:#}"),
+                        }
                     }
                     _ => {}
                 }
@@ -163,27 +143,48 @@ fn read_system_power_status() -> windows::core::Result<SYSTEM_POWER_STATUS> {
 }
 
 /// Formats Windows battery percentage and power state for the dashboard.
-pub(super) fn read_battery_status() -> Option<String> {
-    match read_system_power_status() {
-        Ok(power) => format_windows_battery(
-            power.ACLineStatus,
-            power.BatteryFlag,
-            power.BatteryLifePercent,
-        ),
+pub(super) fn read_battery_status() -> Option<BatteryReading> {
+    let power = match read_system_power_status() {
+        Ok(power) => power,
         Err(error) => {
             log::debug!("could not read local battery status: {error}");
-            None
+            return None;
         }
+    };
+    let label = format_windows_battery(
+        power.ACLineStatus,
+        power.BatteryFlag,
+        power.BatteryLifePercent,
+    )?;
+    let mut reading = BatteryReading::new(label);
+    reading.on_battery = power.ACLineStatus == 0;
+    let mut battery = SYSTEM_BATTERY_STATE::default();
+    let size = u32::try_from(std::mem::size_of_val(&battery)).ok()?;
+    // SAFETY: SystemBatteryState writes one SYSTEM_BATTERY_STATE into this buffer.
+    let status = unsafe {
+        CallNtPowerInformation(
+            SystemBatteryState,
+            None,
+            0,
+            Some((&raw mut battery).cast()),
+            size,
+        )
+    };
+    let battery = (status.is_ok() && battery.BatteryPresent).then_some(battery);
+    reading.net_watts = battery
+        .filter(|battery| battery.Rate != BATTERY_UNKNOWN_RATE)
+        .map(|battery| f64::from(battery.Rate.cast_signed()) / 1000.0);
+    if reading.on_battery {
+        let estimate = if power.BatteryLifeTime != BATTERY_UNKNOWN_TIME {
+            Some(power.BatteryLifeTime)
+        } else {
+            battery
+                .filter(|battery| battery.EstimatedTime != BATTERY_UNKNOWN_TIME)
+                .map(|battery| battery.EstimatedTime)
+        };
+        reading.remaining_seconds = estimate.map(u64::from);
     }
-}
-
-fn refresh_idle_inhibition(inhibitor: &WindowInhibitor) {
-    let on_ac = read_system_power_status().is_ok_and(|power| power.ACLineStatus == 1);
-    update_idle_inhibition(
-        &mut inhibitor.borrow_mut(),
-        on_ac,
-        IdlePowerRequests::acquire,
-    );
+    Some(reading)
 }
 
 const IDLE_REQUESTS: [POWER_REQUEST_TYPE; 2] =
