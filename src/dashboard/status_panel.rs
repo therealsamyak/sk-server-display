@@ -35,6 +35,12 @@ use gpui::{
     Render, Role, ScrollHandle, Subscription, WeakEntity, Window, div, prelude::*, relative,
 };
 
+mod status_tailnet_rows;
+#[cfg(test)]
+mod status_tailnet_tests;
+
+pub(super) use status_tailnet_rows::CardedTailnetDevices;
+
 /// Feed panel view: the status panel of one feed.
 pub struct FeedPanelView {
     board: Entity<StatusBoard>,
@@ -42,7 +48,7 @@ pub struct FeedPanelView {
     detail_scroll: Option<ScrollHandle>,
     style: StatusStyle,
     /// Devices with their own host card. The tailnet panel leaves them out.
-    carded: Vec<String>,
+    carded: CardedTailnetDevices,
     last_live_summary: Option<HostSummary>,
     battery: Option<Entity<LocalBatteryStatus>>,
     redraw: StatusRedrawTimer,
@@ -55,7 +61,7 @@ impl FeedPanelView {
     pub fn new_feed_panel(
         board: Entity<StatusBoard>,
         index: usize,
-        carded: Vec<String>,
+        carded: CardedTailnetDevices,
         cx: &mut Context<Self>,
     ) -> Self {
         let subscription = cx.subscribe(&board, |this, board, event: &StatusFeedUpdated, cx| {
@@ -101,7 +107,7 @@ impl FeedPanelView {
         battery: Option<Entity<LocalBatteryStatus>>,
         cx: &mut Context<Self>,
     ) -> Self {
-        let mut panel = Self::new_feed_panel(board, index, Vec::new(), cx);
+        let mut panel = Self::new_feed_panel(board, index, CardedTailnetDevices::default(), cx);
         panel.detail_scroll = Some(ScrollHandle::new());
         panel.style = style;
         panel._battery_subscription = battery
@@ -255,7 +261,7 @@ fn list_panel_height(rows: usize) -> f32 {
 
 /// Height of the panel of `feed` in a side column, in design pixels.
 /// `carded` lists the devices that the tailnet panel leaves out.
-pub fn side_panel_height(feed: &StatusFeed, carded: &[String]) -> f32 {
+pub fn side_panel_height(feed: &StatusFeed, carded: &CardedTailnetDevices) -> f32 {
     let rows = match (&feed.spec.collector, feed.latest_reading()) {
         (StatusCollector::Glances(_) | StatusCollector::Local(_), _) => {
             return HOST_CARD_HEIGHT;
@@ -263,14 +269,7 @@ pub fn side_panel_height(feed: &StatusFeed, carded: &[String]) -> f32 {
         (StatusCollector::TailnetHost(_), _) => return HOST_CARD_HEIGHT,
         (StatusCollector::Kuma(_), _) => return SERVICE_SUMMARY_HEIGHT,
         (_, Some(FeedData::Disks(disks))) => disks.len(),
-        (_, Some(FeedData::Tailnet(devices))) => devices
-            .iter()
-            .filter(|device| {
-                !carded
-                    .iter()
-                    .any(|name| name.eq_ignore_ascii_case(&device.name))
-            })
-            .count(),
+        (_, Some(FeedData::Tailnet(devices))) => carded.visible_devices(devices).count(),
         _ => 0,
     };
     list_panel_height(rows)
@@ -957,19 +956,12 @@ fn disks_panel(s: Scale, view: &FeedView) -> Div {
     )
 }
 
-fn tailnet_panel(s: Scale, view: &FeedView, carded: &[String]) -> Div {
+fn tailnet_panel(s: Scale, view: &FeedView, carded: &CardedTailnetDevices) -> Div {
     let theme = StatusTheme(view.style.palette);
     let Some(FeedData::Tailnet(devices)) = view.reading() else {
         return feed_panel(s, view, None, empty_body(s, view), false);
     };
-    let devices: Vec<&TailnetDevice> = devices
-        .iter()
-        .filter(|device| {
-            !carded
-                .iter()
-                .any(|name| name.eq_ignore_ascii_case(&device.name))
-        })
-        .collect();
+    let devices: Vec<_> = carded.visible_devices(devices).collect();
     let dim = view.dim();
     let online = devices.iter().filter(|d| d.online).count();
     let rows = devices.iter().map(|device| {

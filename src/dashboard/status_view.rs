@@ -30,7 +30,7 @@ use crate::{
 use super::{
     status_btop::{BtopWindowClosed, BtopWindowView},
     status_format::status_clock_text_valid_for,
-    status_panel::{FeedBtopRequested, FeedDetailsClosed, FeedPanelView},
+    status_panel::{CardedTailnetDevices, FeedBtopRequested, FeedDetailsClosed, FeedPanelView},
     status_redraw::StatusRedrawTimer,
     status_theme::{Scale, StatusLayout, StatusTheme},
     status_window::StatusDisplayApp,
@@ -92,7 +92,7 @@ pub struct StatusView {
     /// Number of host panels that share the host column.
     host_rows: usize,
     /// Devices with a host card. The tailnet panel leaves them out.
-    carded: Vec<String>,
+    carded: CardedTailnetDevices,
     wallpaper: StatusWallpaper,
     picker: Option<PickerSession>,
     preview: Option<WallpaperPreview>,
@@ -175,7 +175,7 @@ impl StatusView {
             focus_handle,
             panels: Vec::new(),
             host_rows: 0,
-            carded: Vec::new(),
+            carded: CardedTailnetDevices::default(),
             wallpaper: StatusWallpaper::default(),
             picker: None,
             preview: None,
@@ -208,10 +208,7 @@ impl StatusView {
         // Up to two hosts get one column each. More hosts share one column.
         self.host_rows = if host_count <= 2 { 1 } else { host_count };
         // Devices with a host card do not repeat in the tailnet list.
-        self.carded = feeds
-            .iter()
-            .filter_map(|feed| feed.spec.collector.tailnet_device_name().map(str::to_owned))
-            .collect();
+        self.carded = CardedTailnetDevices::from_status_feeds(feeds);
         self.panels = (0..feeds.len())
             .map(|index| {
                 cx.new(|cx| {
