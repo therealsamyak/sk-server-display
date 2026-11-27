@@ -644,7 +644,7 @@ fn host_panel(s: Scale, view: &FeedView, battery: Option<Option<&BatteryReading>
                 .flex()
                 .items_center()
                 .gap(s(10.))
-                .text_color(theme.ok())
+                .text_color(theme.text())
                 .child(status_dot(s, theme.ok()))
                 .child("online")
         })
