@@ -103,11 +103,11 @@ pub fn format_status_clock(at: OffsetDateTime, offset: UtcOffset) -> String {
         .unwrap_or_default()
 }
 
-/// Formats a calendar date in the local offset, such as `Monday 23 November`.
+/// Formats the local date, such as `Monday | November 23, 2026`.
 pub fn format_status_date(at: OffsetDateTime, offset: UtcOffset) -> String {
     at.to_offset(offset)
         .format(format_description!(
-            "[weekday] [day padding:none] [month repr:long]"
+            "[weekday] | [month repr:long] [day padding:none], [year]"
         ))
         .unwrap_or_default()
 }
@@ -150,8 +150,11 @@ mod tests {
 
     #[test]
     fn formats_clock_in_local_offset() {
-        let at = datetime!(2026-11-23 22:02:11 UTC);
-        assert_eq!(format_status_clock(at, offset!(-8)), "14:02");
-        assert_eq!(format_status_date(at, offset!(-8)), "Monday 23 November");
+        let at = datetime!(2027-01-02 04:02:11 UTC);
+        assert_eq!(format_status_clock(at, offset!(-8)), "20:02");
+        assert_eq!(
+            format_status_date(at, offset!(-8)),
+            "Friday | January 1, 2027"
+        );
     }
 }

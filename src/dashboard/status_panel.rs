@@ -11,40 +11,49 @@ use crate::{
     dashboard::status_format::{
         format_status_bytes, format_status_rate, format_status_uptime, format_status_usage,
     },
-    dashboard::status_graph::{NETWORK_GRAPH_FLOOR, cpu_graph, network_graph},
+    dashboard::status_graph::{cpu_graph, network_graph},
     dashboard::status_redraw::StatusRedrawTimer,
     dashboard::status_service_history::{
         service_history_strip, service_state_color, service_summary_strip,
     },
     dashboard::status_theme::{
-        CORE_GRID_ROW_HEIGHT, HOST_CARD_HEIGHT, HOST_PANEL_BASE_HEIGHT, Scale, StatusLayout,
-        StatusTheme, threshold_color,
+        HOST_CARD_HEIGHT, Scale, StatusLayout, StatusTheme, threshold_color,
     },
     metrics::FeedFreshness,
     metrics::StatusCollector,
     metrics::{
         DiskHealth, DiskState, FeedData, HostMetrics, HostPresence, ServiceHealth, ServiceState,
-        TailnetConnection, TailnetDevice,
+        TailnetDevice,
     },
     metrics::{HostHistory, StatusFeed},
     metrics::{StatusBoard, StatusFeedUpdated},
+    platform::{BatteryLabelChanged, BatteryReading, LocalBatteryStatus},
     wallpaper::{StatusStyle, StyleArrangement, plain_status_style},
 };
 use gpui::{
     AnyElement, ClickEvent, Context, Div, Entity, EventEmitter, FontWeight, Hsla, IntoElement,
-    Render, Role, Subscription, WeakEntity, Window, div, prelude::*, relative,
+    Render, Role, ScrollHandle, Subscription, WeakEntity, Window, div, prelude::*, relative,
 };
+
+mod status_tailnet_rows;
+#[cfg(test)]
+mod status_tailnet_tests;
+
+pub(super) use status_tailnet_rows::CardedTailnetDevices;
 
 /// Feed panel view: the status panel of one feed.
 pub struct FeedPanelView {
     board: Entity<StatusBoard>,
     index: usize,
-    detail: bool,
+    detail_scroll: Option<ScrollHandle>,
     style: StatusStyle,
     /// Devices with their own host card. The tailnet panel leaves them out.
-    carded: Vec<String>,
+    carded: CardedTailnetDevices,
+    last_live_summary: Option<HostSummary>,
+    battery: Option<Entity<LocalBatteryStatus>>,
     redraw: StatusRedrawTimer,
     _subscription: Subscription,
+    _battery_subscription: Option<Subscription>,
 }
 
 impl FeedPanelView {
@@ -52,22 +61,39 @@ impl FeedPanelView {
     pub fn new_feed_panel(
         board: Entity<StatusBoard>,
         index: usize,
-        carded: Vec<String>,
+        carded: CardedTailnetDevices,
+        battery: Option<Entity<LocalBatteryStatus>>,
         cx: &mut Context<Self>,
     ) -> Self {
-        let subscription = cx.subscribe(&board, |this, _, event: &StatusFeedUpdated, cx| {
-            if event.index == this.index {
-                cx.notify();
+        let subscription = cx.subscribe(&board, |this, board, event: &StatusFeedUpdated, cx| {
+            if event.index != this.index {
+                return;
             }
+            let board = board.read(cx);
+            let feed = &board.status_feeds()[this.index];
+            if let Some(shown) = &this.last_live_summary
+                && board.feed_freshness(feed) == FeedFreshness::Live
+                && let Some(FeedData::Host(host)) = feed.latest_reading()
+                && *shown == HostSummary::from_metrics(host)
+            {
+                return;
+            }
+            cx.notify();
         });
+        let battery_subscription = battery
+            .as_ref()
+            .map(|battery| cx.subscribe(battery, |_, _, _: &BatteryLabelChanged, cx| cx.notify()));
         Self {
             board,
             index,
-            detail: false,
+            detail_scroll: None,
             style: plain_status_style(),
             carded,
+            last_live_summary: None,
+            battery,
             redraw: StatusRedrawTimer::default(),
             _subscription: subscription,
+            _battery_subscription: battery_subscription,
         }
     }
 
@@ -82,11 +108,38 @@ impl FeedPanelView {
         board: Entity<StatusBoard>,
         index: usize,
         style: StatusStyle,
+        battery: Option<Entity<LocalBatteryStatus>>,
         cx: &mut Context<Self>,
     ) -> Self {
-        let mut panel = Self::new_feed_panel(board, index, Vec::new(), cx);
-        panel.detail = true;
+        let mut panel =
+            Self::new_feed_panel(board, index, CardedTailnetDevices::default(), None, cx);
+        panel.detail_scroll = Some(ScrollHandle::new());
         panel.style = style;
+        panel._battery_subscription = battery
+            .as_ref()
+            .map(|battery| cx.observe(battery, |_, _, cx| cx.notify()));
+        panel.battery = battery;
+        panel
+    }
+
+    /// Draws the expanded card on the incoming page with its current scroll offset.
+    pub fn new_incoming_detail(
+        source: &Entity<Self>,
+        style: StatusStyle,
+        cx: &mut Context<Self>,
+    ) -> Self {
+        let source = source.read(cx);
+        let offset = source.detail_scroll.as_ref().map(ScrollHandle::offset);
+        let panel = Self::new_expanded_panel(
+            source.board.clone(),
+            source.index,
+            style,
+            source.battery.clone(),
+            cx,
+        );
+        if let Some((offset, incoming)) = offset.zip(panel.detail_scroll.as_ref()) {
+            incoming.set_offset(offset);
+        }
         panel
     }
 }
@@ -106,7 +159,8 @@ impl Render for FeedPanelView {
         let layout = StatusLayout::from_status_window(window);
         let scale = move |value: f32| layout.scale(value);
         let s: Scale = &scale;
-        let close_details = self.detail.then(|| cx.weak_entity());
+        let expanded = self.detail_scroll.is_some();
+        let close_details = expanded.then(|| cx.weak_entity());
         let panel = {
             let board = self.board.read(cx);
             let feed = &board.status_feeds()[self.index];
@@ -120,15 +174,28 @@ impl Render for FeedPanelView {
                 redraw: &self.redraw,
                 now: OffsetDateTime::now_utc(),
                 close_details,
+                detail_scroll: self.detail_scroll.as_ref(),
+            };
+            self.last_live_summary = match view.reading() {
+                Some(FeedData::Host(host))
+                    if !expanded && view.freshness == FeedFreshness::Live =>
+                {
+                    Some(HostSummary::from_metrics(host))
+                }
+                _ => None,
             };
             let compact =
-                self.detail || matches!(self.style.arrangement, StyleArrangement::Sides { .. });
+                expanded || matches!(self.style.arrangement, StyleArrangement::Sides { .. });
             match &feed.spec.collector {
                 StatusCollector::Glances(_) | StatusCollector::Local(_) => {
-                    host_panel(s, &view, expanded_panel_height(feed, layout), self.detail)
+                    let battery = self
+                        .battery
+                        .as_ref()
+                        .map(|battery| battery.read(cx).battery_reading());
+                    host_panel(s, &view, battery)
                 }
                 StatusCollector::TailnetHost(_) => presence_panel(s, &view, compact),
-                StatusCollector::Kuma(_) => services_panel(s, &view, self.detail),
+                StatusCollector::Kuma(_) => services_panel(s, &view),
                 StatusCollector::Scrutiny(_) => disks_panel(s, &view),
                 StatusCollector::Tailscale(_) => tailnet_panel(s, &view, &self.carded),
             }
@@ -147,6 +214,24 @@ const TITLE_ROW_HEIGHT: f32 = 17. * PANEL_LINE_HEIGHT;
 
 /// Height of the collapsed Services header, including the inline history strip.
 const SERVICE_SUMMARY_HEIGHT: f32 = 56.;
+const DETAIL_FRAME_PADDING: f32 = 16.;
+const DETAIL_FRAME_GAP: f32 = 12.;
+const HOST_DETAIL_GAP: f32 = 8.;
+const HOST_LABEL_SIZE: f32 = 13.;
+const HOST_METRIC_SIZE: f32 = 14.;
+const HOST_CPU_HISTORY_HEIGHT: f32 = 40.;
+const HOST_NETWORK_HISTORY_HEIGHT: f32 = 48.;
+const CORE_GRID_ROW_GAP: f32 = 6.;
+// Frame, title, two chart labels and plots, then the memory and disk rows.
+const HOST_DETAIL_BASE_HEIGHT: f32 = 2.
+    + 2. * DETAIL_FRAME_PADDING
+    + TITLE_ROW_HEIGHT
+    + DETAIL_FRAME_GAP
+    + 2. * HOST_LABEL_SIZE * PANEL_LINE_HEIGHT
+    + HOST_CPU_HISTORY_HEIGHT
+    + HOST_NETWORK_HISTORY_HEIGHT
+    + 2. * HOST_METRIC_SIZE * PANEL_LINE_HEIGHT
+    + 5. * HOST_DETAIL_GAP;
 
 /// Height of an expanded feed card within its column.
 pub fn expanded_panel_height(feed: &StatusFeed, layout: StatusLayout) -> f32 {
@@ -155,6 +240,28 @@ pub fn expanded_panel_height(feed: &StatusFeed, layout: StatusLayout) -> f32 {
             list_panel_height(services.len())
         }
         (StatusCollector::Kuma(_), _) => 144.,
+        (
+            collector @ (StatusCollector::Local(_) | StatusCollector::Glances(_)),
+            Some(FeedData::Host(host)),
+        ) => {
+            let core_rows = host
+                .core_percents
+                .len()
+                .div_ceil(core_grid_columns(&host.core_percents));
+            let core_height = if core_rows > 0 {
+                HOST_DETAIL_GAP
+                    + core_rows as f32 * HOST_LABEL_SIZE * PANEL_LINE_HEIGHT
+                    + (core_rows - 1) as f32 * CORE_GRID_ROW_GAP
+            } else {
+                0.
+            };
+            let battery_height = if matches!(collector, StatusCollector::Local(_)) {
+                HOST_DETAIL_GAP + HOST_LABEL_SIZE * PANEL_LINE_HEIGHT
+            } else {
+                0.
+            };
+            HOST_DETAIL_BASE_HEIGHT + battery_height + core_height
+        }
         _ => 368.,
     };
     height.min(layout.panel_area)
@@ -174,7 +281,7 @@ fn list_panel_height(rows: usize) -> f32 {
 
 /// Height of the panel of `feed` in a side column, in design pixels.
 /// `carded` lists the devices that the tailnet panel leaves out.
-pub fn side_panel_height(feed: &StatusFeed, carded: &[String]) -> f32 {
+pub fn side_panel_height(feed: &StatusFeed, carded: &CardedTailnetDevices) -> f32 {
     let rows = match (&feed.spec.collector, feed.latest_reading()) {
         (StatusCollector::Glances(_) | StatusCollector::Local(_), _) => {
             return HOST_CARD_HEIGHT;
@@ -182,14 +289,7 @@ pub fn side_panel_height(feed: &StatusFeed, carded: &[String]) -> f32 {
         (StatusCollector::TailnetHost(_), _) => return HOST_CARD_HEIGHT,
         (StatusCollector::Kuma(_), _) => return SERVICE_SUMMARY_HEIGHT,
         (_, Some(FeedData::Disks(disks))) => disks.len(),
-        (_, Some(FeedData::Tailnet(devices))) => devices
-            .iter()
-            .filter(|device| {
-                !carded
-                    .iter()
-                    .any(|name| name.eq_ignore_ascii_case(&device.name))
-            })
-            .count(),
+        (_, Some(FeedData::Tailnet(devices))) => carded.visible_devices(devices).count(),
         _ => 0,
     };
     list_panel_height(rows)
@@ -204,6 +304,7 @@ struct FeedView<'a> {
     redraw: &'a StatusRedrawTimer,
     now: OffsetDateTime,
     close_details: Option<WeakEntity<FeedPanelView>>,
+    detail_scroll: Option<&'a ScrollHandle>,
 }
 
 impl FeedView<'_> {
@@ -238,7 +339,11 @@ fn feed_panel(
     compact: bool,
 ) -> Div {
     let theme = StatusTheme(view.style.palette);
-    let (padding, gap) = if compact { (12., 8.) } else { (16., 12.) };
+    let (padding, gap) = if compact {
+        (12., 8.)
+    } else {
+        (DETAIL_FRAME_PADDING, DETAIL_FRAME_GAP)
+    };
     let (state_text, state_color) = match view.freshness {
         FeedFreshness::Waiting => (Some("connecting".to_string()), theme.info()),
         FeedFreshness::Live => (header_fact, theme.muted()),
@@ -322,7 +427,7 @@ fn feed_panel(
                     view.close_details
                         .clone()
                         .filter(|_| {
-                            view.feed.spec.show_btop
+                            view.feed.spec.collector.shows_host_btop()
                                 && matches!(view.reading(), Some(FeedData::Host(_)))
                         })
                         .map(|panel| {
@@ -457,7 +562,7 @@ fn metric_row(
         .flex()
         .items_center()
         .gap(s(12.))
-        .text_size(s(14.))
+        .text_size(s(HOST_METRIC_SIZE))
         .child(
             div()
                 .w(s(48.))
@@ -486,17 +591,17 @@ fn core_grid(theme: StatusTheme, s: Scale, cores: &[f32], dim: bool) -> Div {
     div()
         .grid()
         .grid_cols(core_grid_columns(cores) as u16)
-        .gap_x(s(24.))
-        .gap_y(s(6.))
-        .text_size(s(13.))
+        .gap_x(s(12.))
+        .gap_y(s(CORE_GRID_ROW_GAP))
+        .text_size(s(HOST_LABEL_SIZE))
         .children(cores.iter().enumerate().map(|(index, percent)| {
             div()
                 .flex()
                 .items_center()
-                .gap(s(8.))
+                .gap(s(4.))
                 .child(
                     div()
-                        .w(s(24.))
+                        .w(s(16.))
                         .flex_none()
                         .text_color(theme.faint())
                         .child(index.to_string()),
@@ -504,7 +609,7 @@ fn core_grid(theme: StatusTheme, s: Scale, cores: &[f32], dim: bool) -> Div {
                 .child(meter(theme, s, Some(percent / 100.0), 4., dim))
                 .child(
                     div()
-                        .w(s(40.))
+                        .w(s(34.))
                         .flex_none()
                         .flex()
                         .justify_end()
@@ -514,78 +619,159 @@ fn core_grid(theme: StatusTheme, s: Scale, cores: &[f32], dim: bool) -> Div {
         }))
 }
 
-fn host_panel(s: Scale, view: &FeedView, panel_height: f32, detail: bool) -> Div {
+fn host_panel(s: Scale, view: &FeedView, battery: Option<Option<&BatteryReading>>) -> Div {
+    let detail = view.detail_scroll.is_some();
     let theme = StatusTheme(view.style.palette);
+    let battery_label = (!detail)
+        .then_some(battery.flatten())
+        .flatten()
+        .map(|reading| host_battery_label(s, theme, reading));
     let host = match view.reading() {
         Some(FeedData::Host(host)) => host,
         Some(FeedData::HostPresence(_)) => return presence_panel(s, view, !detail),
         _ => {
+            let has_battery_label = battery_label.is_some();
             let body = if detail {
                 empty_body(s, view)
             } else {
-                div().into_any_element()
+                div().children(battery_label).into_any_element()
             };
             return feed_panel(s, view, None, body, !detail)
-                .when(!detail, |panel| panel.justify_center().gap_0());
+                .when(!detail && !has_battery_label, |panel| {
+                    panel.justify_center().gap_0()
+                });
         }
     };
-    let body = if detail {
-        host_body(
+    if let Some(scroll) = view.detail_scroll {
+        let body = host_body(
             theme,
             s,
             host,
             view.feed.host_history(),
-            panel_height,
             view.dim(),
-        )
+            battery,
+            scroll,
+        );
+        return feed_panel(s, view, None, body.into_any_element(), false);
+    }
+    let HostSummary { uptime, values } = HostSummary::from_metrics(host);
+    let status = if battery.is_some() {
+        battery_label
     } else {
-        host_summary(theme, s, host, view.dim())
-    };
-    feed_panel(
-        s,
-        view,
-        host.uptime_seconds
-            .filter(|_| !detail)
-            .map(|up| format!("up {}", format_status_uptime(up))),
-        body.into_any_element(),
-        !detail,
-    )
-}
-
-fn host_summary(theme: StatusTheme, s: Scale, host: &HostMetrics, dim: bool) -> Div {
-    let percent = |part: Option<u64>, total: Option<u64>| {
-        part.zip(total)
-            .filter(|(_, total)| *total > 0)
-            .map_or("—".into(), |(part, total)| {
-                format!("{:.0}%", part as f64 / total as f64 * 100.)
-            })
-    };
-    let metrics = [
-        (
-            "CPU",
-            host.cpu_percent
-                .map_or("—".into(), |value| format!("{value:.0}%")),
-        ),
-        (
-            "Mem",
-            percent(host.memory_used_bytes, host.memory_total_bytes),
-        ),
-        ("Disk", percent(host.disk_used_bytes, host.disk_total_bytes)),
-    ];
-    div()
-        .flex()
-        .items_center()
-        .justify_between()
-        .gap(s(8.))
-        .text_size(s(14.))
-        .children(metrics.into_iter().map(|(label, value)| {
+        (view.freshness == FeedFreshness::Live).then(|| {
             div()
                 .flex()
                 .items_center()
-                .gap(s(6.))
-                .child(div().text_color(theme.muted()).child(label))
-                .child(div().text_color(value_color(theme, dim)).child(value))
+                .gap(s(10.))
+                .text_color(theme.text())
+                .child(status_dot(s, theme.ok()))
+                .child("online")
+        })
+    };
+    let body = host_summary(theme, s, status, values, view.dim());
+    feed_panel(s, view, uptime, body.into_any_element(), true)
+}
+
+fn host_battery_label(s: Scale, theme: StatusTheme, reading: &BatteryReading) -> Div {
+    div()
+        .truncate()
+        .text_size(s(13.))
+        .text_color(theme.text())
+        .child(reading.label.clone())
+}
+
+fn battery_details(s: Scale, theme: StatusTheme, reading: Option<&BatteryReading>) -> Div {
+    div()
+        .flex()
+        .flex_wrap()
+        .items_center()
+        .gap_x(s(12.))
+        .text_size(s(HOST_LABEL_SIZE))
+        .child(div().text_color(theme.muted()).child("Battery"))
+        .child(reading.map_or_else(|| "Unavailable".into(), |battery| battery.label.clone()))
+        .children(reading.and_then(|battery| battery.net_watts).map(|watts| {
+            div()
+                .whitespace_nowrap()
+                .child(format!("Net {watts:+.1} W"))
         }))
+        .children(reading.filter(|battery| battery.on_battery).map(|battery| {
+            let estimate = battery.remaining_seconds.map_or_else(
+                || "Estimate unavailable".into(),
+                |seconds| {
+                    if seconds < 60 {
+                        "<1m left".into()
+                    } else {
+                        format!("{} left", format_status_uptime(seconds))
+                    }
+                },
+            );
+            div().whitespace_nowrap().child(estimate)
+        }))
+}
+
+/// Text shown by the compact host card, independent of its full metric history.
+#[derive(PartialEq, Eq)]
+struct HostSummary {
+    uptime: Option<String>,
+    values: [String; 3],
+}
+
+impl HostSummary {
+    fn from_metrics(host: &HostMetrics) -> Self {
+        let percent = |part: Option<u64>, total: Option<u64>| {
+            part.zip(total).filter(|(_, total)| *total > 0).map_or_else(
+                || "—".into(),
+                |(part, total)| format!("{:.0}%", part as f64 / total as f64 * 100.),
+            )
+        };
+        Self {
+            uptime: host
+                .uptime_seconds
+                .map(|up| format!("up {}", format_status_uptime(up))),
+            values: [
+                host.cpu_percent
+                    .map_or_else(|| "—".into(), |value| format!("{value:.0}%")),
+                percent(host.memory_used_bytes, host.memory_total_bytes),
+                percent(host.disk_used_bytes, host.disk_total_bytes),
+            ],
+        }
+    }
+}
+
+fn host_summary(
+    theme: StatusTheme,
+    s: Scale,
+    status: Option<Div>,
+    values: [String; 3],
+    dim: bool,
+) -> Div {
+    div()
+        .flex()
+        .items_center()
+        .gap(s(8.))
+        .text_size(s(13.))
+        .child(div().flex_1().min_w_0().children(status))
+        .child(
+            div()
+                .flex()
+                .flex_none()
+                .items_center()
+                .gap(s(8.))
+                .whitespace_nowrap()
+                .children(
+                    ["CPU", "Mem", "Disk"]
+                        .into_iter()
+                        .zip(values)
+                        .map(|(label, value)| {
+                            div()
+                                .flex()
+                                .items_center()
+                                .gap(s(4.))
+                                .child(div().text_color(theme.muted()).child(label))
+                                .child(div().text_color(value_color(theme, dim)).child(value))
+                        }),
+                ),
+        )
 }
 
 fn host_body(
@@ -593,15 +779,10 @@ fn host_body(
     s: Scale,
     host: &HostMetrics,
     history: &HostHistory,
-    panel_height: f32,
     dim: bool,
-) -> Div {
-    let core_rows = host
-        .core_percents
-        .len()
-        .div_ceil(core_grid_columns(&host.core_percents));
-    let show_cores = !host.core_percents.is_empty()
-        && panel_height >= HOST_PANEL_BASE_HEIGHT + CORE_GRID_ROW_HEIGHT * core_rows as f32;
+    battery: Option<Option<&BatteryReading>>,
+    scroll: &ScrollHandle,
+) -> impl IntoElement {
     let ratio = |used: Option<u64>, total: Option<u64>| match (used, total) {
         (Some(used), Some(total)) if total > 0 => Some(used as f32 / total as f32),
         _ => None,
@@ -616,19 +797,13 @@ fn host_body(
         Some(t) if t >= 75.0 => theme.warn(),
         _ => theme.text(),
     };
-    let peak = history
-        .network_receive_rate
-        .iter()
-        .chain(&history.network_send_rate)
-        .copied()
-        .fold(NETWORK_GRAPH_FLOOR, f64::max);
     let rate_text = |rate: Option<f64>| rate.map_or("—".into(), format_status_rate);
     let network_header = div()
         .flex()
         .flex_wrap()
         .items_center()
         .gap_x(s(8.))
-        .text_size(s(13.))
+        .text_size(s(HOST_LABEL_SIZE))
         .child(div().text_color(theme.muted()).child("Net"))
         .child(
             div()
@@ -642,14 +817,13 @@ fn host_body(
         );
     let cpu_header = div()
         .flex()
+        .flex_wrap()
         .items_center()
-        .gap(s(8.))
-        .text_size(s(13.))
+        .gap(s(HOST_DETAIL_GAP))
+        .text_size(s(HOST_LABEL_SIZE))
         .child(div().text_color(theme.muted()).child("CPU"))
         .child(
             div()
-                .text_size(s(22.))
-                .line_height(s(28.))
                 .text_color(value_color(theme, dim))
                 .child(host.cpu_percent.map_or("—".into(), |p| format!("{p:.0}%"))),
         )
@@ -665,23 +839,37 @@ fn host_body(
                 .child(format!("load {load:.2}"))
         }));
     div()
+        .id("host-detail-scroll")
         .flex_1()
         .min_h_0()
+        .overflow_y_scroll()
+        .track_scroll(scroll)
         .flex()
         .flex_col()
-        .gap(s(8.))
+        .gap(s(HOST_DETAIL_GAP))
         .child(cpu_header)
-        .child(cpu_graph(s, theme, &history.cpu_percent, dim))
-        .when(show_cores, |body| {
-            body.child(core_grid(theme, s, &host.core_percents, dim))
-        })
+        .child(
+            div()
+                .h(s(HOST_CPU_HISTORY_HEIGHT))
+                .flex_none()
+                .flex()
+                .flex_col()
+                .child(cpu_graph(s, theme, &history.cpu_percent, dim)),
+        )
         .child(network_header)
-        .child(network_graph(s, theme, history, peak, dim))
+        .child(
+            div()
+                .h(s(HOST_NETWORK_HISTORY_HEIGHT))
+                .flex_none()
+                .flex()
+                .flex_col()
+                .child(network_graph(s, theme, history, dim)),
+        )
         .child(
             div()
                 .flex()
                 .flex_col()
-                .gap(s(8.))
+                .gap(s(HOST_DETAIL_GAP))
                 .child(metric_row(
                     theme,
                     s,
@@ -699,14 +887,18 @@ fn host_body(
                     dim,
                 )),
         )
+        .children(battery.map(|reading| battery_details(s, theme, reading)))
+        .when(!host.core_percents.is_empty(), |body| {
+            body.child(core_grid(theme, s, &host.core_percents, dim))
+        })
 }
 
 fn status_dot(s: Scale, color: Hsla) -> Div {
     div().flex_none().size(s(8.)).rounded(s(4.)).bg(color)
 }
 
-/// List row: state dot, name, then right-aligned columns of fixed width.
-fn list_row(s: Scale, color: Hsla, name: String, columns: Vec<(String, f32, Hsla)>) -> Div {
+/// List row with a state dot and a name that leaves room for trailing details.
+fn list_row(s: Scale, color: Hsla, name: String) -> Div {
     div()
         .flex()
         .items_center()
@@ -714,15 +906,6 @@ fn list_row(s: Scale, color: Hsla, name: String, columns: Vec<(String, f32, Hsla
         .text_size(s(14.))
         .child(status_dot(s, color))
         .child(div().flex_1().min_w_0().truncate().child(name))
-        .children(columns.into_iter().map(|(text, width, color)| {
-            div()
-                .flex_none()
-                .w(s(width))
-                .flex()
-                .justify_end()
-                .text_color(color)
-                .child(text)
-        }))
 }
 
 fn list_body(s: Scale, rows: impl IntoIterator<Item = Div>) -> AnyElement {
@@ -734,7 +917,7 @@ fn list_body(s: Scale, rows: impl IntoIterator<Item = Div>) -> AnyElement {
         .into_any_element()
 }
 
-fn services_panel(s: Scale, view: &FeedView, expanded: bool) -> Div {
+fn services_panel(s: Scale, view: &FeedView) -> Div {
     let theme = StatusTheme(view.style.palette);
     let reading = match view.reading() {
         Some(FeedData::Services(services)) => Some(services),
@@ -747,11 +930,11 @@ fn services_panel(s: Scale, view: &FeedView, expanded: bool) -> Div {
             .count();
         format!("{up}/{} up", services.len())
     });
-    if !expanded {
+    let Some(scroll) = view.detail_scroll else {
         return feed_panel(s, view, summary, div().into_any_element(), true)
             .justify_center()
             .gap_0();
-    }
+    };
     let Some(services) = reading else {
         return feed_panel(s, view, summary, empty_body(s, view), false);
     };
@@ -770,7 +953,7 @@ fn services_panel(s: Scale, view: &FeedView, expanded: bool) -> Div {
         } else {
             service_state_color(theme, service.state)
         };
-        list_row(s, color, service.name.clone(), Vec::new()).child(service_history_strip(
+        list_row(s, color, service.name.clone()).child(service_history_strip(
             s,
             theme,
             service,
@@ -782,6 +965,7 @@ fn services_panel(s: Scale, view: &FeedView, expanded: bool) -> Div {
         .flex_1()
         .min_h_0()
         .overflow_y_scroll()
+        .track_scroll(scroll)
         .child(list_body(s, rows));
     feed_panel(s, view, summary, body.into_any_element(), false)
 }
@@ -804,11 +988,8 @@ fn disks_panel(s: Scale, view: &FeedView) -> Div {
             DiskState::FailedBoth => (theme.bad(), "failed"),
         };
         let color = if dim { theme.faint() } else { color };
-        list_row(
-            s,
-            color,
-            disk.device.clone(),
-            vec![
+        list_row(s, color, disk.device.clone()).children(
+            [
                 (
                     disk.temperature_celsius
                         .map_or(String::new(), |t| format!("{t:.0}°C")),
@@ -817,7 +998,17 @@ fn disks_panel(s: Scale, view: &FeedView) -> Div {
                 ),
                 (format_status_bytes(disk.capacity_bytes), 64., theme.muted()),
                 (state.to_string(), 80., color),
-            ],
+            ]
+            .into_iter()
+            .map(|(text, width, color)| {
+                div()
+                    .flex_none()
+                    .w(s(width))
+                    .flex()
+                    .justify_end()
+                    .text_color(color)
+                    .child(text)
+            }),
         )
     });
     feed_panel(
@@ -829,19 +1020,12 @@ fn disks_panel(s: Scale, view: &FeedView) -> Div {
     )
 }
 
-fn tailnet_panel(s: Scale, view: &FeedView, carded: &[String]) -> Div {
+fn tailnet_panel(s: Scale, view: &FeedView, carded: &CardedTailnetDevices) -> Div {
     let theme = StatusTheme(view.style.palette);
     let Some(FeedData::Tailnet(devices)) = view.reading() else {
         return feed_panel(s, view, None, empty_body(s, view), false);
     };
-    let devices: Vec<&TailnetDevice> = devices
-        .iter()
-        .filter(|device| {
-            !carded
-                .iter()
-                .any(|name| name.eq_ignore_ascii_case(&device.name))
-        })
-        .collect();
+    let devices: Vec<_> = carded.visible_devices(devices).collect();
     let dim = view.dim();
     let online = devices.iter().filter(|d| d.online).count();
     let rows = devices.iter().map(|device| {
@@ -849,17 +1033,30 @@ fn tailnet_panel(s: Scale, view: &FeedView, carded: &[String]) -> Div {
             (true, _) | (_, false) => theme.faint(),
             (_, true) => theme.ok(),
         };
-        let connection = tailnet_connection_text(view, device);
-        list_row(
-            s,
-            color,
-            device.name.clone(),
-            vec![
-                (device.os.clone(), 64., theme.muted()),
-                (connection, 96., theme.muted()),
-            ],
-        )
-        .when(!device.online, |row| row.text_color(theme.muted()))
+        let offline = (!device.online).then(|| {
+            device
+                .last_seen
+                .map_or_else(|| "offline".into(), |at| view.ago(Some(at)))
+        });
+        list_row(s, color, device.name.clone())
+            .when(!device.online, |row| row.text_color(theme.muted()))
+            .when(!device.os.is_empty() || offline.is_some(), |row| {
+                row.child(
+                    div()
+                        .flex()
+                        .flex_none()
+                        .max_w(relative(0.6))
+                        .items_center()
+                        .gap(s(10.))
+                        .text_color(theme.muted())
+                        .when(!device.os.is_empty(), |details| {
+                            details.child(div().min_w_0().truncate().child(device.os.clone()))
+                        })
+                        .children(
+                            offline.map(|text| div().flex_none().whitespace_nowrap().child(text)),
+                        ),
+                )
+            })
     });
     feed_panel(
         s,
@@ -910,8 +1107,6 @@ fn presence_panel(s: Scale, view: &FeedView, compact: bool) -> Div {
                 .text_color(state_color)
                 .child(state),
         );
-    // An offline device shows its last-seen age in the body only.
-    let path = device.online.then(|| tailnet_connection_text(view, device));
     let Some(error) = metrics_error.as_ref().filter(|_| !compact) else {
         // Keep the state and OS on one line in the collapsed host card.
         let row = state_row.child(div().flex_none().text_color(theme.muted()).child(
@@ -921,7 +1116,7 @@ fn presence_panel(s: Scale, view: &FeedView, compact: bool) -> Div {
                 device.os.clone()
             },
         ));
-        return feed_panel(s, view, path, row.into_any_element(), true);
+        return feed_panel(s, view, None, row.into_any_element(), true);
     };
     let body = div()
         .flex()
@@ -931,7 +1126,7 @@ fn presence_panel(s: Scale, view: &FeedView, compact: bool) -> Div {
         .child(state_row)
         .child(div().text_color(theme.muted()).child(device.os.clone()))
         .child(presence_note(theme, s, device, error, dim));
-    feed_panel(s, view, path, body.into_any_element(), compact)
+    feed_panel(s, view, None, body.into_any_element(), compact)
 }
 
 /// Note under the presence card of a Glances host: why the card shows no
@@ -962,20 +1157,5 @@ fn presence_note(
                     .truncate()
                     .child(error.to_string()),
             ),
-    }
-}
-
-/// Tailscale path to a device, such as `direct` or `relay lax`.
-fn tailnet_connection_text(view: &FeedView, device: &TailnetDevice) -> String {
-    match &device.connection {
-        // The display machine needs no path text.
-        TailnetConnection::ThisMachine => "-".to_string(),
-        TailnetConnection::Direct => "direct".to_string(),
-        TailnetConnection::Relay(relay) => format!("relay {relay}"),
-        TailnetConnection::Idle => "idle".to_string(),
-        TailnetConnection::Offline => match device.last_seen {
-            Some(_) => view.ago(device.last_seen),
-            None => "offline".to_string(),
-        },
     }
 }

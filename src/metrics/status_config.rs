@@ -4,13 +4,18 @@
 //! Git, because it names private hosts. See `config.example.toml`.
 
 use std::{
+    io,
     path::{Path, PathBuf},
     time::Duration,
 };
 
 use anyhow::{Context as _, ensure};
 use serde::{Deserialize, Serialize};
-use ureq::http::Uri;
+use ureq::{
+    SendBody,
+    http::{Request, Uri},
+    middleware::MiddlewareNext,
+};
 
 use crate::{
     metrics::collectors::collector_glances::GlancesCollector,
@@ -42,6 +47,9 @@ pub struct StatusConfig {
     /// If omitted, the preset gallery stays hidden.
     #[serde(default)]
     pub preset_wallpapers: Option<PathBuf>,
+    /// Connect directly to metrics URLs with no proxy or redirects.
+    #[serde(default)]
+    pub direct_metrics_http: bool,
     /// Host cards, in column order. Empty: one card for this machine.
     #[serde(default, rename = "host")]
     pub hosts: Vec<HostConfig>,
@@ -51,6 +59,17 @@ pub struct StatusConfig {
     pub scrutiny: Option<ScrutinyConfig>,
     #[serde(default)]
     pub tailscale: TailscaleConfig,
+}
+
+impl StatusConfig {
+    /// Checks whether the host and service feeds can keep their current readings.
+    pub(crate) fn has_same_status_feeds(&self, other: &Self) -> bool {
+        self.hosts == other.hosts
+            && self.uptime_kuma == other.uptime_kuma
+            && self.scrutiny == other.scrutiny
+            && self.tailscale == other.tailscale
+            && self.direct_metrics_http == other.direct_metrics_http
+    }
 }
 
 /// One named host card with an explicit data source.
@@ -136,21 +155,54 @@ pub fn status_state_path(explicit_config: Option<&Path>) -> Option<PathBuf> {
 /// Reads the configuration. A missing default file gives the default
 /// configuration: one local host card.
 pub fn load_status_config(explicit: Option<&Path>) -> anyhow::Result<StatusConfig> {
-    let path = match explicit {
-        Some(path) => path.to_path_buf(),
-        None => match default_status_config_path() {
-            Some(path) if path.exists() => path,
-            _ => return Ok(StatusConfig::default()),
-        },
-    };
-    let text = std::fs::read_to_string(&path)
-        .with_context(|| format!("cannot read status config {}", path.display()))?;
-    let mut config: StatusConfig = toml::from_str(&text)
-        .with_context(|| format!("status config {} is not valid", path.display()))?;
-    if let (Some(wallpapers), Some(folder)) = (&config.preset_wallpapers, path.parent()) {
-        config.preset_wallpapers = Some(folder.join(wallpapers));
+    StatusConfigFile::new(explicit.map(Path::to_path_buf)).read_status_config()
+}
+
+/// Tracks the selected profile and whether refresh requires it to exist.
+#[derive(Clone, Debug)]
+pub(crate) struct StatusConfigFile {
+    path: Option<PathBuf>,
+    required: bool,
+}
+
+impl StatusConfigFile {
+    /// Resolves the explicit profile or the platform's default config path.
+    pub(crate) fn new(explicit: Option<PathBuf>) -> Self {
+        Self {
+            required: explicit.is_some(),
+            path: explicit.or_else(default_status_config_path),
+        }
     }
-    Ok(config)
+
+    fn read_status_config(&mut self) -> anyhow::Result<StatusConfig> {
+        let Some(path) = self.path.as_deref() else {
+            return Ok(StatusConfig::default());
+        };
+        let text = match std::fs::read_to_string(path) {
+            Err(error) if !self.required && error.kind() == io::ErrorKind::NotFound => {
+                return Ok(StatusConfig::default());
+            }
+            result => {
+                result.with_context(|| format!("cannot read status config {}", path.display()))?
+            }
+        };
+        let mut config: StatusConfig = toml::from_str(&text)
+            .with_context(|| format!("status config {} is not valid", path.display()))?;
+        if let (Some(wallpapers), Some(folder)) = (&config.preset_wallpapers, path.parent()) {
+            config.preset_wallpapers = Some(folder.join(wallpapers));
+        }
+        self.required = true;
+        Ok(config)
+    }
+
+    /// Reads the active profile and validates its data sources.
+    pub(crate) fn load_status_feed_config(
+        &mut self,
+    ) -> anyhow::Result<(StatusConfig, Vec<StatusFeedSpec>)> {
+        let config = self.read_status_config()?;
+        let feeds = build_status_feeds(&config)?;
+        Ok((config, feeds))
+    }
 }
 
 /// One status feed: a collector and the panel that shows its readings.
@@ -162,21 +214,30 @@ pub struct StatusFeedSpec {
     pub source: &'static str,
     pub collector: StatusCollector,
     pub poll_interval: Duration,
-    /// Whether the host card offers the in-app btop window.
-    pub show_btop: bool,
 }
 
 /// Builds the status feeds in display order.
 pub fn build_status_feeds(config: &StatusConfig) -> anyhow::Result<Vec<StatusFeedSpec>> {
     let agent = |interval: Duration| -> ureq::Agent {
-        ureq::Agent::config_builder()
-            .timeout_global(Some(
-                interval
-                    .mul_f32(0.75)
-                    .clamp(Duration::from_millis(1500), Duration::from_secs(10)),
-            ))
-            .build()
-            .into()
+        let builder = ureq::Agent::config_builder().timeout_global(Some(
+            interval
+                .mul_f32(0.75)
+                .clamp(Duration::from_millis(1500), Duration::from_secs(10)),
+        ));
+        let builder = if config.direct_metrics_http {
+            builder.proxy(None).max_redirects(0).middleware(
+                |request: Request<SendBody>, next: MiddlewareNext| {
+                    let response = next.handle(request)?;
+                    if response.status().is_redirection() {
+                        return Err(ureq::Error::StatusCode(response.status().as_u16()));
+                    }
+                    Ok(response)
+                },
+            )
+        } else {
+            builder
+        };
+        builder.build().into()
     };
     // One reader for all Tailscale feeds, so they share each command run.
     let tailscale = TailscaleStatusReader::new_tailscale_reader(config.tailscale.command.clone());
@@ -197,7 +258,6 @@ pub fn build_status_feeds(config: &StatusConfig) -> anyhow::Result<Vec<StatusFee
                 agent: agent(SERVICE_POLL_INTERVAL),
             }),
             poll_interval: SERVICE_POLL_INTERVAL,
-            show_btop: false,
         });
     }
     if let Some(scrutiny) = &config.scrutiny {
@@ -209,7 +269,6 @@ pub fn build_status_feeds(config: &StatusConfig) -> anyhow::Result<Vec<StatusFee
                 agent: agent(DISK_POLL_INTERVAL),
             }),
             poll_interval: DISK_POLL_INTERVAL,
-            show_btop: false,
         });
     }
     if config.tailscale.show_devices {
@@ -218,7 +277,6 @@ pub fn build_status_feeds(config: &StatusConfig) -> anyhow::Result<Vec<StatusFee
             source: "Tailscale",
             collector: StatusCollector::Tailscale(TailscaleCollector { reader: tailscale }),
             poll_interval: TAILNET_POLL_INTERVAL,
-            show_btop: false,
         });
     }
     Ok(feeds)
@@ -250,13 +308,13 @@ fn host_feed_spec(
                 base_url: source_url(url)
                     .with_context(|| format!("invalid Glances URL for {title}"))?,
                 agent,
+                show_btop: *show_btop,
                 presence: fallback_device.as_ref().map(|name| TailnetHostCollector {
                     reader: tailscale.clone(),
                     name: name.clone(),
                 }),
             }),
             poll_interval: HOST_POLL_INTERVAL,
-            show_btop: *show_btop,
         }),
         HostConfig::Tailscale { device, .. } => Ok(StatusFeedSpec {
             title: title.into(),
@@ -266,7 +324,6 @@ fn host_feed_spec(
                 name: device.clone(),
             }),
             poll_interval: TAILNET_POLL_INTERVAL,
-            show_btop: false,
         }),
     }
 }
@@ -292,7 +349,6 @@ fn local_feed_spec(title: String) -> StatusFeedSpec {
         source: "local",
         collector: StatusCollector::Local(LocalCollector::default()),
         poll_interval: HOST_POLL_INTERVAL,
-        show_btop: false,
     }
 }
 
@@ -317,6 +373,43 @@ mod tests {
         let feeds = build_status_feeds(&config).unwrap();
         assert_eq!(feeds.len(), 1);
         assert_eq!(feeds[0].source, "local");
+    }
+
+    #[test]
+    fn refresh_requires_the_default_config_after_loading_it() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("config.toml");
+        let mut profile = StatusConfigFile {
+            path: Some(path.clone()),
+            required: false,
+        };
+        let (config, _) = profile.load_status_feed_config().unwrap();
+        assert_eq!(config, StatusConfig::default());
+
+        let text =
+            "[[host]]\nname = 'Server'\nsource = 'glances'\nurl = 'http://localhost:61208'\n";
+        std::fs::write(&path, text).unwrap();
+        let (_, feeds) = profile.load_status_feed_config().unwrap();
+        assert_eq!(feeds[0].title, "Server");
+        std::fs::remove_file(&path).unwrap();
+        let error = profile.load_status_feed_config().unwrap_err();
+        assert!(error.to_string().contains("cannot read status config"));
+
+        std::fs::write(&path, text).unwrap();
+        let (_, feeds) = profile.load_status_feed_config().unwrap();
+        assert_eq!(feeds[0].title, "Server");
+    }
+
+    #[test]
+    fn artwork_only_changes_keep_the_same_status_feeds() {
+        let original = StatusConfig::default();
+        let mut edited = StatusConfig {
+            preset_wallpapers: Some(PathBuf::from("wallpapers")),
+            ..StatusConfig::default()
+        };
+        assert!(original.has_same_status_feeds(&edited));
+        edited.direct_metrics_http = true;
+        assert!(!original.has_same_status_feeds(&edited));
     }
 
     #[test]

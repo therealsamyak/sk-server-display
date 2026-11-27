@@ -5,21 +5,21 @@
 //! a root redraw for the clock reuses the panels as they are.
 
 mod status_slideshow_swipe;
+mod status_toolbar;
 mod status_update_view;
 mod status_view_layout;
 mod status_wallpaper_view;
 
-use std::time::{Duration, Instant};
-
 use gpui::{
-    App, AppContext as _, ClickEvent, Context, Entity, FocusHandle, IntoElement, KeyBinding,
-    MouseButton, Render, Subscription, WeakEntity, Window, actions, div, prelude::*, px, relative,
+    App, AppContext as _, Bounds, Context, Entity, FocusHandle, IntoElement, KeyBinding,
+    MouseButton, Pixels, Render, Subscription, WeakEntity, Window, actions, div, prelude::*,
+    relative,
 };
 use time::{OffsetDateTime, UtcOffset};
 
 use crate::{
-    metrics::{StatusBoard, StatusFeed},
-    platform::{StatusPower, status_update::finish_app_update},
+    metrics::{StatusBoard, StatusCollector, StatusFeed},
+    platform::{IdlePowerState, LocalBatteryStatus, StatusPower, status_update::finish_app_update},
     status_fonts::STATUS_MONO_FONT_FAMILY,
     status_startup::{StartupMilestone, log_startup_milestone},
     wallpaper::StatusCarousel,
@@ -28,14 +28,13 @@ use crate::{
 use super::{
     status_btop::{BtopWindowClosed, BtopWindowView},
     status_format::status_clock_text_valid_for,
-    status_panel::{FeedBtopRequested, FeedDetailsClosed, FeedPanelView},
+    status_panel::{CardedTailnetDevices, FeedBtopRequested, FeedDetailsClosed, FeedPanelView},
     status_redraw::StatusRedrawTimer,
     status_theme::{Scale, StatusLayout, StatusTheme},
     status_window::StatusDisplayApp,
 };
 use status_slideshow_swipe::{IncomingPanels, SlideshowSwipe};
 use status_update_view::StatusUpdateDialog;
-use status_view_layout::{SCREEN_PADDING, control_button};
 use status_wallpaper_view::{PickerSession, StatusWallpaper, WallpaperPreview};
 
 actions!(
@@ -47,7 +46,7 @@ actions!(
         ExitFullscreen,
         /// Quits the status display app.
         QuitStatusDisplay,
-        /// Polls every status feed now.
+        /// Reloads the active configuration and polls its feeds.
         RefreshStatus,
         /// Moves the status window to the next display.
         NextStatusDisplay,
@@ -70,14 +69,13 @@ pub(crate) fn bind_status_keys(cx: &mut App) {
     ]);
 }
 
-/// Time that the window controls stay visible after the pointer moves.
-const CONTROLS_VISIBLE_DURATION: Duration = Duration::from_secs(3);
-
 /// Per-window settings of the status view.
 pub struct StatusViewSettings {
     /// Display description, such as `Display 1 of 2 (primary)`.
     pub display_label: String,
     pub local_offset: UtcOffset,
+    /// Whether the app should inhibit idle sleep.
+    pub keep_awake: bool,
 }
 
 /// Status view: clock, alerts, host panels, services, disks, and tailnet.
@@ -92,7 +90,7 @@ pub struct StatusView {
     /// Number of host panels that share the host column.
     host_rows: usize,
     /// Devices with a host card. The tailnet panel leaves them out.
-    carded: Vec<String>,
+    carded: CardedTailnetDevices,
     wallpaper: StatusWallpaper,
     picker: Option<PickerSession>,
     preview: Option<WallpaperPreview>,
@@ -104,10 +102,12 @@ pub struct StatusView {
     incoming_panels: Option<IncomingPanels>,
     /// A swipe moved the pointer since the last press, so its release is not a tap.
     swipe_consumed: bool,
-    controls_latched: bool,
-    power: StatusPower,
-    pointer_moved_at: Option<Instant>,
+    toolbar_hovered: bool,
+    toolbar_bounds: Option<Bounds<Pixels>>,
+    battery: Entity<LocalBatteryStatus>,
+    power: Entity<StatusPower>,
     first_frame_requested: bool,
+    refresh_failed: bool,
     update_busy: bool,
     update_dialog: Option<StatusUpdateDialog>,
     redraw: StatusRedrawTimer,
@@ -117,6 +117,7 @@ pub struct StatusView {
 struct FeedDetailsSession {
     index: usize,
     panel: Entity<FeedPanelView>,
+    incoming: Option<(crate::wallpaper::WallpaperId, Entity<FeedPanelView>)>,
     _close: Subscription,
     _btop: Subscription,
 }
@@ -141,10 +142,16 @@ impl StatusView {
         // The board emits events and does not notify, so the root view draws
         // again only for its own changes and for panel changes.
         let view = cx.weak_entity();
+        let battery = cx.new(LocalBatteryStatus::new_local_battery_status);
+        let power = cx.new(|cx| {
+            let mut power = StatusPower::default();
+            power.set_keep_awake(settings.keep_awake, cx);
+            power
+        });
         let subscriptions = vec![
+            cx.observe(&power, |_, _, cx| cx.notify()),
             window.observe_window_visibility(move |_, window, cx| {
                 if let Err(error) = view.update(cx, |view, cx| {
-                    view.update_display_power(window, cx);
                     if !window.is_visible() {
                         view.pointer_pressed = false;
                         view.swipe = None;
@@ -162,32 +169,15 @@ impl StatusView {
                 cx.notify();
             }),
         ];
-        let feeds = board.read(cx).status_feeds();
-        let is_host = |feed: &&StatusFeed| feed.spec.collector.is_host_collector();
-        let host_count = feeds.iter().filter(is_host).count();
-        // Up to two hosts get one column each. More hosts share one column.
-        let host_rows = if host_count <= 2 { 1 } else { host_count };
-        // Devices with a host card do not repeat in the tailnet list.
-        let carded: Vec<String> = feeds
-            .iter()
-            .filter_map(|feed| feed.spec.collector.tailnet_device_name().map(str::to_owned))
-            .collect();
-        let panels = (0..feeds.len())
-            .map(|index| {
-                let board = board.clone();
-                let carded = carded.clone();
-                cx.new(|cx| FeedPanelView::new_feed_panel(board, index, carded, cx))
-            })
-            .collect();
-        Self {
+        let mut view = Self {
             board,
             carousel,
             controller,
             settings,
             focus_handle,
-            panels,
-            host_rows,
-            carded,
+            panels: Vec::new(),
+            host_rows: 0,
+            carded: CardedTailnetDevices::default(),
             wallpaper: StatusWallpaper::default(),
             picker: None,
             preview: None,
@@ -198,42 +188,97 @@ impl StatusView {
             swipe: None,
             incoming_panels: None,
             swipe_consumed: false,
-            controls_latched: false,
-            power: StatusPower::default(),
-            pointer_moved_at: None,
+            toolbar_hovered: false,
+            toolbar_bounds: None,
+            battery,
+            power,
             first_frame_requested: false,
+            refresh_failed: false,
             update_busy: false,
             update_dialog: None,
             redraw: StatusRedrawTimer::default(),
             _subscriptions: subscriptions,
-        }
+        };
+        view.rebuild_feed_panels(cx);
+        view
     }
 
-    fn update_display_power(&mut self, window: &Window, cx: &Context<Self>) {
-        self.power.set_display_mode(
-            window.is_fullscreen() && window.is_visible(),
-            window,
-            cx.background_executor(),
+    fn rebuild_feed_panels(&mut self, cx: &mut Context<Self>) {
+        let feeds = self.board.read(cx).status_feeds();
+        let is_host = |feed: &&StatusFeed| feed.spec.collector.is_host_collector();
+        let host_count = feeds.iter().filter(is_host).count();
+        // Up to two hosts get one column each. More hosts share one column.
+        self.host_rows = if host_count <= 2 { 1 } else { host_count };
+        // Devices with a host card do not repeat in the tailnet list.
+        self.carded = CardedTailnetDevices::from_status_feeds(feeds);
+        self.panels = (0..feeds.len())
+            .map(|index| self.create_feed_panel(index, cx))
+            .collect();
+    }
+
+    fn create_feed_panel(&self, index: usize, cx: &mut Context<Self>) -> Entity<FeedPanelView> {
+        let battery = self.feed_battery(index, cx);
+        cx.new(|cx| {
+            let mut panel = FeedPanelView::new_feed_panel(
+                self.board.clone(),
+                index,
+                self.carded.clone(),
+                battery,
+                cx,
+            );
+            panel.set_panel_style(self.wallpaper.style, cx);
+            panel
+        })
+    }
+
+    fn feed_battery(&self, index: usize, cx: &App) -> Option<Entity<LocalBatteryStatus>> {
+        matches!(
+            self.board.read(cx).status_feeds()[index].spec.collector,
+            StatusCollector::Local(_)
+        )
+        .then(|| self.battery.clone())
+    }
+
+    fn toggle_keep_awake(&mut self, cx: &mut Context<Self>) {
+        let keep_awake = matches!(
+            self.power.read(cx).idle_power_state(),
+            IdlePowerState::Off | IdlePowerState::Failed
         );
+        if let Err(error) = self
+            .controller
+            .update(cx, |app, _| app.keep_awake = keep_awake)
+        {
+            log::debug!("status display closed: {error}");
+            return;
+        }
+        self.power
+            .update(cx, |power, cx| power.set_keep_awake(keep_awake, cx));
     }
 
     fn open_feed_details(&mut self, index: usize, window: &mut Window, cx: &mut Context<Self>) {
         let board = self.board.clone();
-        let panel =
-            cx.new(|cx| FeedPanelView::new_expanded_panel(board, index, self.wallpaper.style, cx));
+        let battery = self.feed_battery(index, cx);
+        let panel = cx.new(|cx| {
+            FeedPanelView::new_expanded_panel(board, index, self.wallpaper.style, battery, cx)
+        });
         let close = cx.subscribe(&panel, |view, _, _: &FeedDetailsClosed, cx| {
-            view.close_feed_details(cx);
+            if !view.swipe_consumed && !view.swipe_in_motion() {
+                view.close_feed_details(cx);
+            }
         });
         let btop = cx.subscribe_in(
             &panel,
             window,
             move |view, _, _: &FeedBtopRequested, window, cx| {
-                view.open_btop_window(index, window, cx);
+                if !view.swipe_consumed && !view.swipe_in_motion() {
+                    view.open_btop_window(index, window, cx);
+                }
             },
         );
         self.details = Some(FeedDetailsSession {
             index,
             panel,
+            incoming: None,
             _close: close,
             _btop: btop,
         });
@@ -274,10 +319,6 @@ impl StatusView {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if window.is_fullscreen() {
-            self.power
-                .set_display_mode(false, window, cx.background_executor());
-        }
         window.toggle_fullscreen();
         cx.notify();
     }
@@ -304,8 +345,42 @@ impl StatusView {
     }
 
     fn refresh(&mut self, _: &RefreshStatus, _: &mut Window, cx: &mut Context<Self>) {
-        self.board
-            .update(cx, |board, cx| board.refresh_all_feeds(cx));
+        if let Err(error) = self
+            .controller
+            .update(cx, |controller, cx| controller.refresh_status_profile(cx))
+        {
+            log::debug!("status display closed before refresh: {error:#}");
+        }
+    }
+
+    /// Apply a validated profile to the running dashboard.
+    pub fn apply_status_profile(
+        &mut self,
+        board: Option<Entity<StatusBoard>>,
+        presets_changed: bool,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if let Some(board) = board {
+            self.board = board;
+            self.details = None;
+            self.btop = None;
+            self.incoming_panels = None;
+            self.rebuild_feed_panels(cx);
+        }
+        if presets_changed {
+            self.swipe = None;
+            self.incoming_panels = None;
+            self.reload_preset_wallpapers(window, cx);
+        }
+        self.refresh_failed = false;
+        cx.notify();
+    }
+
+    /// Indicate that refreshing the configuration failed.
+    pub fn show_refresh_error(&mut self, cx: &mut Context<Self>) {
+        self.refresh_failed = true;
+        cx.notify();
     }
 
     fn next_display(&mut self, _: &NextStatusDisplay, _: &mut Window, cx: &mut Context<Self>) {
@@ -336,7 +411,6 @@ impl Render for StatusView {
                 }
             });
         }
-        self.update_display_power(window, cx);
         self.finish_swipe(window, cx);
         self.update_wallpaper(window, cx);
         self.warm_slideshow(window, cx);
@@ -350,86 +424,16 @@ impl Render for StatusView {
 
         let style = self.wallpaper.style;
         let theme = StatusTheme(style.palette);
-        let is_fullscreen = window.is_fullscreen();
-        let controls_left = self
-            .pointer_moved_at
-            .and_then(|at| CONTROLS_VISIBLE_DURATION.checked_sub(at.elapsed()));
         let modal = self.picker.is_some() || self.update_dialog.is_some();
+        let toolbar_present = !modal || self.preview.is_some();
+        if !toolbar_present {
+            self.toolbar_hovered = false;
+            self.toolbar_bounds = None;
+        }
         let show_window_controls =
             !modal && self.details.is_none() && !self.automatic_slide_in_motion();
-        let slideshow_taps = !modal
-            && self.preview.is_none()
-            && self.carousel.read(cx).state.playing_playlist().is_some();
-        if show_window_controls && let Some(left) = controls_left {
-            self.redraw.redraw_after(left);
-        }
-        let controls = div()
-            .flex()
-            .flex_wrap()
-            .justify_end()
-            .items_center()
-            .gap(s(8.))
-            .child(
-                div()
-                    .text_size(s(13.))
-                    .text_color(theme.muted())
-                    .px(s(8.))
-                    .py(s(4.))
-                    .rounded(s(6.))
-                    .bg(theme.panel())
-                    .child(self.settings.display_label.clone()),
-            )
-            .child(control_button(
-                s,
-                theme,
-                "control-fullscreen",
-                if is_fullscreen {
-                    "Windowed"
-                } else {
-                    "Fullscreen"
-                },
-                cx.listener(|this, _: &ClickEvent, window, cx| {
-                    this.toggle_fullscreen(&ToggleFullscreen, window, cx)
-                }),
-            ))
-            .child(control_button(
-                s,
-                theme,
-                "control-next-display",
-                "Next display",
-                cx.listener(|this, _: &ClickEvent, window, cx| {
-                    this.next_display(&NextStatusDisplay, window, cx)
-                }),
-            ))
-            .child(control_button(
-                s,
-                theme,
-                "control-refresh",
-                "Refresh",
-                cx.listener(|this, _: &ClickEvent, window, cx| {
-                    this.refresh(&RefreshStatus, window, cx)
-                }),
-            ))
-            .child(control_button(
-                s,
-                theme,
-                "control-update",
-                if self.update_busy {
-                    "Updating…"
-                } else {
-                    "Check for updates"
-                },
-                cx.listener(|this, _, window, cx| this.check_for_updates(window, cx)),
-            ))
-            .child(control_button(
-                s,
-                theme,
-                "control-quit",
-                "Quit",
-                cx.listener(|this, _: &ClickEvent, window, cx| {
-                    this.quit(&QuitStatusDisplay, window, cx)
-                }),
-            ));
+        let slideshow_taps =
+            !modal && self.preview.is_none() && self.carousel.read(cx).playing_playlist().is_some();
         let root = div()
             .id("status-root")
             .when(self.picker.is_none() || self.preview.is_some(), |root| {
@@ -444,9 +448,6 @@ impl Render for StatusView {
             .capture_any_mouse_down(cx.listener(|this, event: &gpui::MouseDownEvent, _, cx| {
                 if event.button == MouseButton::Left {
                     this.begin_swipe(event.position, cx);
-                    this.controls_latched = this
-                        .pointer_moved_at
-                        .is_some_and(|at| at.elapsed() < CONTROLS_VISIBLE_DURATION);
                     this.pointer_pressed = true;
                 }
             }))
@@ -456,9 +457,6 @@ impl Render for StatusView {
                 }
                 if event.button == MouseButton::Left && this.pointer_pressed {
                     this.pointer_pressed = false;
-                    if !this.swipe_consumed {
-                        this.pointer_moved_at = Some(Instant::now());
-                    }
                     cx.notify();
                 }
             }))
@@ -477,18 +475,6 @@ impl Render for StatusView {
                     if event.dragging() {
                         this.drag_swipe(event.position, window, cx);
                     }
-                    if this.swipe_in_motion() {
-                        return;
-                    }
-                    // Draw again only to show hidden controls. The redraw timer
-                    // hides them after the last move.
-                    let hidden = this
-                        .pointer_moved_at
-                        .is_none_or(|at| at.elapsed() >= CONTROLS_VISIBLE_DURATION);
-                    this.pointer_moved_at = Some(Instant::now());
-                    if hidden {
-                        cx.notify();
-                    }
                 }),
             )
             .relative()
@@ -502,41 +488,14 @@ impl Render for StatusView {
                 root.child(self.slideshow_edge(s, false, cx))
                     .child(self.slideshow_edge(s, true, cx))
             })
-            .when(!modal || self.preview.is_some(), |root| {
-                root.child(
-                    div()
-                        .absolute()
-                        .top(s(SCREEN_PADDING))
-                        .right(s(SCREEN_PADDING))
-                        .left(s(SCREEN_PADDING))
-                        .flex()
-                        .justify_end()
-                        .items_center()
-                        .gap(s(8.))
-                        .when(
-                            self.preview.is_some()
-                                || (show_window_controls
-                                    && if self.pointer_pressed || self.swipe_in_motion() {
-                                        self.controls_latched
-                                    } else {
-                                        controls_left.is_some()
-                                    }),
-                            |bar| bar.child(controls),
-                        )
-                        .child(
-                            control_button(
-                                s,
-                                theme,
-                                "open-wallpaper-picker",
-                                "Wallpaper",
-                                cx.listener(|view, _, window, cx| view.open_picker(window, cx)),
-                            )
-                            .min_h(px(44.))
-                            .flex_none()
-                            .flex()
-                            .items_center(),
-                        ),
-                )
+            .when(toolbar_present, |root| {
+                root.child(self.status_toolbar(
+                    s,
+                    theme,
+                    window,
+                    self.preview.is_some() || show_window_controls,
+                    cx,
+                ))
             })
             .children(
                 self.btop

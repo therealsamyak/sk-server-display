@@ -11,16 +11,50 @@ use gpui::{
 };
 
 use crate::{
-    dashboard::status_format::format_status_rate,
     dashboard::status_theme::{Scale, StatusTheme, threshold_color},
     metrics::{HOST_HISTORY_SAMPLES, HostHistory},
 };
 
-/// Lowest top of the network graph scale, so idle noise stays flat.
-pub const NETWORK_GRAPH_FLOOR: f64 = 64.0 * 1024.0;
+const CPU_SCALE_STEP: f32 = 10.0;
+const NETWORK_SCALE_FLOOR: f64 = 4.0 * 1024.0;
+
+/// Round the 90th percentile of CPU history up to the next ten-point step.
+fn cpu_history_scale(samples: &VecDeque<f32>) -> f32 {
+    let mut values = [0.0; HOST_HISTORY_SAMPLES];
+    let count = samples
+        .iter()
+        .copied()
+        .filter(|percent| percent.is_finite())
+        .zip(values.iter_mut())
+        .map(|(percent, slot)| *slot = percent.clamp(0.0, 100.0))
+        .count();
+    if count == 0 {
+        return CPU_SCALE_STEP;
+    }
+    let rank = count - count / 10 - 1;
+    let (_, percentile, _) = values[..count].select_nth_unstable_by(rank, f32::total_cmp);
+    (percentile.max(CPU_SCALE_STEP) / CPU_SCALE_STEP).ceil() * CPU_SCALE_STEP
+}
+
+/// Use one power-of-two rate scale for both directions of network history.
+fn network_history_scale(history: &HostHistory) -> f64 {
+    let peak = history
+        .network_receive_rate
+        .iter()
+        .chain(&history.network_send_rate)
+        .copied()
+        .filter(|rate| rate.is_finite())
+        .fold(NETWORK_SCALE_FLOOR, f64::max);
+    let ceiling = peak.log2().ceil().exp2();
+    if ceiling.is_finite() {
+        ceiling.max(peak)
+    } else {
+        peak
+    }
+}
 
 /// Opacity of the graph bars over the panel color.
-const GRAPH_BAR_OPACITY: f32 = 0.85;
+pub(super) const GRAPH_BAR_OPACITY: f32 = 0.85;
 
 /// One graph bar: its height as a part of the graph height, and its color.
 type GraphBar = (f32, Hsla);
@@ -32,6 +66,7 @@ fn paint_history_bars(
     gap: Pixels,
     bars: &[GraphBar],
     rising: bool,
+    peak_marker: Option<Hsla>,
     window: &mut Window,
 ) {
     // Bars snap to whole device pixels and are at least one pixel wide. A
@@ -53,14 +88,30 @@ fn paint_history_bars(
             Bounds::new(point(left, y), size(right - left, height)),
             *color,
         ));
+        if let Some(marker) = peak_marker
+            && *fraction > 1.0
+        {
+            let marker_height = (device_pixel * 2.0).min(height);
+            window.paint_quad(fill(
+                Bounds::new(point(left, y), size(right - left, marker_height)),
+                marker,
+            ));
+        }
     }
 }
 
 /// Canvas that paints one set of history bars and fills its parent.
-fn history_canvas(gap: Pixels, bars: Vec<GraphBar>, rising: bool) -> impl IntoElement {
+fn history_canvas(
+    gap: Pixels,
+    bars: Vec<GraphBar>,
+    rising: bool,
+    peak_marker: Option<Hsla>,
+) -> impl IntoElement {
     canvas(
         |_, _, _| {},
-        move |bounds, (), window, _| paint_history_bars(bounds, gap, &bars, rising, window),
+        move |bounds, (), window, _| {
+            paint_history_bars(bounds, gap, &bars, rising, peak_marker, window);
+        },
     )
     .flex_1()
     .min_h_0()
@@ -73,16 +124,21 @@ pub fn cpu_graph(
     samples: &VecDeque<f32>,
     dim: bool,
 ) -> impl IntoElement {
+    let ceiling = cpu_history_scale(samples);
     let bars = samples
         .iter()
         .map(|percent| {
-            let fraction = (percent / 100.0).clamp(0.0, 1.0);
+            let percent = if percent.is_finite() {
+                percent.clamp(0.0, 100.0)
+            } else {
+                0.0
+            };
             let color = if dim {
                 theme.faint()
             } else {
-                threshold_color(theme, fraction)
+                threshold_color(theme, percent / 100.0)
             };
-            (fraction, color.opacity(GRAPH_BAR_OPACITY))
+            (percent / ceiling, color.opacity(GRAPH_BAR_OPACITY))
         })
         .collect();
     div()
@@ -91,32 +147,37 @@ pub fn cpu_graph(
         .flex()
         .border_b_1()
         .border_color(theme.track())
-        .child(history_canvas(s(2.), bars, true))
+        .child(history_canvas(
+            s(2.),
+            bars,
+            true,
+            Some(if dim { theme.faint() } else { theme.text() }),
+        ))
 }
 
 /// Network history graph: receive bars rise from the middle line and send
-/// bars fall from it. The scale is the peak rate of the shown samples.
+/// bars fall from it. Both directions use the same rate ceiling.
 pub fn network_graph(
     s: Scale,
     theme: StatusTheme,
     history: &HostHistory,
-    peak: f64,
     dim: bool,
 ) -> impl IntoElement {
+    let ceiling = network_history_scale(history);
     let bars = |samples: &VecDeque<f64>, color: Hsla| {
         let color = if dim { theme.faint() } else { color };
         samples
             .iter()
             .map(|rate| {
+                let rate = if rate.is_finite() { *rate } else { 0.0 };
                 (
-                    (rate / peak).clamp(0.0, 1.0) as f32,
+                    (rate / ceiling).clamp(0.0, 1.0) as f32,
                     color.opacity(GRAPH_BAR_OPACITY),
                 )
             })
             .collect()
     };
     div()
-        .relative()
         .flex_1()
         .min_h_0()
         .flex()
@@ -125,20 +186,73 @@ pub fn network_graph(
             s(2.),
             bars(&history.network_receive_rate, theme.receive()),
             true,
+            None,
         ))
         .child(div().h(px(1.)).bg(theme.track()))
         .child(history_canvas(
             s(2.),
             bars(&history.network_send_rate, theme.send()),
             false,
+            None,
         ))
-        .child(
-            div()
-                .absolute()
-                .top_0()
-                .left_0()
-                .text_size(s(12.))
-                .text_color(theme.faint())
-                .child(format_status_rate(peak)),
-        )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn cpu_scale_keeps_idle_history_on_a_valid_axis() {
+        let samples = VecDeque::from([0.0, -1.0, f32::NAN, f32::INFINITY]);
+        assert!((cpu_history_scale(&samples) - 10.0).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn cpu_scale_rounds_up_to_fit_a_short_history() {
+        let samples = VecDeque::from([2.0, 23.0, 5.0]);
+        assert!((cpu_history_scale(&samples) - 30.0).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn cpu_scale_shows_typical_load_despite_an_isolated_spike() {
+        let samples = VecDeque::from([2.0, 4.0, 6.0, 2.0, 3.0, 100.0, 5.0, 7.0, 4.0, 3.0]);
+        assert!((cpu_history_scale(&samples) - 10.0).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn cpu_scale_grows_for_sustained_load() {
+        let samples = VecDeque::from([95.0; HOST_HISTORY_SAMPLES]);
+        assert!((cpu_history_scale(&samples) - 100.0).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn cpu_scale_stays_within_one_hundred_percent() {
+        let samples = VecDeque::from([105.0]);
+        assert!((cpu_history_scale(&samples) - 100.0).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn network_scale_keeps_idle_history_on_a_valid_axis() {
+        let history = HostHistory {
+            network_receive_rate: VecDeque::from([f64::NAN, 97.0]),
+            network_send_rate: VecDeque::from([f64::INFINITY, 1000.0]),
+            ..HostHistory::default()
+        };
+        assert!((network_history_scale(&history) - 4096.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn network_scale_includes_the_peak_from_either_direction() {
+        let mut history = HostHistory {
+            network_receive_rate: VecDeque::from([4_000.0]),
+            network_send_rate: VecDeque::from([17_000.0]),
+            ..HostHistory::default()
+        };
+        assert!((network_history_scale(&history) - 32768.0).abs() < f64::EPSILON);
+        std::mem::swap(
+            &mut history.network_receive_rate,
+            &mut history.network_send_rate,
+        );
+        assert!((network_history_scale(&history) - 32768.0).abs() < f64::EPSILON);
+    }
 }

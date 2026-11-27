@@ -75,6 +75,17 @@ impl StatusWallpaper {
 }
 
 impl StatusView {
+    /// Request fresh wallpaper images after the profile's presets change.
+    pub(super) fn reload_preset_wallpapers(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.picker.is_some() {
+            self.close_picker(window, cx);
+        }
+        self.wallpaper.requested = None;
+        self.wallpaper.ready = None;
+        self.wallpaper.task = None;
+        self.warm_slideshow(window, cx);
+    }
+
     /// Tap area in the left or right window margin. A tap shows the previous
     /// or next slideshow wallpaper and restarts the slide timer.
     pub(super) fn slideshow_edge(
@@ -112,11 +123,23 @@ impl StatusView {
         }
         let carousel = self.carousel.read(cx);
         let target = wallpaper_target(window);
+        let all_neighbors = matches!(
+            carousel.state.playback,
+            StatusPlaybackMode::Slideshow(PlaylistChoice::All)
+        )
+        .then(|| {
+            [
+                Some(carousel.current),
+                carousel.adjacent_slide(true),
+                carousel.adjacent_slide(false),
+            ]
+        });
+        // All can span the full preset gallery. Keep only the images used by the current transition.
         let entries = carousel
-            .state
             .playing_playlist()
             .into_iter()
             .flat_map(|playlist| &playlist.styles)
+            .filter(|&&id| all_neighbors.is_none_or(|neighbors| neighbors.contains(&Some(id))))
             .filter_map(|&id| Some((id, carousel.wallpaper_path(id)?)));
         if self.wallpaper.slideshow.as_ref().is_some_and(|cache| {
             cache.target == target
@@ -295,7 +318,6 @@ impl StatusView {
         }
         if !self.pointer_pressed
             && !self.swipe_in_motion()
-            && self.details.is_none()
             && let Some(frame) = self.wallpaper.ready.take()
         {
             if let Some(old) = std::mem::replace(&mut self.wallpaper.image, frame.image)
@@ -318,6 +340,11 @@ impl StatusView {
             self.wallpaper.style = frame.style;
             for panel in &self.panels {
                 panel.update(cx, |panel, cx| panel.set_panel_style(frame.style, cx));
+            }
+            if let Some(details) = &self.details {
+                details
+                    .panel
+                    .update(cx, |panel, cx| panel.set_panel_style(frame.style, cx));
             }
             if let Some(btop) = &self.btop {
                 btop.view
@@ -386,7 +413,7 @@ impl StatusView {
                         {
                             *active = new.clone();
                         }
-                        if next.playing_playlist().is_none() {
+                        if next.playing_saved_playlist().is_none() {
                             next.playback =
                                 StatusPlaybackMode::Slideshow(PlaylistChoice::Favorites);
                         }
@@ -396,12 +423,7 @@ impl StatusView {
             }
             StatusPickerEvent::Play { choice, settings } => {
                 let result = self.carousel.update(cx, |carousel, _| {
-                    let mut next = carousel.state.clone();
-                    next.settings = settings.clone();
-                    next.playback = StatusPlaybackMode::Slideshow(choice.clone());
-                    carousel.update_status_playback(next)?;
-                    carousel.select_initial_slide();
-                    Ok(())
+                    carousel.play_status_playlist(choice.clone(), settings.clone())
                 });
                 if result.is_ok() {
                     self.close_picker(window, cx);

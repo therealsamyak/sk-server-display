@@ -1,7 +1,7 @@
 //! Status board: polls every status feed on the GPUI background executor.
 //!
-//! The board does not notify its views. It emits [`StatusFeedUpdated`] for
-//! each poll result, so only the panel of that feed draws again.
+//! The board emits [`StatusFeedUpdated`] when a reading or its freshness
+//! changes, so only views that use that feed need to redraw.
 
 use std::time::{Duration, Instant};
 
@@ -13,20 +13,16 @@ use crate::{
 };
 use gpui::{App, AppContext as _, Context, Entity, EventEmitter, Subscription, Task};
 
-/// Interval of the poll tick that starts the polls that are due.
-const STATUS_POLL_TICK_INTERVAL: Duration = Duration::from_secs(1);
-
-/// Event: one feed has a new poll result, data or error.
+/// Event: a feed's reading, history, error, or freshness changed.
 #[derive(Clone, Copy, Debug)]
 pub struct StatusFeedUpdated {
     /// Index of the feed in [`StatusBoard::status_feeds`].
     pub index: usize,
 }
 
-/// Poll state of one feed: when its last poll started, and the running poll.
-#[derive(Default)]
+/// Poll state of one feed: when it next becomes due, and the running poll.
 struct FeedPoll {
-    started_at: Option<Instant>,
+    due_at: Instant,
     task: Option<Task<()>>,
 }
 
@@ -35,31 +31,15 @@ pub struct StatusBoard {
     feeds: Vec<StatusFeed>,
     polls: Vec<FeedPoll>,
     started_at: Instant,
-    _tick_task: Task<()>,
+    poll_timer: Option<(Instant, Task<()>)>,
     _wake_subscription: Subscription,
 }
 
 impl StatusBoard {
     /// Creates the status board entity and starts the poll loop.
     pub fn new_status_board(specs: Vec<StatusFeedSpec>, cx: &mut App) -> Entity<Self> {
-        cx.new(|cx| {
-            let tick_task = cx.spawn(async move |this, cx| {
-                loop {
-                    let keep_running = this.update(cx, |board: &mut StatusBoard, cx| {
-                        for index in 0..board.feeds.len() {
-                            if board.poll_is_due(index) {
-                                board.start_feed_poll(index, cx);
-                            }
-                        }
-                    });
-                    if keep_running.is_err() {
-                        return;
-                    }
-                    cx.background_executor()
-                        .timer(STATUS_POLL_TICK_INTERVAL)
-                        .await;
-                }
-            });
+        let board = cx.new(|cx: &mut Context<Self>| {
+            let started_at = Instant::now();
             let wake_subscription = cx.on_system_wake({
                 let this = cx.weak_entity();
                 move |cx| {
@@ -68,46 +48,91 @@ impl StatusBoard {
                 }
             });
             Self {
-                polls: specs.iter().map(|_| FeedPoll::default()).collect(),
+                polls: specs
+                    .iter()
+                    .map(|_| FeedPoll {
+                        due_at: started_at,
+                        task: None,
+                    })
+                    .collect(),
                 feeds: specs.into_iter().map(StatusFeed::new_status_feed).collect(),
-                started_at: Instant::now(),
-                _tick_task: tick_task,
+                started_at,
+                poll_timer: None,
                 _wake_subscription: wake_subscription,
             }
-        })
+        });
+        board.update(cx, |board, cx| board.poll_due_feeds(cx));
+        board
     }
 
     /// Starts a poll of every feed now, unless one is already running.
     pub fn refresh_all_feeds(&mut self, cx: &mut Context<Self>) {
+        let now = Instant::now();
         for index in 0..self.feeds.len() {
-            self.start_feed_poll(index, cx);
+            self.start_feed_poll(index, now, cx);
         }
+        self.schedule_next_poll(cx);
     }
 
-    fn poll_is_due(&self, index: usize) -> bool {
-        let interval = self.feeds[index].policy.poll_interval;
-        self.polls[index]
-            .started_at
-            .is_none_or(|started| started.elapsed() >= interval)
+    fn poll_due_feeds(&mut self, cx: &mut Context<Self>) {
+        let now = Instant::now();
+        for index in 0..self.polls.len() {
+            if self.polls[index].due_at <= now {
+                self.start_feed_poll(index, now, cx);
+            }
+        }
+        self.schedule_next_poll(cx);
     }
 
-    fn start_feed_poll(&mut self, index: usize, cx: &mut Context<Self>) {
+    fn schedule_next_poll(&mut self, cx: &mut Context<Self>) {
+        let due = self
+            .polls
+            .iter()
+            .filter(|poll| poll.task.is_none())
+            .map(|poll| poll.due_at)
+            .min();
+        if due == self.poll_timer.as_ref().map(|(at, _)| *at) {
+            return;
+        }
+        self.poll_timer = due.map(|at| {
+            let timer = cx.spawn(async move |this, cx| {
+                cx.background_executor()
+                    .timer(at.saturating_duration_since(Instant::now()))
+                    .await;
+                if let Err(error) = this.update(cx, |board, cx| {
+                    board.poll_timer = None;
+                    board.poll_due_feeds(cx);
+                }) {
+                    log::debug!("poll timer ended with its status board: {error}");
+                }
+            });
+            (at, timer)
+        });
+    }
+
+    fn start_feed_poll(&mut self, index: usize, now: Instant, cx: &mut Context<Self>) {
         let poll = &mut self.polls[index];
         if poll.task.is_some() {
             return;
         }
-        poll.started_at = Some(Instant::now());
+        poll.due_at = now + self.feeds[index].policy.poll_interval;
         let collector = self.feeds[index].spec.collector.clone();
         let fetch = cx.background_spawn(async move { collector.collect_status_reading() });
         poll.task = Some(cx.spawn(async move |this, cx| {
             let result = fetch.await;
             this.update(cx, |board, cx| {
                 board.polls[index].task = None;
-                board.feeds[index].record_feed_poll(result);
+                let feed = &mut board.feeds[index];
+                let running_for = board.started_at.elapsed();
+                let before = feed.feed_freshness(running_for);
+                let changed = feed.record_feed_poll(result);
+                if changed || before != feed.feed_freshness(running_for) {
+                    cx.emit(StatusFeedUpdated { index });
+                }
                 if board.feeds.iter().all(StatusFeed::has_poll_result) {
                     log_startup_milestone(StartupMilestone::AllFeedsPolled);
                 }
-                cx.emit(StatusFeedUpdated { index });
+                board.schedule_next_poll(cx);
             })
             .ok();
         }));

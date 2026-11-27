@@ -1,0 +1,26 @@
+# Replace both example addresses and ports with your approved LAN endpoints.
+direct_metrics_http = true
+
+[[host]]
+name = "This machine"
+source = "local"
+
+[[host]]
+name = "LAN server"
+source = "glances"
+url = "http://192.0.2.10:61208"
+# show_btop = true
+
+[[host]]
+name = "LAN workstation"
+source = "glances"
+url = "http://192.0.2.20:61208"
+# show_btop = true
+
+# Remove a block if its service is unavailable on the LAN.
+[uptime_kuma]
+url = "http://192.0.2.10:3001"
+status_page = "display"
+
+[scrutiny]
+url = "http://192.0.2.10:8080"

@@ -19,6 +19,21 @@ use crate::{
     wallpaper::{PanelGroup, StatusStyle, StyleAnchor, StyleArea, StyleArrangement},
 };
 
+/// Feed views for one wallpaper, with its expanded card if open.
+#[derive(Clone, Copy)]
+pub(super) struct PagePanels<'a> {
+    pub(super) regular: &'a [Entity<FeedPanelView>],
+    pub(super) expanded: Option<(usize, &'a Entity<FeedPanelView>)>,
+}
+
+impl PagePanels<'_> {
+    fn expanded_panel(&self, index: usize) -> Option<&Entity<FeedPanelView>> {
+        self.expanded
+            .filter(|(expanded, _)| *expanded == index)
+            .map(|(_, panel)| panel)
+    }
+}
+
 /// Alert for a feed that is stale or offline. Live feeds give none.
 fn feed_alert(
     s: Scale,
@@ -27,6 +42,9 @@ fn feed_alert(
     freshness: FeedFreshness,
     redraw: &StatusRedrawTimer,
 ) -> Option<Div> {
+    if matches!(freshness, FeedFreshness::Waiting | FeedFreshness::Live) {
+        return None;
+    }
     let name = format!("{} ({})", feed.spec.title, feed.spec.source);
     match freshness {
         FeedFreshness::Stale => Some(alert_row(
@@ -132,24 +150,21 @@ impl StatusView {
         index: usize,
         feed: &StatusFeed,
         panel: &Entity<FeedPanelView>,
+        expanded: bool,
         layout: StatusLayout,
         cx: &Context<Self>,
     ) -> AnyElement {
-        let expanded = self
-            .details
-            .as_ref()
-            .filter(|details| details.index == index);
-        let height = expanded.map_or_else(
-            || side_panel_height(feed, &self.carded),
-            |_| expanded_panel_height(feed, layout),
-        );
-        let panel = expanded.map_or(panel, |details| &details.panel);
+        let height = if expanded {
+            expanded_panel_height(feed, layout)
+        } else {
+            side_panel_height(feed, &self.carded)
+        };
         div()
             .id(("feed-card", index))
             .w_full()
             .h(layout.scale(height))
             .flex_none()
-            .when(expanded.is_none(), |card| {
+            .when(!expanded, |card| {
                 card.role(Role::Button)
                     .aria_label(format!("Expand {}", feed.spec.title))
                     .cursor_pointer()
@@ -240,13 +255,25 @@ impl StatusView {
         layout: StatusLayout,
         now: OffsetDateTime,
         style: StatusStyle,
-        panels: &[Entity<FeedPanelView>],
+        panels: PagePanels<'_>,
         cx: &Context<Self>,
     ) -> Div {
         let scale = move |value| layout.scale(value);
         let s: Scale = &scale;
         let theme = StatusTheme(style.palette);
         let mut alerts: Vec<AnyElement> = Vec::new();
+        if self.refresh_failed {
+            alerts.push(
+                alert_row(
+                    s,
+                    theme,
+                    theme.warn(),
+                    "Could not reload configuration".into(),
+                    "Check the configuration file, then select Refresh again.".into(),
+                )
+                .into_any_element(),
+            );
+        }
         if self.preview.is_none() && self.carousel.read(cx).playback_art_unavailable() {
             alerts.push(
                 alert_row(
@@ -305,7 +332,7 @@ impl StatusView {
         layout: StatusLayout,
         clock: Div,
         notices: Div,
-        panel_views: &[Entity<FeedPanelView>],
+        panels: PagePanels<'_>,
         cx: &Context<Self>,
     ) -> Div {
         let board = self.board.read(cx);
@@ -329,13 +356,21 @@ impl StatusView {
         let mut host_panels = Vec::new();
         let mut service_panels = Vec::new();
         let mut side_panels = Vec::new();
-        for (index, (feed, panel)) in board.status_feeds().iter().zip(panel_views).enumerate() {
+        for (index, (feed, panel)) in board.status_feeds().iter().zip(panels.regular).enumerate() {
             let style = match feed.spec.collector {
                 StatusCollector::TailnetHost(_) => status_card_style(),
                 _ => panel_style(),
             };
             let panel = if feed.spec.collector.has_expandable_panel() {
-                self.feed_card(index, feed, panel, layout, cx)
+                let expanded = panels.expanded_panel(index);
+                self.feed_card(
+                    index,
+                    feed,
+                    expanded.unwrap_or(panel),
+                    expanded.is_some(),
+                    layout,
+                    cx,
+                )
             } else {
                 panel.clone().cached(style).into_any_element()
             };
@@ -399,17 +434,25 @@ impl StatusView {
         layout: StatusLayout,
         clock: Div,
         [left, right]: [StyleArea; 2],
-        panel_views: &[Entity<FeedPanelView>],
+        panels: PagePanels<'_>,
         cx: &Context<Self>,
     ) -> Div {
         let board = self.board.read(cx);
         let mut hosts = Vec::new();
         let mut others = Vec::new();
-        for (index, (feed, panel)) in board.status_feeds().iter().zip(panel_views).enumerate() {
+        for (index, (feed, panel)) in board.status_feeds().iter().zip(panels.regular).enumerate() {
             let height = s(side_panel_height(feed, &self.carded));
             let style = StyleRefinement::default().flex_none().w_full().h(height);
             let panel = if feed.spec.collector.has_expandable_panel() {
-                self.feed_card(index, feed, panel, layout, cx)
+                let expanded = panels.expanded_panel(index);
+                self.feed_card(
+                    index,
+                    feed,
+                    expanded.unwrap_or(panel),
+                    expanded.is_some(),
+                    layout,
+                    cx,
+                )
             } else {
                 panel.clone().cached(style).into_any_element()
             };
@@ -574,7 +617,7 @@ fn area_shade(
 fn status_clock(s: Scale, style: StatusStyle, now: OffsetDateTime, offset: UtcOffset) -> Div {
     let kind = style.kind;
     let theme = StatusTheme(style.palette);
-    div().flex().flex_col().gap(s(16.)).child(
+    div().min_w_0().flex().flex_col().gap(s(16.)).child(
         div()
             .flex()
             .flex_col()
@@ -593,7 +636,6 @@ fn status_clock(s: Scale, style: StatusStyle, now: OffsetDateTime, offset: UtcOf
             .child(
                 div()
                     .px(s(4.))
-                    .whitespace_nowrap()
                     .text_size(s(28.))
                     .text_color(theme.date())
                     .child(format_status_date(now, offset)),

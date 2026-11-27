@@ -13,7 +13,7 @@ use crate::{
     wallpaper::plain_status_style,
 };
 
-use super::{Scale, StatusTheme, StatusView, control_button};
+use super::{Scale, StatusTheme, StatusView, status_view_layout::control_button};
 
 // The exit signal stays open until the application has shut down.
 struct UpdateExitSignal(#[allow(dead_code)] ChildStdin);

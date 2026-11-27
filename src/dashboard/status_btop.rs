@@ -2,15 +2,21 @@
 //! over the wallpaper. It reads the same feed as the host card, so it needs
 //! no terminal and no connection to the host beyond its metrics source.
 
+mod status_btop_palette;
+
+use std::{cell::Cell, rc::Rc};
+
 use gpui::{
-    Context, DragMoveEvent, EmptyView, Entity, EventEmitter, FontWeight, Hsla, IntoElement,
-    MouseButton, MouseDownEvent, Pixels, Point, Render, Role, Size, Subscription, Window, div,
-    point, prelude::*, px, relative, size,
+    BorderStyle, Bounds, ContentMask, Context, DragMoveEvent, EmptyView, Entity, EventEmitter,
+    FontWeight, Hsla, IntoElement, MouseButton, MouseDownEvent, Pixels, Point, Render, Role, Size,
+    Subscription, Window, canvas, div, point, prelude::*, px, quad, relative, rgba, size,
 };
+
+use self::status_btop_palette::BtopPalette;
 
 use crate::{
     dashboard::status_format::{format_status_bytes, format_status_rate, format_status_uptime},
-    dashboard::status_graph::{NETWORK_GRAPH_FLOOR, cpu_graph, network_graph},
+    dashboard::status_graph::{cpu_graph, network_graph},
     dashboard::status_theme::{Scale, StatusLayout, StatusTheme, threshold_color},
     metrics::{FeedData, HostMetrics, StatusBoard, StatusFeedUpdated},
     wallpaper::StatusStyle,
@@ -26,7 +32,7 @@ const BTOP_START_FRACTION: f32 = 0.64;
 pub struct BtopWindowView {
     board: Entity<StatusBoard>,
     index: usize,
-    style: StatusStyle,
+    palette: BtopPalette,
     origin: Point<Pixels>,
     size: Size<Pixels>,
     /// Pointer offset from the dragged corner when a move or resize starts.
@@ -68,7 +74,7 @@ impl BtopWindowView {
         Self {
             board,
             index,
-            style,
+            palette: BtopPalette::from_wallpaper(style),
             origin: point(
                 (viewport.width - size.width) / 2.,
                 (viewport.height - size.height) / 2.,
@@ -86,7 +92,7 @@ impl BtopWindowView {
 
     /// Set the style of the wallpaper on screen.
     pub fn set_btop_style(&mut self, style: StatusStyle, cx: &mut Context<Self>) {
-        self.style = style;
+        self.palette = BtopPalette::from_wallpaper(style);
         cx.notify();
     }
 
@@ -116,11 +122,8 @@ impl Render for BtopWindowView {
         let layout = StatusLayout::from_status_window(window);
         let scale = move |value: f32| layout.scale(value);
         let s: Scale = &scale;
-        let theme = StatusTheme(self.style.palette);
-        let surface = Hsla {
-            a: 0.96,
-            ..theme.background()
-        };
+        let palette = self.palette;
+        let theme = palette.theme;
         let board = self.board.read(cx);
         let feed = &board.status_feeds()[self.index];
         let title = feed.spec.title.clone();
@@ -143,98 +146,84 @@ impl Render for BtopWindowView {
             })
             .unwrap_or_default();
         let body = match host {
-            Some(host) => {
-                let peak = history
-                    .network_receive_rate
-                    .iter()
-                    .chain(&history.network_send_rate)
-                    .copied()
-                    .fold(NETWORK_GRAPH_FLOOR, f64::max);
-                div()
-                    .flex_1()
-                    .min_h_0()
-                    .flex()
-                    .flex_col()
-                    .gap(s(16.))
-                    .child(
-                        div()
-                            .flex()
-                            .gap(s(12.))
-                            .min_h_0()
-                            .flex_grow(0.85)
-                            .flex_basis(relative(0.))
-                            .child(
-                                btop_box(s, surface, "cpu", theme.ok(), 3.)
-                                    .child(
-                                        div()
-                                            .flex()
-                                            .justify_between()
-                                            .text_size(s(13.))
-                                            .child(format!(
-                                                "Total {}",
-                                                percent_text(host.cpu_percent)
-                                            ))
-                                            .children(host.temperature_celsius.map(|celsius| {
-                                                div()
-                                                    .text_color(theme.muted())
-                                                    .child(format!("{celsius:.0}°C"))
-                                            })),
-                                    )
-                                    .child(
-                                        div()
-                                            .flex_1()
-                                            .min_h(s(32.))
-                                            .max_h(s(140.))
-                                            .flex()
-                                            .flex_col()
-                                            .child(cpu_graph(
-                                                s,
-                                                theme,
-                                                &history.cpu_percent,
-                                                false,
-                                            )),
-                                    )
-                                    .child(core_meters(s, theme, &host.core_percents)),
-                            )
-                            .child(
-                                btop_box(s, surface, "mem", theme.info(), 2.)
-                                    .child(memory_rows(s, theme, host)),
-                            ),
-                    )
-                    .child(
-                        div()
-                            .flex()
-                            .gap(s(12.))
-                            .min_h_0()
-                            .flex_grow(1.25)
-                            .flex_basis(relative(0.))
-                            .child(
-                                btop_box(s, surface, "net", theme.receive(), 2.)
-                                    .child(
-                                        div()
-                                            .flex()
-                                            .justify_between()
-                                            .text_size(s(13.))
-                                            .child(div().text_color(theme.receive()).child(
-                                                format!(
-                                                    "↓ {}",
-                                                    rate_text(host.network_receive_rate)
-                                                ),
-                                            ))
-                                            .child(div().text_color(theme.send()).child(format!(
-                                                "↑ {}",
-                                                rate_text(host.network_send_rate)
-                                            ))),
-                                    )
-                                    .child(network_graph(s, theme, history, peak, false)),
-                            )
-                            .child(
-                                btop_box(s, surface, "proc", theme.warn(), 3.)
-                                    .child(process_table(s, theme, host)),
-                            ),
-                    )
-                    .into_any_element()
-            }
+            Some(host) => div()
+                .flex_1()
+                .min_h_0()
+                .flex()
+                .flex_col()
+                .gap(s(16.))
+                .child(
+                    div()
+                        .flex()
+                        .gap(s(12.))
+                        .min_h_0()
+                        .flex_grow(0.85)
+                        .flex_basis(relative(0.))
+                        .child(
+                            btop_box(s, palette, "cpu", theme.ok(), 3.)
+                                .child(
+                                    div()
+                                        .flex()
+                                        .flex_wrap()
+                                        .gap_x(s(8.))
+                                        .justify_between()
+                                        .text_size(s(13.))
+                                        .child(format!("Total {}", percent_text(host.cpu_percent)))
+                                        .children(host.temperature_celsius.map(|celsius| {
+                                            div()
+                                                .text_color(theme.muted())
+                                                .child(format!("{celsius:.0}°C"))
+                                        })),
+                                )
+                                .child(
+                                    div()
+                                        .flex_1()
+                                        .min_h(s(32.))
+                                        .max_h(s(140.))
+                                        .flex()
+                                        .flex_col()
+                                        .child(cpu_graph(s, theme, &history.cpu_percent, false)),
+                                )
+                                .child(core_meters(s, theme, &host.core_percents)),
+                        )
+                        .child(
+                            btop_box(s, palette, "mem", theme.info(), 2.)
+                                .child(memory_rows(s, theme, host)),
+                        ),
+                )
+                .child(
+                    div()
+                        .flex()
+                        .gap(s(12.))
+                        .min_h_0()
+                        .flex_grow(1.25)
+                        .flex_basis(relative(0.))
+                        .child(
+                            btop_box(s, palette, "net", theme.receive(), 2.)
+                                .child(
+                                    div()
+                                        .flex()
+                                        .flex_wrap()
+                                        .gap_x(s(8.))
+                                        .justify_between()
+                                        .text_size(s(13.))
+                                        .child(div().text_color(theme.receive()).child(format!(
+                                            "↓ {}",
+                                            rate_text(host.network_receive_rate)
+                                        )))
+                                        .child(div().text_color(theme.send()).child(format!(
+                                            "↑ {}",
+                                            rate_text(host.network_send_rate)
+                                        ))),
+                                )
+                                .child(network_graph(s, theme, history, false)),
+                        )
+                        .child(
+                            btop_box(s, palette, "proc", theme.warn(), 3.)
+                                .child(process_table(s, theme, host)),
+                        ),
+                )
+                .into_any_element(),
             None => div()
                 .flex_1()
                 .flex()
@@ -260,7 +249,7 @@ impl Render for BtopWindowView {
             .rounded(s(10.))
             .border_1()
             .border_color(theme.panel_border())
-            .bg(surface)
+            .bg(palette.surface)
             .text_color(theme.text())
             .overflow_hidden()
             .on_drag_move(
@@ -371,7 +360,17 @@ impl Render for BtopWindowView {
 }
 
 /// Box with its title in the top border, as btop draws its boxes.
-fn btop_box(s: Scale, surface: Hsla, title: &'static str, accent: Hsla, grow: f32) -> gpui::Div {
+fn btop_box(
+    s: Scale,
+    palette: BtopPalette,
+    title: &'static str,
+    accent: Hsla,
+    grow: f32,
+) -> gpui::Div {
+    let title_bounds = Rc::new(Cell::new(None));
+    let painted_title = title_bounds.clone();
+    let radius = s(6.);
+    let border = accent.opacity(palette.section_border_opacity);
     let mut frame = div()
         .relative()
         .min_w_0()
@@ -382,24 +381,63 @@ fn btop_box(s: Scale, surface: Hsla, title: &'static str, accent: Hsla, grow: f3
         .pt(s(14.))
         .px(s(10.))
         .pb(s(10.))
-        .rounded(s(6.))
         .border_1()
-        .border_color(accent.opacity(0.7))
+        .border_color(rgba(0))
+        .on_children_prepainted(move |bounds, _, _| title_bounds.set(bounds.first().copied()))
         .child(
             div()
                 .absolute()
                 .top(-s(10.))
                 .left(s(10.))
                 .px(s(4.))
-                .bg(surface)
                 .text_size(s(14.))
                 .font_weight(FontWeight::SEMIBOLD)
                 .text_color(accent)
                 .child(title),
+        )
+        .child(
+            canvas(
+                |_, _, _| {},
+                move |bounds, (), window, _| {
+                    let Some(title) = painted_title.get() else {
+                        return;
+                    };
+                    paint_btop_border(bounds, title, radius, border, window);
+                },
+            )
+            .absolute()
+            .inset_0(),
         );
     frame.style().flex_grow = Some(grow);
     frame.style().flex_basis = Some(relative(0.).into());
     frame
+}
+
+/// Paint the rounded frame with a gap as wide as the padded title.
+fn paint_btop_border(
+    bounds: Bounds<Pixels>,
+    title: Bounds<Pixels>,
+    radius: Pixels,
+    border: Hsla,
+    window: &mut Window,
+) {
+    let frame = quad(bounds, radius, rgba(0), px(1.), border, BorderStyle::Solid);
+    let left = title.left().clamp(bounds.left(), bounds.right());
+    let right = title.right().clamp(left, bounds.right());
+    let gap_bottom = (bounds.top() + px(2.)).min(bounds.bottom());
+    let regions = [
+        (bounds.left(), bounds.top(), left, bounds.bottom()),
+        (left, gap_bottom, right, bounds.bottom()),
+        (right, bounds.top(), bounds.right(), bounds.bottom()),
+    ];
+    for (left, top, right, bottom) in regions {
+        if right > left && bottom > top {
+            let bounds = Bounds::new(point(left, top), size(right - left, bottom - top));
+            window.with_content_mask(Some(ContentMask { bounds }), |window| {
+                window.paint_quad(frame.clone());
+            });
+        }
+    }
 }
 
 fn percent_text(percent: Option<f32>) -> String {
