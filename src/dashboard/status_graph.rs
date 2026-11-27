@@ -54,7 +54,7 @@ fn network_history_scale(history: &HostHistory) -> f64 {
 }
 
 /// Opacity of the graph bars over the panel color.
-const GRAPH_BAR_OPACITY: f32 = 0.85;
+pub(super) const GRAPH_BAR_OPACITY: f32 = 0.85;
 
 /// One graph bar: its height as a part of the graph height, and its color.
 type GraphBar = (f32, Hsla);

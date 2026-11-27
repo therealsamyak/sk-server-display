@@ -93,6 +93,7 @@ fn relative_luminance(color: Rgba) -> f32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::dashboard::status_graph::GRAPH_BAR_OPACITY;
     use crate::wallpaper::{StatusCarousel, StatusPlayback, WallpaperId, plain_status_style};
 
     #[test]
@@ -129,7 +130,7 @@ mod tests {
             for color in accents {
                 let ratio = contrast(color.opacity(palette.section_border_opacity));
                 assert!(ratio >= 3.0, "{name}: section border contrast {ratio:.2}");
-                let ratio = contrast(color.opacity(0.85));
+                let ratio = contrast(color.opacity(GRAPH_BAR_OPACITY));
                 assert!(ratio >= 3.0, "{name}: plot mark contrast {ratio:.2}");
             }
         }
