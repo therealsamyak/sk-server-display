@@ -11,7 +11,7 @@ use crate::{
     dashboard::status_format::{
         format_status_bytes, format_status_rate, format_status_uptime, format_status_usage,
     },
-    dashboard::status_graph::{NETWORK_GRAPH_FLOOR, cpu_graph, network_graph},
+    dashboard::status_graph::{cpu_graph, cpu_history_scale, network_graph, network_history_scale},
     dashboard::status_redraw::StatusRedrawTimer,
     dashboard::status_service_history::{
         service_history_strip, service_state_color, service_summary_strip,
@@ -180,8 +180,9 @@ const TITLE_ROW_HEIGHT: f32 = 17. * PANEL_LINE_HEIGHT;
 
 /// Height of the collapsed Services header, including the inline history strip.
 const SERVICE_SUMMARY_HEIGHT: f32 = 56.;
-const HOST_HISTORY_HEIGHT: f32 = 64.;
-const HOST_DETAIL_BASE_HEIGHT: f32 = 320.;
+const HOST_CPU_HISTORY_HEIGHT: f32 = 40.;
+const HOST_NETWORK_HISTORY_HEIGHT: f32 = 48.;
+const HOST_DETAIL_BASE_HEIGHT: f32 = 192. + HOST_CPU_HISTORY_HEIGHT + HOST_NETWORK_HISTORY_HEIGHT;
 const HOST_BATTERY_HEIGHT: f32 = 32.;
 const CORE_GRID_ROW_HEIGHT: f32 = 23.;
 
@@ -709,12 +710,8 @@ fn host_body(
         Some(t) if t >= 75.0 => theme.warn(),
         _ => theme.text(),
     };
-    let peak = history
-        .network_receive_rate
-        .iter()
-        .chain(&history.network_send_rate)
-        .copied()
-        .fold(NETWORK_GRAPH_FLOOR, f64::max);
+    let cpu_scale = cpu_history_scale(&history.cpu_percent);
+    let network_ceiling = network_history_scale(history);
     let rate_text = |rate: Option<f64>| rate.map_or("—".into(), format_status_rate);
     let network_header = div()
         .flex()
@@ -732,9 +729,15 @@ fn host_body(
             div()
                 .text_color(if dim { theme.muted() } else { theme.send() })
                 .child(format!("↑ {}", rate_text(host.network_send_rate))),
+        )
+        .child(
+            div()
+                .text_color(theme.faint())
+                .child(format!("Scale {}", format_status_rate(network_ceiling))),
         );
     let cpu_header = div()
         .flex()
+        .flex_wrap()
         .items_center()
         .gap(s(8.))
         .text_size(s(13.))
@@ -745,6 +748,11 @@ fn host_body(
                 .line_height(s(28.))
                 .text_color(value_color(theme, dim))
                 .child(host.cpu_percent.map_or("—".into(), |p| format!("{p:.0}%"))),
+        )
+        .child(
+            div()
+                .text_color(theme.faint())
+                .child(cpu_scale.scale_label()),
         )
         .child(div().flex_1())
         .children(host.temperature_celsius.map(|t| {
@@ -768,20 +776,20 @@ fn host_body(
         .child(cpu_header)
         .child(
             div()
-                .h(s(HOST_HISTORY_HEIGHT))
+                .h(s(HOST_CPU_HISTORY_HEIGHT))
                 .flex_none()
                 .flex()
                 .flex_col()
-                .child(cpu_graph(s, theme, &history.cpu_percent, dim)),
+                .child(cpu_graph(s, theme, &history.cpu_percent, cpu_scale, dim)),
         )
         .child(network_header)
         .child(
             div()
-                .h(s(HOST_HISTORY_HEIGHT))
+                .h(s(HOST_NETWORK_HISTORY_HEIGHT))
                 .flex_none()
                 .flex()
                 .flex_col()
-                .child(network_graph(s, theme, history, peak, dim)),
+                .child(network_graph(s, theme, history, network_ceiling, dim)),
         )
         .child(
             div()

@@ -10,7 +10,7 @@ use gpui::{
 
 use crate::{
     dashboard::status_format::{format_status_bytes, format_status_rate, format_status_uptime},
-    dashboard::status_graph::{NETWORK_GRAPH_FLOOR, cpu_graph, network_graph},
+    dashboard::status_graph::{cpu_graph, cpu_history_scale, network_graph, network_history_scale},
     dashboard::status_theme::{Scale, StatusLayout, StatusTheme, threshold_color},
     metrics::{FeedData, HostMetrics, StatusBoard, StatusFeedUpdated},
     wallpaper::StatusStyle,
@@ -144,12 +144,8 @@ impl Render for BtopWindowView {
             .unwrap_or_default();
         let body = match host {
             Some(host) => {
-                let peak = history
-                    .network_receive_rate
-                    .iter()
-                    .chain(&history.network_send_rate)
-                    .copied()
-                    .fold(NETWORK_GRAPH_FLOOR, f64::max);
+                let cpu_scale = cpu_history_scale(&history.cpu_percent);
+                let network_ceiling = network_history_scale(history);
                 div()
                     .flex_1()
                     .min_h_0()
@@ -168,12 +164,19 @@ impl Render for BtopWindowView {
                                     .child(
                                         div()
                                             .flex()
+                                            .flex_wrap()
+                                            .gap_x(s(8.))
                                             .justify_between()
                                             .text_size(s(13.))
                                             .child(format!(
                                                 "Total {}",
                                                 percent_text(host.cpu_percent)
                                             ))
+                                            .child(
+                                                div()
+                                                    .text_color(theme.faint())
+                                                    .child(cpu_scale.scale_label()),
+                                            )
                                             .children(host.temperature_celsius.map(|celsius| {
                                                 div()
                                                     .text_color(theme.muted())
@@ -191,6 +194,7 @@ impl Render for BtopWindowView {
                                                 s,
                                                 theme,
                                                 &history.cpu_percent,
+                                                cpu_scale,
                                                 false,
                                             )),
                                     )
@@ -213,6 +217,8 @@ impl Render for BtopWindowView {
                                     .child(
                                         div()
                                             .flex()
+                                            .flex_wrap()
+                                            .gap_x(s(8.))
                                             .justify_between()
                                             .text_size(s(13.))
                                             .child(div().text_color(theme.receive()).child(
@@ -224,9 +230,19 @@ impl Render for BtopWindowView {
                                             .child(div().text_color(theme.send()).child(format!(
                                                 "↑ {}",
                                                 rate_text(host.network_send_rate)
+                                            )))
+                                            .child(div().text_color(theme.faint()).child(format!(
+                                                "Scale {}",
+                                                format_status_rate(network_ceiling)
                                             ))),
                                     )
-                                    .child(network_graph(s, theme, history, peak, false)),
+                                    .child(network_graph(
+                                        s,
+                                        theme,
+                                        history,
+                                        network_ceiling,
+                                        false,
+                                    )),
                             )
                             .child(
                                 btop_box(s, surface, "proc", theme.warn(), 3.)
