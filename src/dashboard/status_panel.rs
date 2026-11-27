@@ -214,11 +214,24 @@ const TITLE_ROW_HEIGHT: f32 = 17. * PANEL_LINE_HEIGHT;
 
 /// Height of the collapsed Services header, including the inline history strip.
 const SERVICE_SUMMARY_HEIGHT: f32 = 56.;
+const DETAIL_FRAME_PADDING: f32 = 16.;
+const DETAIL_FRAME_GAP: f32 = 12.;
+const HOST_DETAIL_GAP: f32 = 8.;
+const HOST_LABEL_SIZE: f32 = 13.;
+const HOST_METRIC_SIZE: f32 = 14.;
 const HOST_CPU_HISTORY_HEIGHT: f32 = 40.;
 const HOST_NETWORK_HISTORY_HEIGHT: f32 = 48.;
-const HOST_DETAIL_BASE_HEIGHT: f32 = 192. + HOST_CPU_HISTORY_HEIGHT + HOST_NETWORK_HISTORY_HEIGHT;
-const HOST_BATTERY_HEIGHT: f32 = 32.;
-const CORE_GRID_ROW_HEIGHT: f32 = 23.;
+const CORE_GRID_ROW_GAP: f32 = 6.;
+// Frame, title, two chart labels and plots, then the memory and disk rows.
+const HOST_DETAIL_BASE_HEIGHT: f32 = 2.
+    + 2. * DETAIL_FRAME_PADDING
+    + TITLE_ROW_HEIGHT
+    + DETAIL_FRAME_GAP
+    + 2. * HOST_LABEL_SIZE * PANEL_LINE_HEIGHT
+    + HOST_CPU_HISTORY_HEIGHT
+    + HOST_NETWORK_HISTORY_HEIGHT
+    + 2. * HOST_METRIC_SIZE * PANEL_LINE_HEIGHT
+    + 5. * HOST_DETAIL_GAP;
 
 /// Height of an expanded feed card within its column.
 pub fn expanded_panel_height(feed: &StatusFeed, layout: StatusLayout) -> f32 {
@@ -235,13 +248,15 @@ pub fn expanded_panel_height(feed: &StatusFeed, layout: StatusLayout) -> f32 {
                 .core_percents
                 .len()
                 .div_ceil(core_grid_columns(&host.core_percents));
-            let core_height = if core_rows == 0 {
-                0.
+            let core_height = if core_rows > 0 {
+                HOST_DETAIL_GAP
+                    + core_rows as f32 * HOST_LABEL_SIZE * PANEL_LINE_HEIGHT
+                    + (core_rows - 1) as f32 * CORE_GRID_ROW_GAP
             } else {
-                8. + CORE_GRID_ROW_HEIGHT * core_rows as f32
+                0.
             };
             let battery_height = if matches!(collector, StatusCollector::Local(_)) {
-                HOST_BATTERY_HEIGHT
+                HOST_DETAIL_GAP + HOST_LABEL_SIZE * PANEL_LINE_HEIGHT
             } else {
                 0.
             };
@@ -324,7 +339,11 @@ fn feed_panel(
     compact: bool,
 ) -> Div {
     let theme = StatusTheme(view.style.palette);
-    let (padding, gap) = if compact { (12., 8.) } else { (16., 12.) };
+    let (padding, gap) = if compact {
+        (12., 8.)
+    } else {
+        (DETAIL_FRAME_PADDING, DETAIL_FRAME_GAP)
+    };
     let (state_text, state_color) = match view.freshness {
         FeedFreshness::Waiting => (Some("connecting".to_string()), theme.info()),
         FeedFreshness::Live => (header_fact, theme.muted()),
@@ -543,7 +562,7 @@ fn metric_row(
         .flex()
         .items_center()
         .gap(s(12.))
-        .text_size(s(14.))
+        .text_size(s(HOST_METRIC_SIZE))
         .child(
             div()
                 .w(s(48.))
@@ -573,8 +592,8 @@ fn core_grid(theme: StatusTheme, s: Scale, cores: &[f32], dim: bool) -> Div {
         .grid()
         .grid_cols(core_grid_columns(cores) as u16)
         .gap_x(s(12.))
-        .gap_y(s(6.))
-        .text_size(s(13.))
+        .gap_y(s(CORE_GRID_ROW_GAP))
+        .text_size(s(HOST_LABEL_SIZE))
         .children(cores.iter().enumerate().map(|(index, percent)| {
             div()
                 .flex()
@@ -667,7 +686,7 @@ fn battery_details(s: Scale, theme: StatusTheme, reading: Option<&BatteryReading
         .flex_wrap()
         .items_center()
         .gap_x(s(12.))
-        .text_size(s(13.))
+        .text_size(s(HOST_LABEL_SIZE))
         .child(div().text_color(theme.muted()).child("Battery"))
         .child(reading.map_or_else(|| "Unavailable".into(), |battery| battery.label.clone()))
         .children(reading.and_then(|battery| battery.net_watts).map(|watts| {
@@ -784,7 +803,7 @@ fn host_body(
         .flex_wrap()
         .items_center()
         .gap_x(s(8.))
-        .text_size(s(13.))
+        .text_size(s(HOST_LABEL_SIZE))
         .child(div().text_color(theme.muted()).child("Net"))
         .child(
             div()
@@ -800,8 +819,8 @@ fn host_body(
         .flex()
         .flex_wrap()
         .items_center()
-        .gap(s(8.))
-        .text_size(s(13.))
+        .gap(s(HOST_DETAIL_GAP))
+        .text_size(s(HOST_LABEL_SIZE))
         .child(div().text_color(theme.muted()).child("CPU"))
         .child(
             div()
@@ -827,7 +846,7 @@ fn host_body(
         .track_scroll(scroll)
         .flex()
         .flex_col()
-        .gap(s(8.))
+        .gap(s(HOST_DETAIL_GAP))
         .child(cpu_header)
         .child(
             div()
@@ -850,7 +869,7 @@ fn host_body(
             div()
                 .flex()
                 .flex_col()
-                .gap(s(8.))
+                .gap(s(HOST_DETAIL_GAP))
                 .child(metric_row(
                     theme,
                     s,
