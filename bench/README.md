@@ -42,6 +42,19 @@ these steps from the repository root:
 The `run` step takes about 5 minutes for each binary. It saves one screenshot of each binary in the
 output folder. Keep these screenshots out of Git, because they show your hosts.
 
+## Run dashboard QA
+
+Run the checks against an existing Linux build. In addition to the benchmark
+tools, install Tesseract, a C++ compiler, and the Qt 6, KWayland, and Wayland client
+development libraries.
+
+```sh
+uv run bench/status_display_qa.py --app target/debug/server-status-display
+```
+
+The runner checks config reload and failed sleep prevention with a disposable
+profile in an isolated KWin session. Use `--out <directory>` to keep screenshots.
+
 ## Results
 
 These results show the effect of rendering, polling, and build changes in an earlier revision.

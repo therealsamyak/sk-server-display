@@ -140,11 +140,22 @@ class AppProcess:
                 self.process.wait()
 
 
-def start_app(binary: Path, config: Path, session: NestedSession) -> AppProcess:
+def start_app(
+    binary: Path,
+    config: Path | None,
+    session: NestedSession,
+    *,
+    env_overrides: dict[str, str] | None = None,
+) -> AppProcess:
     env = session.session_env()
     env["RUST_LOG"] = "info"
+    if env_overrides is not None:
+        env.update(env_overrides)
+    command = [str(binary)]
+    if config is not None:
+        command.extend(("--config", str(config)))
     process = subprocess.Popen(
-        [str(binary), "--config", str(config)],
+        command,
         env=env,
         stdin=subprocess.DEVNULL,
         stdout=subprocess.DEVNULL,
