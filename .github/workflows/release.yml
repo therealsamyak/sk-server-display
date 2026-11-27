@@ -64,10 +64,10 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - name: Linux x86_64
-            os: ubuntu-latest
-            target: x86_64-unknown-linux-gnu
-            asset: server-status-display-linux-x86_64
+          - name: Windows x86_64
+            os: windows-latest
+            target: x86_64-pc-windows-msvc
+            asset: server-status-display-windows-x86_64.exe
     steps:
       - name: Check out selected commit
         uses: actions/checkout@v4
@@ -85,6 +85,10 @@ jobs:
         run: |
           rustup show
           rustup target add "${{ matrix.target }}"
+
+      - name: Link the Windows C runtime statically
+        shell: pwsh
+        run: '"RUSTFLAGS=-C target-feature=+crt-static" >> $env:GITHUB_ENV'
 
       - name: Cache Cargo downloads
         uses: actions/cache@v4
