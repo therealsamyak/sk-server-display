@@ -177,7 +177,7 @@ impl StatusView {
                 } else {
                     "Stay awake"
                 },
-                cx.listener(|view, _, window, cx| view.toggle_keep_awake(window, cx)),
+                cx.listener(|view, _, _, cx| view.toggle_keep_awake(cx)),
             ))
             .child(control_button(
                 s,

@@ -2,14 +2,14 @@
 
 use std::time::Duration;
 
-use gpui::{BackgroundExecutor, Context, EventEmitter, Task, Window};
+use gpui::{App, Context, EventEmitter, Task};
 
 #[cfg(target_os = "linux")]
 #[path = "status_power/linux.rs"]
 mod platform;
 #[cfg(target_os = "macos")]
 #[path = "status_power/macos.rs"]
-#[allow(unsafe_code, reason = "IOKit battery snapshots and idle assertions")]
+#[allow(unsafe_code, reason = "IOKit battery snapshots")]
 mod platform;
 #[cfg(target_os = "windows")]
 #[path = "status_power/windows.rs"]
@@ -169,16 +169,11 @@ pub(crate) struct StatusPower(Option<platform::DisplayPowerMonitor>);
 
 impl StatusPower {
     /// Starts or releases the app's idle inhibition request.
-    pub(crate) fn set_keep_awake(
-        &mut self,
-        keep_awake: bool,
-        window: &Window,
-        executor: &BackgroundExecutor,
-    ) {
+    pub(crate) fn set_keep_awake(&mut self, keep_awake: bool, cx: &App) {
         if !keep_awake {
             self.0 = None;
         } else if self.0.is_none() {
-            match platform::DisplayPowerMonitor::start(window, executor) {
+            match platform::DisplayPowerMonitor::start(cx) {
                 Ok(monitor) => self.0 = Some(monitor),
                 Err(error) => log::warn!("idle inhibition unavailable: {error:#}"),
             }

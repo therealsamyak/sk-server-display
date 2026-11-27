@@ -1,12 +1,13 @@
-use anyhow::{Result, ensure};
-use gpui::{BackgroundExecutor, Window};
+use anyhow::Result;
+use gpui::{ActivityGuard, App};
+use gpui_apple::AppleActivity;
 use objc2_core_foundation::{CFBoolean, CFNumber, CFString, CFType};
+use objc2_foundation::NSActivityOptions;
 use objc2_io_kit::{
-    IOPMAssertionCreateWithName, IOPMAssertionID, IOPMAssertionRelease, IOPSCopyPowerSourcesInfo,
-    IOPSCopyPowerSourcesList, IOPSGetPowerSourceDescription, IOPSGetProvidingPowerSourceType,
-    kIOPMAssertionLevelOn, kIOPSCurrentCapacityKey, kIOPSCurrentKey, kIOPSInternalBatteryType,
-    kIOPSIsChargingKey, kIOPSIsPresentKey, kIOPSMaxCapacityKey, kIOPSTimeToEmptyKey, kIOPSTypeKey,
-    kIOPSVoltageKey,
+    IOPSCopyPowerSourcesInfo, IOPSCopyPowerSourcesList, IOPSGetPowerSourceDescription,
+    IOPSGetProvidingPowerSourceType, kIOPSCurrentCapacityKey, kIOPSCurrentKey,
+    kIOPSInternalBatteryType, kIOPSIsChargingKey, kIOPSIsPresentKey, kIOPSMaxCapacityKey,
+    kIOPSTimeToEmptyKey, kIOPSTypeKey, kIOPSVoltageKey,
 };
 
 use super::{
@@ -16,11 +17,17 @@ use super::{
 
 /// Reads the built-in battery from a macOS power-source snapshot.
 pub(super) fn read_battery_status() -> Option<BatteryReading> {
+    // Temporary unsafe for the IOKit snapshot, its source list and the description types.
+    // Uzu's battery reader also uses unsafe to access those snapshot-bound objects.
+    // https://github.com/trymirai/uzu/blob/8fd73f041d6971bdae84e846c80fadb3e09b38c5/crates/legacy/keisoku/src/sys/battery.rs#L9-L29
     let snapshot = IOPSCopyPowerSourcesInfo()?;
     // SAFETY: this is the snapshot returned by IOPSCopyPowerSourcesInfo.
     let sources = unsafe { IOPSCopyPowerSourcesList(Some(&snapshot)) }?;
     // SAFETY: IOKit documents the returned array as containing CFType objects.
     let sources = unsafe { sources.cast_unchecked::<CFType>() };
+    // Temporary unsafe for the snapshot-specific power source query. Hammerspoon's
+    // native battery extension passes the same kind of snapshot to this API.
+    // https://github.com/Hammerspoon/hammerspoon/blob/f3928953b584a91ed74d0402ddd6dfb2f9b97629/extensions/battery/libbattery.m#L64-L72
     // SAFETY: this is the snapshot returned by IOPSCopyPowerSourcesInfo.
     let state = unsafe { IOPSGetProvidingPowerSourceType(Some(&snapshot)) }
         .as_deref()
@@ -79,49 +86,18 @@ fn mac_power_state(source: &CFString) -> Option<BatteryPowerState> {
     }
 }
 
-/// Owns the macOS display and system idle assertions.
+/// Owns the macOS activity that blocks idle sleep.
 pub(super) struct DisplayPowerMonitor {
-    _display: IdleAssertion,
-    _system: IdleAssertion,
+    _activity: ActivityGuard,
 }
 
 impl DisplayPowerMonitor {
     /// Blocks idle display and system sleep.
-    pub(super) fn start(_: &Window, _: &BackgroundExecutor) -> Result<Self> {
+    pub(super) fn start(_: &App) -> Result<Self> {
+        let options = NSActivityOptions::IdleDisplaySleepDisabled
+            | NSActivityOptions::IdleSystemSleepDisabled;
         Ok(Self {
-            _display: IdleAssertion::acquire("PreventUserIdleDisplaySleep")?,
-            _system: IdleAssertion::acquire("PreventUserIdleSystemSleep")?,
+            _activity: AppleActivity::begin(IDLE_INHIBITION_REASON, options),
         })
-    }
-}
-
-struct IdleAssertion(IOPMAssertionID);
-
-impl IdleAssertion {
-    fn acquire(assertion_type: &str) -> Result<Self> {
-        let mut id = 0;
-        // SAFETY: the non-null strings and writable assertion ID live through the call.
-        let status = unsafe {
-            IOPMAssertionCreateWithName(
-                Some(&CFString::from_str(assertion_type)),
-                kIOPMAssertionLevelOn,
-                Some(&CFString::from_str(IDLE_INHIBITION_REASON)),
-                &mut id,
-            )
-        };
-        ensure!(
-            status == 0,
-            "could not acquire macOS idle assertion ({status:#x})"
-        );
-        Ok(Self(id))
-    }
-}
-
-impl Drop for IdleAssertion {
-    fn drop(&mut self) {
-        let status = IOPMAssertionRelease(self.0);
-        if status != 0 {
-            log::warn!("could not release macOS idle assertion ({status:#x})");
-        }
     }
 }

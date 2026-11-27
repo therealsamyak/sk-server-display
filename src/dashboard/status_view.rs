@@ -149,7 +149,7 @@ impl StatusView {
             cx.subscribe(&battery, |_, _, _: &BatteryLabelChanged, cx| cx.notify()),
             window.observe_window_visibility(move |_, window, cx| {
                 if let Err(error) = view.update(cx, |view, cx| {
-                    view.update_display_power(window, cx);
+                    view.update_display_power(cx);
                     if !window.is_visible() {
                         view.pointer_pressed = false;
                         view.swipe = None;
@@ -228,12 +228,11 @@ impl StatusView {
             .collect();
     }
 
-    fn update_display_power(&mut self, window: &Window, cx: &Context<Self>) {
-        self.power
-            .set_keep_awake(self.settings.keep_awake, window, cx.background_executor());
+    fn update_display_power(&mut self, cx: &Context<Self>) {
+        self.power.set_keep_awake(self.settings.keep_awake, cx);
     }
 
-    fn toggle_keep_awake(&mut self, window: &Window, cx: &mut Context<Self>) {
+    fn toggle_keep_awake(&mut self, cx: &mut Context<Self>) {
         let keep_awake = !self.settings.keep_awake;
         if let Err(error) = self
             .controller
@@ -243,7 +242,7 @@ impl StatusView {
             return;
         }
         self.settings.keep_awake = keep_awake;
-        self.update_display_power(window, cx);
+        self.update_display_power(cx);
         cx.notify();
     }
 
@@ -407,7 +406,7 @@ impl Render for StatusView {
                 }
             });
         }
-        self.update_display_power(window, cx);
+        self.update_display_power(cx);
         self.finish_swipe(window, cx);
         self.update_wallpaper(window, cx);
         self.warm_slideshow(window, cx);

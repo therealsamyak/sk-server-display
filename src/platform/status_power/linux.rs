@@ -1,7 +1,7 @@
 use std::{collections::HashMap, time::Duration};
 
 use anyhow::{Context as _, Result, bail};
-use gpui::{BackgroundExecutor, Task, Window};
+use gpui::{App, Task};
 use zbus::{
     Connection, Proxy,
     proxy::{Builder, CacheProperties},
@@ -103,8 +103,8 @@ pub(super) struct DisplayPowerMonitor {
 
 impl DisplayPowerMonitor {
     /// Blocks idle sleep using the desktop portal.
-    pub(super) fn start(_: &Window, executor: &BackgroundExecutor) -> Result<Self> {
-        let monitor = executor.spawn(async move {
+    pub(super) fn start(cx: &App) -> Result<Self> {
+        let monitor = cx.background_executor().spawn(async move {
             if let Err(error) = hold_idle_inhibition().await {
                 log::warn!("idle inhibition unavailable: {error:#}");
             }

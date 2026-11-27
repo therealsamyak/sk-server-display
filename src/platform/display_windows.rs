@@ -87,6 +87,9 @@ fn output_kind(technology: DISPLAYCONFIG_VIDEO_OUTPUT_TECHNOLOGY) -> DisplayOutp
 }
 
 fn query_active_display_paths() -> Option<Vec<ActiveDisplayPath>> {
+    // Temporary unsafe for the Win32 path buffers and device information packets.
+    // wgpu reads active path buffers and display information with the same APIs.
+    // https://github.com/gfx-rs/wgpu/blob/60cef2be828e03ba54e2e1598001b4625c0c2163/wgpu-hal/src/auxil/dxgi/hdr.rs#L296-L351
     let mut path_count = 0u32;
     let mut mode_count = 0u32;
     // SAFETY: both pointers refer to live `u32` values.
@@ -96,9 +99,10 @@ fn query_active_display_paths() -> Option<Vec<ActiveDisplayPath>> {
     if status != ERROR_SUCCESS {
         return None;
     }
-    let mut paths = vec![DISPLAYCONFIG_PATH_INFO::default(); path_count as usize];
-    let mut modes = vec![DISPLAYCONFIG_MODE_INFO::default(); mode_count as usize];
-    // SAFETY: the buffers hold the element counts that the call receives.
+    let mut paths = vec![DISPLAYCONFIG_PATH_INFO::default(); path_count.max(1) as usize];
+    let mut modes = vec![DISPLAYCONFIG_MODE_INFO::default(); mode_count.max(1) as usize];
+    // SAFETY: both pointers refer to allocated buffers. The buffers hold at least the
+    // element counts that the call receives.
     let status = unsafe {
         QueryDisplayConfig(
             QDC_ONLY_ACTIVE_PATHS,
@@ -134,15 +138,14 @@ fn query_active_display_paths() -> Option<Vec<ActiveDisplayPath>> {
             },
             ..Default::default()
         };
-        // SAFETY: both pointers come from live, writable packets. Each begins with
-        // a header whose type and size tell Windows which complete packet to write.
-        let (target_status, source_status) = unsafe {
-            (
-                DisplayConfigGetDeviceInfo((&raw mut target).cast()),
-                DisplayConfigGetDeviceInfo((&raw mut source).cast()),
-            )
-        };
-        if target_status != 0 || source_status != 0 {
+        // SAFETY: the writable target packet starts with a header that gives Windows
+        // the packet's type and full size. The pointer covers the complete packet.
+        if unsafe { DisplayConfigGetDeviceInfo((&raw mut target).cast()) } != 0 {
+            continue;
+        }
+        // SAFETY: the writable source packet starts with a header that gives Windows
+        // the packet's type and full size. The pointer covers the complete packet.
+        if unsafe { DisplayConfigGetDeviceInfo((&raw mut source).cast()) } != 0 {
             continue;
         }
         result.push(ActiveDisplayPath {
@@ -161,6 +164,9 @@ fn display_monitor_info(display: &dyn PlatformDisplay) -> Option<MONITORINFOEXW>
     ));
     let mut info = MONITORINFOEXW::default();
     info.monitorInfo.cbSize = u32::try_from(size_of::<MONITORINFOEXW>()).ok()?;
+    // Temporary unsafe for the monitor information buffer. Zed's Windows display
+    // backend uses GetMonitorInfoW with the same extended monitor structure.
+    // https://github.com/zed-industries/zed/blob/6501df15765d66d6c2a2b66b1eb22434ccef3f86/crates/gpui_windows/src/display.rs#L214-L223
     // SAFETY: the handle came from the Windows display list. The output pointer
     // covers the full MONITORINFOEXW, as reported by cbSize.
     let ok = unsafe { GetMonitorInfoW(handle, (&raw mut info).cast()) };
