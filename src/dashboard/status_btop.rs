@@ -2,11 +2,15 @@
 //! over the wallpaper. It reads the same feed as the host card, so it needs
 //! no terminal and no connection to the host beyond its metrics source.
 
+mod status_btop_palette;
+
 use gpui::{
     Context, DragMoveEvent, EmptyView, Entity, EventEmitter, FontWeight, Hsla, IntoElement,
     MouseButton, MouseDownEvent, Pixels, Point, Render, Role, Size, Subscription, Window, div,
     point, prelude::*, px, relative, size,
 };
+
+use self::status_btop_palette::BtopPalette;
 
 use crate::{
     dashboard::status_format::{format_status_bytes, format_status_rate, format_status_uptime},
@@ -26,7 +30,7 @@ const BTOP_START_FRACTION: f32 = 0.64;
 pub struct BtopWindowView {
     board: Entity<StatusBoard>,
     index: usize,
-    style: StatusStyle,
+    palette: BtopPalette,
     origin: Point<Pixels>,
     size: Size<Pixels>,
     /// Pointer offset from the dragged corner when a move or resize starts.
@@ -68,7 +72,7 @@ impl BtopWindowView {
         Self {
             board,
             index,
-            style,
+            palette: BtopPalette::from_wallpaper(style),
             origin: point(
                 (viewport.width - size.width) / 2.,
                 (viewport.height - size.height) / 2.,
@@ -86,7 +90,7 @@ impl BtopWindowView {
 
     /// Set the style of the wallpaper on screen.
     pub fn set_btop_style(&mut self, style: StatusStyle, cx: &mut Context<Self>) {
-        self.style = style;
+        self.palette = BtopPalette::from_wallpaper(style);
         cx.notify();
     }
 
@@ -116,11 +120,8 @@ impl Render for BtopWindowView {
         let layout = StatusLayout::from_status_window(window);
         let scale = move |value: f32| layout.scale(value);
         let s: Scale = &scale;
-        let theme = StatusTheme(self.style.palette);
-        let surface = Hsla {
-            a: 0.96,
-            ..theme.background()
-        };
+        let palette = self.palette;
+        let theme = palette.theme;
         let board = self.board.read(cx);
         let feed = &board.status_feeds()[self.index];
         let title = feed.spec.title.clone();
@@ -157,7 +158,7 @@ impl Render for BtopWindowView {
                         .flex_grow(0.85)
                         .flex_basis(relative(0.))
                         .child(
-                            btop_box(s, surface, "cpu", theme.ok(), 3.)
+                            btop_box(s, palette, "cpu", theme.ok(), 3.)
                                 .child(
                                     div()
                                         .flex()
@@ -184,7 +185,7 @@ impl Render for BtopWindowView {
                                 .child(core_meters(s, theme, &host.core_percents)),
                         )
                         .child(
-                            btop_box(s, surface, "mem", theme.info(), 2.)
+                            btop_box(s, palette, "mem", theme.info(), 2.)
                                 .child(memory_rows(s, theme, host)),
                         ),
                 )
@@ -196,7 +197,7 @@ impl Render for BtopWindowView {
                         .flex_grow(1.25)
                         .flex_basis(relative(0.))
                         .child(
-                            btop_box(s, surface, "net", theme.receive(), 2.)
+                            btop_box(s, palette, "net", theme.receive(), 2.)
                                 .child(
                                     div()
                                         .flex()
@@ -216,7 +217,7 @@ impl Render for BtopWindowView {
                                 .child(network_graph(s, theme, history, false)),
                         )
                         .child(
-                            btop_box(s, surface, "proc", theme.warn(), 3.)
+                            btop_box(s, palette, "proc", theme.warn(), 3.)
                                 .child(process_table(s, theme, host)),
                         ),
                 )
@@ -246,7 +247,7 @@ impl Render for BtopWindowView {
             .rounded(s(10.))
             .border_1()
             .border_color(theme.panel_border())
-            .bg(surface)
+            .bg(palette.surface)
             .text_color(theme.text())
             .overflow_hidden()
             .on_drag_move(
@@ -357,7 +358,13 @@ impl Render for BtopWindowView {
 }
 
 /// Box with its title in the top border, as btop draws its boxes.
-fn btop_box(s: Scale, surface: Hsla, title: &'static str, accent: Hsla, grow: f32) -> gpui::Div {
+fn btop_box(
+    s: Scale,
+    palette: BtopPalette,
+    title: &'static str,
+    accent: Hsla,
+    grow: f32,
+) -> gpui::Div {
     let mut frame = div()
         .relative()
         .min_w_0()
@@ -370,14 +377,14 @@ fn btop_box(s: Scale, surface: Hsla, title: &'static str, accent: Hsla, grow: f3
         .pb(s(10.))
         .rounded(s(6.))
         .border_1()
-        .border_color(accent.opacity(0.7))
+        .border_color(accent.opacity(palette.section_border_opacity))
         .child(
             div()
                 .absolute()
                 .top(-s(10.))
                 .left(s(10.))
                 .px(s(4.))
-                .bg(surface)
+                .bg(palette.surface)
                 .text_size(s(14.))
                 .font_weight(FontWeight::SEMIBOLD)
                 .text_color(accent)
