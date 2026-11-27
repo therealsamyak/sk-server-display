@@ -119,41 +119,6 @@ The release builds target Linux and Windows on x86-64 and ARM64, and Apple Silic
 The first build compiles GPUI from source and takes several minutes.
 Linux also needs the system libraries from the [Zed build guide](https://zed.dev/docs/development/linux).
 
-## Cut a release
-
-1. Squash feature PRs into `main`. Before release, set the same stable
-   `MAJOR.MINOR.PATCH` version in `Cargo.toml` and `Cargo.lock` on `main`.
-2. Run **Release builds** in GitHub Actions from `main`. Enter its version and
-   leave **Publish** off. Record the commit SHA after all five builds pass.
-3. Promote the reviewed commit to `release`. The first promotion creates the
-   branch. Later promotions create one commit with the exact `main` tree and
-   the previous `release` commit as its parent.
-
-   ```sh
-   git fetch --prune origin
-   version=0.1.0
-   main_commit=$(git rev-parse origin/main)
-   release_commit=$main_commit
-   if git show-ref --verify --quiet refs/remotes/origin/release; then
-     release_commit=$(git commit-tree "${main_commit}^{tree}" \
-       -p origin/release -m "Release v$version" -m "Promote main commit $main_commit.")
-   fi
-   git push origin "$release_commit:refs/heads/release"
-   ```
-
-   Use the successful run's commit SHA for `main_commit` if `main` has advanced.
-4. Run **Release builds** from `release` with the matching version and
-   **Publish** enabled. After all target tests and builds pass, the workflow
-   tags that commit as `vMAJOR.MINOR.PATCH` and publishes a GitHub Release
-   with the executables and their SHA-256 files.
-
-If publishing stops after creating a draft, inspect the draft before retrying.
-To retry from scratch, delete only the unfinished draft, keep its tag, and run
-the workflow again for the same commit and version.
-
-While the repository is private, download release files with a GitHub account
-that has repository access. The app's update check needs a public GitHub Release.
-
 ## Basic controls
 
 | Key | Action |
