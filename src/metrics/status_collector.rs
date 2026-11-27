@@ -21,10 +21,27 @@ pub enum StatusCollector {
     TailnetHost(TailnetHostCollector),
 }
 
+/// Feed expansion group: Devices or Services. Each group holds at most one
+/// expanded card, independent of the other group.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FeedExpansionGroup {
+    Devices,
+    Services,
+}
+
 impl StatusCollector {
     /// Reports whether the feed has a compact summary and expanded panel.
     pub fn has_expandable_panel(&self) -> bool {
-        matches!(self, Self::Local(_) | Self::Glances(_) | Self::Kuma(_))
+        self.feed_expansion_group().is_some()
+    }
+
+    /// Expansion group of an expandable feed card. Other feeds give none.
+    pub fn feed_expansion_group(&self) -> Option<FeedExpansionGroup> {
+        match self {
+            Self::Local(_) | Self::Glances(_) => Some(FeedExpansionGroup::Devices),
+            Self::Kuma(_) => Some(FeedExpansionGroup::Services),
+            Self::Scrutiny(_) | Self::Tailscale(_) | Self::TailnetHost(_) => None,
+        }
     }
 
     /// Reports whether the feed offers a btop process view.
