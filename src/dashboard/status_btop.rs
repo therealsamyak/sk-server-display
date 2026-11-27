@@ -4,10 +4,12 @@
 
 mod status_btop_palette;
 
+use std::{cell::Cell, rc::Rc};
+
 use gpui::{
-    Context, DragMoveEvent, EmptyView, Entity, EventEmitter, FontWeight, Hsla, IntoElement,
-    MouseButton, MouseDownEvent, Pixels, Point, Render, Role, Size, Subscription, Window, div,
-    point, prelude::*, px, relative, size,
+    BorderStyle, Bounds, ContentMask, Context, DragMoveEvent, EmptyView, Entity, EventEmitter,
+    FontWeight, Hsla, IntoElement, MouseButton, MouseDownEvent, Pixels, Point, Render, Role, Size,
+    Subscription, Window, canvas, div, point, prelude::*, px, quad, relative, rgba, size,
 };
 
 use self::status_btop_palette::BtopPalette;
@@ -365,6 +367,10 @@ fn btop_box(
     accent: Hsla,
     grow: f32,
 ) -> gpui::Div {
+    let title_bounds = Rc::new(Cell::new(None));
+    let painted_title = title_bounds.clone();
+    let radius = s(6.);
+    let border = accent.opacity(palette.section_border_opacity);
     let mut frame = div()
         .relative()
         .min_w_0()
@@ -375,24 +381,63 @@ fn btop_box(
         .pt(s(14.))
         .px(s(10.))
         .pb(s(10.))
-        .rounded(s(6.))
         .border_1()
-        .border_color(accent.opacity(palette.section_border_opacity))
+        .border_color(rgba(0))
+        .on_children_prepainted(move |bounds, _, _| title_bounds.set(bounds.first().copied()))
         .child(
             div()
                 .absolute()
                 .top(-s(10.))
                 .left(s(10.))
                 .px(s(4.))
-                .bg(palette.surface)
                 .text_size(s(14.))
                 .font_weight(FontWeight::SEMIBOLD)
                 .text_color(accent)
                 .child(title),
+        )
+        .child(
+            canvas(
+                |_, _, _| {},
+                move |bounds, (), window, _| {
+                    let Some(title) = painted_title.get() else {
+                        return;
+                    };
+                    paint_btop_border(bounds, title, radius, border, window);
+                },
+            )
+            .absolute()
+            .inset_0(),
         );
     frame.style().flex_grow = Some(grow);
     frame.style().flex_basis = Some(relative(0.).into());
     frame
+}
+
+/// Paint the rounded frame with a gap as wide as the padded title.
+fn paint_btop_border(
+    bounds: Bounds<Pixels>,
+    title: Bounds<Pixels>,
+    radius: Pixels,
+    border: Hsla,
+    window: &mut Window,
+) {
+    let frame = quad(bounds, radius, rgba(0), px(1.), border, BorderStyle::Solid);
+    let left = title.left().clamp(bounds.left(), bounds.right());
+    let right = title.right().clamp(left, bounds.right());
+    let gap_bottom = (bounds.top() + px(2.)).min(bounds.bottom());
+    let regions = [
+        (bounds.left(), bounds.top(), left, bounds.bottom()),
+        (left, gap_bottom, right, bounds.bottom()),
+        (right, bounds.top(), bounds.right(), bounds.bottom()),
+    ];
+    for (left, top, right, bottom) in regions {
+        if right > left && bottom > top {
+            let bounds = Bounds::new(point(left, top), size(right - left, bottom - top));
+            window.with_content_mask(Some(ContentMask { bounds }), |window| {
+                window.paint_quad(frame.clone());
+            });
+        }
+    }
 }
 
 fn percent_text(percent: Option<f32>) -> String {

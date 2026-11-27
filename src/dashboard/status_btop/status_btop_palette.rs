@@ -10,7 +10,7 @@ const TEXT_CONTRAST: f32 = 4.5;
 pub(super) struct BtopPalette {
     /// Text, accent, and meter colors inside the btop window.
     pub(super) theme: StatusTheme,
-    /// Fill for the btop window and the labels that interrupt its borders.
+    /// Fill for the btop window.
     pub(super) surface: Hsla,
     /// Opacity of the colored btop section borders.
     pub(super) section_border_opacity: f32,
