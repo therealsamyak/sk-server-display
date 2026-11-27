@@ -7,7 +7,7 @@ use gpui::{
 };
 use time::{OffsetDateTime, UtcOffset};
 
-use super::{StatusView, WallpaperPreview};
+use super::{FeedDetailsSession, FeedExpansions, StatusView, WallpaperPreview};
 use crate::{
     dashboard::{
         status_format::{format_status_age, format_status_clock, format_status_date},
@@ -16,21 +16,29 @@ use crate::{
         status_theme::{HOST_CARD_HEIGHT, PANEL_GAP, Scale, StatusLayout, StatusTheme},
     },
     metrics::{FeedFreshness, StatusCollector, StatusFeed},
-    wallpaper::{PanelGroup, StatusStyle, StyleAnchor, StyleArea, StyleArrangement},
+    wallpaper::{PanelGroup, StatusStyle, StyleAnchor, StyleArea, StyleArrangement, WallpaperId},
 };
 
-/// Feed views for one wallpaper, with its expanded card if open.
+/// Feed views for one wallpaper, with its expanded cards if open.
 #[derive(Clone, Copy)]
 pub(super) struct PagePanels<'a> {
     pub(super) regular: &'a [Entity<FeedPanelView>],
-    pub(super) expanded: Option<(usize, &'a Entity<FeedPanelView>)>,
+    pub(super) details: &'a FeedExpansions<FeedDetailsSession>,
+    /// Incoming wallpaper of a swipe page. `None` for the active page.
+    pub(super) incoming: Option<WallpaperId>,
 }
 
 impl PagePanels<'_> {
     fn expanded_panel(&self, index: usize) -> Option<&Entity<FeedPanelView>> {
-        self.expanded
-            .filter(|(expanded, _)| *expanded == index)
-            .map(|(_, panel)| panel)
+        let details = self.details.expanded_session(index)?;
+        match self.incoming {
+            None => Some(&details.panel),
+            Some(id) => details
+                .incoming
+                .as_ref()
+                .filter(|(wallpaper, _)| *wallpaper == id)
+                .map(|(_, panel)| panel),
+        }
     }
 }
 
@@ -116,6 +124,41 @@ pub(super) fn control_button(
     label: &'static str,
     on_click: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
 ) -> Stateful<Div> {
+    control_button_with_content(s, theme, id, label, label, on_click)
+}
+
+/// Control button as wide as the widest of `labels`, so a label change never
+/// shifts the toolbar. Hidden rows of zero height hold the other labels.
+pub(super) fn fixed_width_control_button(
+    s: Scale,
+    theme: StatusTheme,
+    id: &'static str,
+    label: &'static str,
+    labels: &'static [&'static str],
+    on_click: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
+) -> Stateful<Div> {
+    let content = div()
+        .flex()
+        .flex_col()
+        .items_center()
+        .child(label)
+        .children(
+            labels
+                .iter()
+                .filter(|other| **other != label)
+                .map(|other| div().h_0().overflow_hidden().invisible().child(*other)),
+        );
+    control_button_with_content(s, theme, id, label, content, on_click)
+}
+
+fn control_button_with_content(
+    s: Scale,
+    theme: StatusTheme,
+    id: &'static str,
+    label: &'static str,
+    content: impl IntoElement,
+    on_click: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
+) -> Stateful<Div> {
     div()
         .id(id)
         .role(Role::Button)
@@ -141,7 +184,7 @@ pub(super) fn control_button(
             }
             on_click(event, window, cx);
         })
-        .child(label)
+        .child(content)
 }
 
 impl StatusView {

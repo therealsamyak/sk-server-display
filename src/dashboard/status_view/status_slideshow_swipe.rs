@@ -69,7 +69,7 @@ impl StatusView {
     /// Advance after the slide interval once the next wallpaper is ready.
     pub(super) fn update_slideshow(&mut self, window: &Window, cx: &mut Context<Self>) {
         if self.picker.is_some()
-            || self.details.is_some()
+            || !self.details.is_empty()
             || self.btop.is_some()
             || self.update_dialog.is_some()
             || self.pointer_pressed
@@ -256,21 +256,22 @@ impl StatusView {
     /// Prepare the destination colors and views once per neighboring preset.
     pub(super) fn prepare_incoming_panels(&mut self, window: &Window, cx: &mut Context<Self>) {
         let Some((_, _, id)) = self.slide_positions(window, cx) else {
-            if let Some(details) = &mut self.details {
+            for details in self.details.sessions_mut() {
                 details.incoming = None;
             }
             return;
         };
         let style = self.carousel.read(cx).wallpaper_style(id);
-        if let Some(details) = &mut self.details
-            && details
+        for details in self.details.sessions_mut() {
+            if details
                 .incoming
                 .as_ref()
                 .is_none_or(|(current, _)| *current != id)
-        {
-            let panel = details.panel.clone();
-            let incoming = cx.new(|cx| FeedPanelView::new_incoming_detail(&panel, style, cx));
-            details.incoming = Some((id, incoming));
+            {
+                let panel = details.panel.clone();
+                let incoming = cx.new(|cx| FeedPanelView::new_incoming_detail(&panel, style, cx));
+                details.incoming = Some((id, incoming));
+            }
         }
         let mut incoming = self
             .incoming_panels
@@ -358,10 +359,8 @@ impl StatusView {
                     self.wallpaper.image.clone(),
                     PagePanels {
                         regular: &self.panels,
-                        expanded: self
-                            .details
-                            .as_ref()
-                            .map(|details| (details.index, &details.panel)),
+                        details: &self.details,
+                        incoming: None,
                     },
                 )
                 .id("active-slideshow-page"),
@@ -376,10 +375,8 @@ impl StatusView {
                         self.wallpaper.warm_image(id, window),
                         PagePanels {
                             regular: &incoming.panels,
-                            expanded: self.details.as_ref().and_then(|details| {
-                                let (wallpaper, panel) = details.incoming.as_ref()?;
-                                (*wallpaper == id).then_some((details.index, panel))
-                            }),
+                            details: &self.details,
+                            incoming: Some(id),
                         },
                     )
                     .id("incoming-slideshow-page")

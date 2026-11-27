@@ -7,13 +7,35 @@ use gpui::{
 };
 
 use super::{
-    NextStatusDisplay, QuitStatusDisplay, RefreshStatus, StatusView, ToggleFullscreen,
-    status_view_layout::{SCREEN_PADDING, control_button},
+    IdlePowerState, NextStatusDisplay, QuitStatusDisplay, RefreshStatus, StatusView,
+    ToggleFullscreen,
+    status_view_layout::{SCREEN_PADDING, control_button, fixed_width_control_button},
 };
 use crate::dashboard::status_theme::{Scale, StatusTheme};
 
 const TOOLBAR_HOVER_MARGIN: f32 = 12.;
 const DISPLAY_SELECTOR_CLEARANCE: f32 = 110.;
+
+/// Every label of the stay awake button. The button keeps the width of the
+/// widest one, so a state change never shifts the toolbar.
+const KEEP_AWAKE_LABELS: &[&str] = &[
+    "Stay awake",
+    #[cfg(target_os = "linux")]
+    "Cancel stay awake",
+    "Allow sleep",
+    "Retry stay awake",
+];
+
+/// Label of the stay awake button for an idle power state.
+fn keep_awake_label(state: IdlePowerState) -> &'static str {
+    match state {
+        IdlePowerState::Off => "Stay awake",
+        #[cfg(target_os = "linux")]
+        IdlePowerState::Pending => "Cancel stay awake",
+        IdlePowerState::Active => "Allow sleep",
+        IdlePowerState::Failed => "Retry stay awake",
+    }
+}
 
 impl StatusView {
     pub(super) fn status_toolbar(
@@ -168,17 +190,12 @@ impl StatusView {
                     view.toggle_fullscreen(&ToggleFullscreen, window, cx)
                 }),
             ))
-            .child(control_button(
+            .child(fixed_width_control_button(
                 s,
                 theme,
                 "control-keep-awake",
-                match self.power.read(cx).idle_power_state() {
-                    super::IdlePowerState::Off => "Stay awake",
-                    #[cfg(target_os = "linux")]
-                    super::IdlePowerState::Pending => "Cancel stay awake",
-                    super::IdlePowerState::Active => "Allow sleep",
-                    super::IdlePowerState::Failed => "Retry stay awake",
-                },
+                keep_awake_label(self.power.read(cx).idle_power_state()),
+                KEEP_AWAKE_LABELS,
                 cx.listener(|view, _, _, cx| view.toggle_keep_awake(cx)),
             ))
             .child(control_button(
@@ -208,5 +225,25 @@ impl StatusView {
                 "Quit",
                 cx.listener(|view, _, window, cx| view.quit(&QuitStatusDisplay, window, cx)),
             ))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn keep_awake_width_covers_every_label() {
+        let states = [
+            IdlePowerState::Off,
+            #[cfg(target_os = "linux")]
+            IdlePowerState::Pending,
+            IdlePowerState::Active,
+            IdlePowerState::Failed,
+        ];
+        for state in states {
+            assert!(KEEP_AWAKE_LABELS.contains(&keep_awake_label(state)));
+        }
+        assert_eq!(KEEP_AWAKE_LABELS.len(), states.len());
     }
 }

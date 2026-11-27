@@ -9,7 +9,7 @@ mod status_lan_tests;
 mod status_model;
 
 pub(crate) use status_board::{StatusBoard, StatusFeedUpdated};
-pub(crate) use status_collector::StatusCollector;
+pub(crate) use status_collector::{FeedExpansionGroup, StatusCollector};
 #[cfg(test)]
 pub(crate) use status_config::build_status_feeds;
 pub(crate) use status_config::{
